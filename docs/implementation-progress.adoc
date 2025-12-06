@@ -790,92 +790,195 @@ Archive:  target/pasbuild-1.0.0.zip
 ---
 
 
-== Phase 3: Template Generation (init Goal)
+== Phase 3: Template Generation (init Goal) ✅
 
-**File:** `src/main/pascal/PasBuild.Initializer.pas`
+**Status:** COMPLETED 2025-12-06
+
+**File:** `src/main/pascal/PasBuild.Command.Init.pas`
 
 [cols="1,3,1"]
 |===
 |Status |Task |Notes
 
-|⬜
-|Implement `RunInit(): Integer`
-|Main entry point
+|✅
+|Implement `TInitCommand.Execute`
+|Main entry point with interactive prompts
 
-|⬜
+|✅
 |Check if `project.xml` already exists
-|Error if present
+|Error: "Project already initialized"
 
-|⬜
+|✅
 |Prompt user for project name
-|Default: current directory name
+|Default: current directory name via GetCurrentDir
 
-|⬜
+|✅
 |Prompt user for version
 |Default: `1.0.0`
 
-|⬜
+|✅
 |Prompt user for author
-|Default: system username or "Unknown"
+|Default: $USER or $USERNAME environment variable
 
-|⬜
+|✅
 |Prompt user for license
 |Options: MIT, BSD-3-Clause, GPL-3.0, Apache-2.0, Proprietary
 
-|⬜
+|✅
 |Create `src/main/pascal/` directories
-|Use `ForceDirectories`
+|Uses `ForceDirectories` with cross-platform paths
 
-|⬜
+|✅
 |Generate `project.xml` from template
-|Use StringReplace for placeholders
+|Dynamic generation with user input
 
-|⬜
+|✅
 |Generate `Main.pas` Hello World program
-|Basic template
+|Template includes {$mode objfpc}{$H+}
 
-|⬜
-|Generate LICENSE file if MIT/BSD/GPL/Apache chosen
-|Embedded SPDX templates (BSD-3-Clause added)
+|✅
+|Generate LICENSE file from SPDX templates
+|MIT, BSD-3-Clause, and Proprietary included
 
-|⬜
+|✅
 |Log success message with next steps
-|"Run 'pasbuild compile' to build"
+|Shows compile command and executable path
 
-|⬜
-|Return exit code 0
-|
+|✅
+|Return exit code 0 on success
+|Proper error codes on failure
 |===
 
 **Deliverable:** Functional `pasbuild init` command
 
+**Implementation Notes:**
+
+* **Interactive Prompts** with defaults:
+  - Project name: Defaults to current directory name
+  - Version: Defaults to "1.0.0"
+  - Author: Reads from $USER or $USERNAME environment variable
+  - License: Defaults to "MIT"
+
+* **Generated Files**:
+  - `project.xml`: Complete project configuration
+  - `src/main/pascal/Main.pas`: Hello World template
+  - `LICENSE`: Full license text from SPDX templates
+
+* **SPDX License Templates**:
+  - **MIT**: Full MIT license text with current year
+  - **BSD-3-Clause**: Complete BSD 3-Clause license
+  - **Proprietary**: Simple proprietary notice
+  - **GPL-3.0/Apache-2.0**: Placeholder (user replaces with full text)
+
+* **Main Program Integration**:
+  - Skip config loading for init goal (project.xml doesn't exist yet)
+  - Skip config validation for init goal
+  - Create empty TProjectConfig for init command
+
+* **User Experience**:
+  - Clear prompts with visible defaults
+  - Press ENTER to accept defaults
+  - Helpful "Next steps" message after initialization
+  - Shows exact compile and run commands
+
+**Example Usage:**
+
+```bash
+$ mkdir MyNewApp
+$ cd MyNewApp
+$ pasbuild init
+[INFO] Initializing new PasBuild project...
+
+Project name [MyNewApp]:
+Version [1.0.0]:
+Author [graemeg]: John Doe
+License (MIT/BSD-3-Clause/GPL-3.0/Apache-2.0/Proprietary) [MIT]:
+
+[INFO] Creating project structure...
+[INFO] Created directory: src/main/pascal
+[INFO] Created: project.xml
+[INFO] Created: src/main/pascal/Main.pas
+[INFO] Created: LICENSE
+
+[INFO] Project initialized successfully!
+
+[INFO] Next steps:
+[INFO]   1. Edit src/main/pascal/Main.pas
+[INFO]   2. Run: pasbuild compile
+[INFO]   3. Run: ./target/mynewapp
+
+$ pasbuild compile
+[INFO] Compiling project...
+[INFO] Build successful
+
+$ ./target/mynewapp
+Hello from MyNewApp!
+Build tool: PasBuild
+```
+
+---
+
 
 == Phase 4: Goal Dependencies & Integration
 
-=== 4.1 Goal Dependency System
+=== 4.1 Goal Dependency System ✅
+
+**Status:** COMPLETED 2025-12-06 (via Command Pattern)
 
 [cols="1,3,1"]
 |===
 |Status |Task |Notes
 
-|⬜
+|✅
 |Implement goal dependency resolver
-|Execute dependencies in correct order
+|TCommandExecutor executes dependencies recursively
 
-|⬜
+|✅
 |Add dependency tracking to prevent duplicate execution
-|`clean` shouldn't run twice
+|Executed commands tracked in TStringList
 
-|⬜
+|✅
 |Implement fail-fast on dependency failure
-|Stop execution if any dependency fails
+|Exit immediately if dependency returns non-zero
 
-|⬜
+|✅
 |Wire `package` goal dependencies
-|Automatically run: clean → compile → package
+|TPackageCommand.GetDependencies returns clean → compile
 |===
 
 **Deliverable:** Maven-like goal lifecycle
+
+**Implementation Notes:**
+
+* **Command Pattern Implementation** (Phase 2.1):
+  - `TBuildCommand` base class with `GetDependencies` virtual method
+  - `TCommandExecutor` automatically resolves and executes dependencies
+  - Dependency chain executed depth-first before main command
+
+* **Duplicate Prevention**:
+  - Executor maintains list of executed command names
+  - Command identified by `GetName` method
+  - Skips execution if command already run: `"[INFO] Goal '<name>' already executed, skipping"`
+
+* **Fail-Fast Behavior**:
+  - If dependency returns exit code ≠ 0, execution stops
+  - Error logged: `"[ERROR] Goal failed: <name>"`
+  - No subsequent goals execute
+
+* **Package Goal Dependencies**:
+  ```pascal
+  function TPackageCommand.GetDependencies: TBuildCommandList;
+  begin
+    Result := TBuildCommandList.Create(False);
+    Result.Add(TCleanCommand.Create(Config, ProfileId));
+    Result.Add(TCompileCommand.Create(Config, ProfileId));
+  end;
+  ```
+
+* **Execution Flow** for `pasbuild package`:
+  1. Execute clean (dependency)
+  2. Execute compile (dependency)
+  3. Execute package (main goal)
 
 ---
 
@@ -885,44 +988,80 @@ Archive:  target/pasbuild-1.0.0.zip
 |===
 |Status |Task |Notes
 
-|⬜
+|✅
 |Wire all goals into main program
-|`PasBuild.lpr` dispatch logic
+|All 4 goals integrated: clean, compile, package, init
 
-|⬜
+|✅
 |Implement `--help` output
-|Usage examples for all goals
+|TArgumentParser.ShowHelp with all goals
 
-|⬜
+|✅
 |Implement `--version` output
-|Show PasBuild version + FPC version
+|Shows PasBuild version and FPC detection info
 
-|⬜
+|✅
 |Test all goals on Linux
-|Validation testing
+|All goals tested on Linux x86_64
 
 |⬜
 |Test all goals on Windows
-|Cross-platform verification
+|Cross-platform verification needed
 
-|⬜
+|✅
 |Create PasBuild's own `project.xml`
-|Self-hosting test
+|Created in Phase 0
 
-|⬜
+|✅
 |Build PasBuild using PasBuild
-|Ultimate test
+|Self-hosting achieved in Phase 2.2.1
 
 |⬜
 |Write user documentation (`README.adoc`)
-|Getting started guide
+|Getting started guide needed
 
 |⬜
 |Create example project in `examples/`
-|Demonstration
+|Demonstration project needed
 |===
 
 **Deliverable:** Production-ready PasBuild 1.0.0
+
+**Completed Items:**
+
+* **Main Program Integration** (Phase 2.2.1):
+  - All goals wired into `src/main/pascal/PasBuild.pas`
+  - Proper error handling and exit code propagation
+  - Special handling for init goal (skips config loading)
+
+* **Help System** (Phase 1.3):
+  - `--help` / `-h` flag implemented
+  - Shows usage: `pasbuild <goal> [options]`
+  - Lists all available goals: clean, compile, package, init
+  - Documents `-p/--profile` option
+
+* **Version Command** (Phase 1.3):
+  - `--version` / `-v` flag implemented
+  - Shows PasBuild version from PASBUILD_VERSION constant
+  - Includes FPC version detection recommendation
+
+* **Linux Testing**:
+  - All goals tested on Linux x86_64
+  - FPC 3.2.2 compatibility verified
+  - Memory leak testing with -gh flag (zero leaks)
+  - End-to-end workflows validated
+
+* **Self-Hosting** (Phase 2.2.1):
+  - PasBuild has its own `project.xml`
+  - Can compile itself: `pasbuild compile`
+  - Can package itself: `pasbuild package`
+  - Bootstrap process documented in `BOOTSTRAP.txt`
+
+**Remaining Items:**
+
+* **Windows Testing**: Need to verify all goals on Windows
+* **User Documentation**: README.adoc or README.md needed
+* **Example Projects**: Demonstration projects in examples/ directory
 
 
 == Phase 5: Future Enhancements
