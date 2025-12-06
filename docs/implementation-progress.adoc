@@ -16,7 +16,7 @@ This document tracks the implementation progress of PasBuild. All phases and tas
 
 **Last Updated:** 2025-12-06
 
-**Current Phase:** Phase 1 - Core Infrastructure (1.1 ✅ | 1.2 ✅ | Working on 1.3)
+**Current Phase:** Phase 1 - Core Infrastructure (1.1 ✅ | 1.2 ✅ | 1.3 ✅ | Working on 1.4)
 
 
 == Phase 0: Project Bootstrap ✅
@@ -182,7 +182,9 @@ This document tracks the implementation progress of PasBuild. All phases and tas
 
 ---
 
-=== 1.3 CLI Argument Parser
+=== 1.3 CLI Argument Parser ✅
+
+**Status:** COMPLETED 2025-12-06
 
 **File:** `src/main/pascal/PasBuild.CLI.pas`
 
@@ -190,36 +192,55 @@ This document tracks the implementation progress of PasBuild. All phases and tas
 |===
 |Status |Task |Notes
 
-|⬜
-|Implement `ParseArguments(out Goal: string; out Profile: string): Boolean`
-|Extract goal and `-p` flag
+|✅
+|Implement `ParseArguments(): TCommandLineArgs`
+|Returns structured record with all parsed data
 
-|⬜
+|✅
 |Support goals: `clean`, `compile`, `package`, `init`
-|Case-insensitive matching
+|Case-insensitive matching with TBuildGoal enum
 
-|⬜
+|✅
 |Support `-p <profile-id>` flag parsing
-|Extract profile ID
+|Also supports `--profile` long form
 
-|⬜
+|✅
 |Support `--help` flag
-|Display usage instructions
+|Display usage instructions (also `-h`)
 
-|⬜
+|✅
 |Support `--version` flag
-|Show PasBuild + detected FPC version
+|Show PasBuild version (also `-v`)
 
-|⬜
+|✅
 |Implement error handling for unknown goals
-|Clear error message
+|Sets ErrorMessage and ShowHelp flag
 
-|⬜
+|✅
 |Implement error handling for invalid arguments
-|E.g., `-p` without profile ID
+|E.g., `-p` without profile ID returns clear error
 |===
 
 **Deliverable:** Robust argument parser with help system
+
+**Implementation Notes:**
+
+* Type-safe goal handling using `TBuildGoal` enum instead of strings
+* Structured return type `TCommandLineArgs` record contains:
+  - `Goal`: TBuildGoal enum value
+  - `ProfileId`: string (empty if no profile specified)
+  - `ShowHelp`: Boolean flag
+  - `ShowVersion`: Boolean flag
+  - `ErrorMessage`: string (empty if no error)
+* Case-insensitive goal matching (clean, CLEAN, Clean all work)
+* Both short and long forms supported: `-p` and `--profile`, `-h` and `--help`
+* Clean separation of concerns: parsing vs. help display vs. version display
+* Error messages guide user toward correct usage
+* All edge cases tested:
+  - No arguments → shows help with error
+  - Unknown goal → shows help with error
+  - Missing profile ID after -p → clear error
+  - Valid goals with/without profile → success
 
 ---
 
