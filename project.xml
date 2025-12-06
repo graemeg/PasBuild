@@ -29,6 +29,8 @@
       <compilerOptions>
         <option>-g</option>
         <option>-gl</option>
+        <option>-gh</option>
+        <option>-Criot</option>
       </compilerOptions>
     </profile>
 
