@@ -6,80 +6,133 @@ uses
   {$IFDEF UNIX}
   cthreads,
   {$ENDIF}
-  SysUtils;
-
-const
-  VERSION = '1.0.0';
-
-procedure ShowVersion;
-begin
-  WriteLn('PasBuild version ', VERSION);
-  WriteLn('Build automation tool for Free Pascal projects');
-  WriteLn;
-end;
-
-procedure ShowHelp;
-begin
-  WriteLn('Usage: pasbuild <goal> [options]');
-  WriteLn;
-  WriteLn('Goals:');
-  WriteLn('  clean              Delete all build artifacts');
-  WriteLn('  compile            Build the executable');
-  WriteLn('  package            Create release archive (runs: clean -> compile -> package)');
-  WriteLn('  init               Create new project structure');
-  WriteLn;
-  WriteLn('Options:');
-  WriteLn('  -p <profile>       Activate build profile');
-  WriteLn('  --help             Show this help message');
-  WriteLn('  --version          Show version information');
-  WriteLn;
-  WriteLn('Examples:');
-  WriteLn('  pasbuild compile              # Build with default settings');
-  WriteLn('  pasbuild compile -p debug     # Build with debug profile');
-  WriteLn('  pasbuild compile -p release   # Build with release profile');
-  WriteLn('  pasbuild package              # Create release archive');
-  WriteLn('  pasbuild init                 # Create new project');
-  WriteLn;
-end;
+  SysUtils,
+  PasBuild.Types,
+  PasBuild.Config,
+  PasBuild.CLI,
+  PasBuild.Command,
+  PasBuild.Command.Clean,
+  PasBuild.Command.Compile,
+  PasBuild.Utils;
 
 var
-  Goal: string;
+  Args: TCommandLineArgs;
+  Config: TProjectConfig;
+  Executor: TCommandExecutor;
+  Command: TBuildCommand;
 
 begin
-  WriteLn('[INFO] PasBuild ', VERSION);
+  WriteLn('[INFO] PasBuild ', PASBUILD_VERSION);
   WriteLn;
 
   // Parse command line arguments
-  if ParamCount = 0 then
+  Args := TArgumentParser.ParseArguments;
+
+  // Handle help
+  if Args.ShowHelp then
   begin
-    WriteLn('[ERROR] No goal specified');
-    WriteLn;
-    ShowHelp;
-    ExitCode := 1;
+    if Args.ErrorMessage <> '' then
+    begin
+      TUtils.LogError(Args.ErrorMessage);
+      WriteLn;
+    end;
+    TArgumentParser.ShowHelp;
+    if Args.ErrorMessage <> '' then
+      ExitCode := 1
+    else
+      ExitCode := 0;
     Exit;
   end;
 
-  Goal := ParamStr(1);
-
-  // Handle special flags
-  if (Goal = '--help') or (Goal = '-h') then
+  // Handle version
+  if Args.ShowVersion then
   begin
-    ShowHelp;
+    TArgumentParser.ShowVersion;
     ExitCode := 0;
     Exit;
   end;
 
-  if (Goal = '--version') or (Goal = '-v') then
-  begin
-    ShowVersion;
-    ExitCode := 0;
-    Exit;
+  // Load project configuration
+  try
+    Config := TConfigLoader.LoadProjectXML('project.xml');
+  except
+    on E: EProjectConfigError do
+    begin
+      TUtils.LogError(E.Message);
+      ExitCode := 1;
+      Exit;
+    end;
+    on E: Exception do
+    begin
+      TUtils.LogError('Failed to load project.xml: ' + E.Message);
+      ExitCode := 1;
+      Exit;
+    end;
   end;
 
-  // TODO: Implement goal dispatch
-  // For now, just acknowledge the goal
-  WriteLn('[INFO] Goal: ', Goal);
-  WriteLn('[ERROR] Goal execution not yet implemented');
-  WriteLn('[INFO] This is the Phase 0 skeleton - implementation starts in Phase 1');
-  ExitCode := 1;
+  try
+    // Validate configuration
+    try
+      TConfigLoader.ValidateConfig(Config);
+    except
+      on E: EProjectConfigError do
+      begin
+        TUtils.LogError(E.Message);
+        ExitCode := 1;
+        Exit;
+      end;
+    end;
+
+    // Create command executor
+    Executor := TCommandExecutor.Create;
+    try
+      Command := nil;
+
+      // Create appropriate command based on goal
+      case Args.Goal of
+        bgClean:
+          Command := TCleanCommand.Create(Config, Args.ProfileId);
+
+        bgCompile:
+          Command := TCompileCommand.Create(Config, Args.ProfileId);
+
+        bgPackage:
+          begin
+            TUtils.LogError('Package goal not yet implemented');
+            ExitCode := 1;
+            Exit;
+          end;
+
+        bgInit:
+          begin
+            TUtils.LogError('Init goal not yet implemented');
+            ExitCode := 1;
+            Exit;
+          end;
+
+        else
+        begin
+          TUtils.LogError('Unknown goal');
+          ExitCode := 1;
+          Exit;
+        end;
+      end;
+
+      // Execute command
+      if Assigned(Command) then
+      begin
+        try
+          ExitCode := Executor.Execute(Command);
+        finally
+          Command.Free;
+        end;
+      end;
+
+    finally
+      Executor.Free;
+    end;
+
+  finally
+    Config.Free;
+  end;
 end.

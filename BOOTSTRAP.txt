@@ -1,0 +1,76 @@
+PasBuild Bootstrap Instructions
+================================
+
+PasBuild is a self-hosting build tool, meaning it can build itself once
+bootstrapped. This file contains instructions for the initial compilation
+before PasBuild can be used to build itself.
+
+Prerequisites
+-------------
+
+- Free Pascal Compiler (FPC) 3.2.2 or later installed and available in PATH
+- Verify installation: fpc -iV
+
+
+Bootstrap Steps
+---------------
+
+1. Create the output directories:
+
+   Linux/macOS/FreeBSD/Unix:
+     mkdir -p target/units
+
+   Windows:
+     mkdir target\units
+
+
+2. Compile PasBuild using FPC directly:
+
+   Linux/macOS/FreeBSD/Unix:
+     fpc -Mobjfpc -O1 -FEtarget -FUtarget/units -Fusrc/main/pascal src/main/pascal/PasBuild.pas
+
+   Windows:
+     fpc -Mobjfpc -O1 -FEtarget -FUtarget\units -Fusrc\main\pascal src\main\pascal\PasBuild.pas
+
+
+3. Verify the build:
+
+   Linux/macOS/FreeBSD/Unix:
+     ./target/PasBuild --version
+
+   Windows:
+     target\PasBuild.exe --version
+
+
+4. Once bootstrapped, you can use PasBuild to build itself:
+
+   Linux/macOS/FreeBSD/Unix:
+     ./target/PasBuild compile
+
+   Windows:
+     target\PasBuild.exe compile
+
+
+Troubleshooting
+---------------
+
+- If you get "fpc: command not found", ensure FPC is installed and in your PATH
+- If compilation fails, check that you're in the project root directory
+- The output executable will be in the target/ directory
+- Unit files (.ppu, .o) will be in target/units/
+
+
+Clean Build
+-----------
+
+To clean and rebuild from scratch:
+
+   Linux/macOS/FreeBSD/Unix:
+     rm -rf target
+     mkdir -p target/units
+     fpc -Mobjfpc -O1 -FEtarget -FUtarget/units -Fusrc/main/pascal src/main/pascal/PasBuild.pas
+
+   Windows:
+     rmdir /s /q target
+     mkdir target\units
+     fpc -Mobjfpc -O1 -FEtarget -FUtarget\units -Fusrc\main\pascal src\main\pascal\PasBuild.pas
