@@ -3,6 +3,7 @@
 :toclevels: 3
 :sectnums:
 :source-highlighter: rouge
+:icons: font
 
 == Overview
 

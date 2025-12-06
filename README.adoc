@@ -1,0 +1,170 @@
+= PasBuild
+:toc:
+:toc-placement!:
+:sectnums:
+:source-highlighter: rouge
+:icons: font
+
+A Maven-inspired build automation tool for Free Pascal projects.
+
+image:https://img.shields.io/badge/FPC-3.2.2+-blue.svg[FPC Version]
+image:https://img.shields.io/badge/license-BSD--3--Clause-green.svg[License]
+
+toc::[]
+
+== What is PasBuild?
+
+PasBuild is a command-line build tool for Free Pascal that brings Maven-like
+conventions and lifecycle management to Pascal development. It follows the
+principle of **convention over configuration** with sensible defaults,
+allowing you to override only what you need to change.
+
+== Features
+
+**Core Functionality:**
+
+* ✅ **pasbuild clean** - Removes build artifacts
+* ✅ **pasbuild compile [-p profile]** - Compiles with FPC
+* ✅ **pasbuild package** - Creates ZIP archive (clean → compile → package)
+* ✅ **pasbuild init** - Bootstraps new projects
+* ✅ **--help** / **--version** - Built-in help system
+
+**Advanced Features:**
+
+* ✅ Build profiles (debug/release with custom compiler options)
+* ✅ Automatic dependency resolution between goals
+* ✅ Duplicate goal prevention
+* ✅ Fail-fast error handling
+* ✅ Cross-platform path handling (Maven convention)
+* ✅ Self-hosting (PasBuild can build itself)
+* ✅ Zero memory leaks (verified with -gh)
+
+**Platform Support:**
+
+* ✅ Linux
+* ✅ FreeBSD
+* ✅ macOS
+* ✅ Windows
+
+== Convention Over Configuration
+
+PasBuild follows Maven's philosophy: sensible defaults mean minimal configuration.
+
+**Default Directory Layout:**
+
+[source]
+----
+myproject/
+├── project.xml          # Minimal configuration
+├── src/
+│   └── main/
+│       └── pascal/      # Your source files here
+│           └── Main.pas
+└── target/              # Build output (auto-created)
+    ├── myproject        # Compiled executable
+    ├── units/           # Compiled units (.ppu, .o)
+    └── myproject-1.0.0.zip  # Package archive
+----
+
+**Minimal Configuration:**
+
+Just define your project metadata - everything else uses sensible defaults:
+
+[source,xml]
+----
+<?xml version="1.0" encoding="UTF-8"?>
+<project>
+  <name>MyProject</name>
+  <version>1.0.0</version>
+  <author>Your Name</author>
+  <license>BSD-3-Clause</license>
+
+  <build>
+    <mainSource>Main.pas</mainSource>
+    <executableName>myproject</executableName>
+  </build>
+</project>
+----
+
+**What You Get for Free:**
+
+* Automatic unit path scanning (`-Fu` flags)
+* Cross-platform executable naming (`.exe` on Windows)
+* Standard output directories (`target/`)
+* Archive creation with LICENSE and README inclusion
+* Profile-based builds without code changes
+
+**Only Override What You Need:**
+
+[source,xml]
+----
+<profiles>
+  <profile>
+    <id>release</id>
+    <defines>
+      <define>RELEASE</define>
+    </defines>
+    <compilerOptions>
+      <option>-O3</option>      <!-- Override optimization -->
+      <option>-CX</option>      <!-- Smart linking -->
+      <option>-XX</option>      <!-- Strip symbols -->
+    </compilerOptions>
+  </profile>
+</profiles>
+----
+
+== Quick Start
+
+See link:docs/quick-start-guide.adoc[Quick Start Guide] for detailed usage instructions.
+
+=== 30-Second Start
+
+[source,bash]
+----
+# Install PasBuild (bootstrap from source)
+git clone https://github.com/yourusername/pasbuild.git
+cd pasbuild
+./bootstrap.sh  # See BOOTSTRAP.txt for manual steps
+
+# Create a new project
+mkdir myapp && cd myapp
+pasbuild init
+
+# Build and run
+pasbuild compile
+./target/myapp
+
+# Create release package
+pasbuild package
+----
+
+== Documentation
+
+* link:docs/quick-start-guide.adoc[Quick Start Guide] - Getting started with PasBuild
+* link:docs/design.adoc[Design Document] - Architecture and design rationale
+* link:docs/implementation-progress.adoc[Implementation Progress] - Development roadmap
+* link:BOOTSTRAP.txt[Bootstrap Instructions] - First-time compilation
+
+== Requirements
+
+* Free Pascal Compiler (FPC) 3.2.2 or later
+* FPC must be in your system PATH
+
+== License
+
+Copyright (c) 2025 Graeme Geldenhuys
+
+This project is licensed under the BSD 3-Clause License - see the link:LICENSE[LICENSE] file for details.
+
+All source files in this project are covered by this license unless otherwise noted.
+
+== Contributing
+
+Contributions are welcome! Please feel free to submit pull requests or
+open issues for bugs and feature requests.
+
+== Acknowledgments
+
+* Inspired by Apache Maven's convention-over-configuration philosophy
+* Built with Free Pascal Compiler
+* Uses FPC's standard library units (zipper, DOM, XMLRead)

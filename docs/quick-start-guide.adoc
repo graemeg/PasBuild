@@ -1,0 +1,586 @@
+= PasBuild Quick Start Guide
+:toc:
+:toc-placement!:
+:sectnums:
+:source-highlighter: rouge
+:icons: font
+
+Complete guide to getting started with PasBuild.
+
+toc::[]
+
+== Prerequisites
+
+=== Free Pascal Compiler
+
+PasBuild requires the Free Pascal Compiler (FPC) version 3.2.2 or later.
+
+**Verify FPC Installation:**
+
+[source,shell]
+----
+fpc -iV
+----
+
+This should output a version number like `3.2.2` or higher.
+
+**FPC Must Be in PATH:**
+
+PasBuild needs to find the `fpc` command. Verify it's in your PATH:
+
+[source,shell]
+----
+which fpc        # Linux/macOS/FreeBSD
+where fpc        # Windows
+----
+
+If FPC is not found:
+
+* **Linux/FreeBSD**: Install via package manager (`apt install fpc`, `pkg install fpc`)
+* **macOS**: Install via Homebrew (`brew install fpc`) or download from https://www.freepascal.org
+* **Windows**: Download installer from https://www.freepascal.org and add to PATH
+
+== Installing PasBuild
+
+=== Option 1: Bootstrap from Source
+
+**Clone the repository:**
+
+[source,shell]
+----
+git clone https://github.com/yourusername/pasbuild.git
+cd pasbuild
+----
+
+**Bootstrap compilation:**
+
+Follow the instructions in link:../BOOTSTRAP.txt[BOOTSTRAP.txt]:
+
+[source,shell]
+----
+# Linux/macOS/FreeBSD
+mkdir -p target/units
+fpc -Mobjfpc -O1 -FEtarget -FUtarget/units -Fusrc/main/pascal src/main/pascal/PasBuild.pas
+
+# Verify build
+./target/PasBuild --version
+----
+
+**Install to system (optional):**
+
+[source,shell]
+----
+# Copy to /usr/local/bin (or ~/bin)
+sudo cp target/PasBuild /usr/local/bin/pasbuild
+----
+
+=== Option 2: Pre-built Binary
+
+Download the latest release from GitHub Releases and extract to your PATH.
+
+== Creating Your First Project
+
+=== Using `pasbuild init`
+
+The fastest way to start a new project:
+
+[source,shell]
+----
+mkdir myapp
+cd myapp
+pasbuild init
+----
+
+**Interactive Prompts:**
+
+[source]
+----
+Project name [myapp]: MyApplication
+Version [1.0.0]:
+Author [yourusername]: Your Name
+License (MIT/BSD-3-Clause/GPL-3.0/Apache-2.0/Proprietary) [MIT]: BSD-3-Clause
+----
+
+Press ENTER to accept defaults shown in square brackets.
+
+**Generated Structure:**
+
+[source]
+----
+myapp/
+├── project.xml
+├── LICENSE
+└── src/
+    └── main/
+        └── pascal/
+            └── Main.pas
+----
+
+=== Manual Project Setup
+
+If you prefer to create files manually:
+
+**1. Create directory structure:**
+
+[source,shell]
+----
+mkdir -p myapp/src/main/pascal
+cd myapp
+----
+
+**2. Create `project.xml`:**
+
+[source,xml]
+----
+<?xml version="1.0" encoding="UTF-8"?>
+<project>
+  <name>MyApplication</name>
+  <version>1.0.0</version>
+  <author>Your Name</author>
+  <license>BSD-3-Clause</license>
+
+  <build>
+    <mainSource>Main.pas</mainSource>
+    <executableName>myapp</executableName>
+    <outputDirectory>target</outputDirectory>
+  </build>
+</project>
+----
+
+**3. Create `src/main/pascal/Main.pas`:**
+
+[source,pascal]
+----
+program Main;
+
+{$mode objfpc}{$H+}
+
+uses
+  SysUtils;
+
+begin
+  WriteLn('Hello from MyApplication!');
+end.
+----
+
+== Building Your Project
+
+=== Basic Compilation
+
+Compile your project:
+
+[source,shell]
+----
+pasbuild compile
+----
+
+**Output:**
+
+[source]
+----
+[INFO] PasBuild 1.0.0
+
+[INFO] Executing goal: compile
+[INFO] Compiling project...
+[INFO] Build command: fpc -Mobjfpc -O1 src/main/pascal/Main.pas -FEtarget ...
+
+Free Pascal Compiler version 3.2.2 ...
+Compiling src/main/pascal/Main.pas
+Linking target/myapp
+12 lines compiled, 0.1 sec
+
+[INFO] Build successful
+----
+
+**Run your program:**
+
+[source,shell]
+----
+./target/myapp          # Linux/macOS/FreeBSD
+target\myapp.exe        # Windows
+----
+
+=== Using Build Profiles
+
+Build profiles allow different compiler settings without code changes.
+
+**Add profiles to `project.xml`:**
+
+[source,xml]
+----
+<profiles>
+  <profile>
+    <id>debug</id>
+    <defines>
+      <define>DEBUG</define>
+    </defines>
+    <compilerOptions>
+      <option>-g</option>        <!-- Debug symbols -->
+      <option>-gl</option>       <!-- Line info -->
+      <option>-Criot</option>    <!-- Range/overflow/I/O checks -->
+      <option>-gh</option>       <!-- Heap trace -->
+    </compilerOptions>
+  </profile>
+
+  <profile>
+    <id>release</id>
+    <defines>
+      <define>RELEASE</define>
+    </defines>
+    <compilerOptions>
+      <option>-O3</option>       <!-- Maximum optimization -->
+      <option>-CX</option>       <!-- Smart linking -->
+      <option>-XX</option>       <!-- Strip symbols -->
+    </compilerOptions>
+  </profile>
+</profiles>
+----
+
+**Build with profile:**
+
+[source,shell]
+----
+pasbuild compile -p debug      # Debug build
+pasbuild compile -p release    # Release build
+----
+
+=== Using Conditional Compilation
+
+In your Pascal code:
+
+[source,pascal]
+----
+{$IFDEF DEBUG}
+  WriteLn('Debug mode enabled');
+  WriteLn('Starting application...');
+{$ENDIF}
+
+{$IFDEF RELEASE}
+  // Release-specific code
+{$ENDIF}
+----
+
+== Available Goals
+
+=== clean
+
+Removes all build artifacts.
+
+[source,shell]
+----
+pasbuild clean
+----
+
+Deletes the `target/` directory and all its contents.
+
+=== compile
+
+Compiles the project.
+
+[source,shell]
+----
+pasbuild compile              # Default build
+pasbuild compile -p debug     # With debug profile
+pasbuild compile -p release   # With release profile
+----
+
+**What it does:**
+
+1. Verifies directory layout
+2. Checks if FPC is available
+3. Scans for unit paths
+4. Creates output directories
+5. Builds FPC command with all flags
+6. Executes FPC with real-time output
+
+**Generated compiler flags:**
+
+* `-Mobjfpc` - Object Pascal mode
+* `-O1` - Basic optimization (default)
+* `-FEtarget` - Executable output directory
+* `-FUtarget/units` - Unit output directory
+* `-Fusrc/main/pascal` - Unit search path (auto-scanned)
+* `-d<define>` - Global and profile defines
+* Profile compiler options override defaults
+
+=== package
+
+Creates a release archive.
+
+[source,shell]
+----
+pasbuild package
+----
+
+**Dependencies:** Automatically runs `clean` → `compile` → `package`
+
+**What it creates:**
+
+A ZIP archive at `target/<name>-<version>.zip` containing:
+
+* Compiled executable
+* `LICENSE` file (if exists)
+* `README` file (if exists - checks .md, .adoc, .txt, .rst)
+
+**Example:**
+
+[source,shell]
+----
+pasbuild package
+
+# Creates: target/myapp-1.0.0.zip
+# Contains:
+#   myapp (or myapp.exe on Windows)
+#   LICENSE
+#   README.md
+----
+
+=== init
+
+Bootstraps a new project.
+
+[source,shell]
+----
+pasbuild init
+----
+
+**Interactive prompts** for:
+
+* Project name (default: current directory name)
+* Version (default: 1.0.0)
+* Author (default: $USER or $USERNAME)
+* License (default: MIT)
+
+**What it creates:**
+
+* `project.xml` - Project configuration
+* `src/main/pascal/Main.pas` - Hello World template
+* `LICENSE` - Full license text (MIT, BSD-3-Clause, or Proprietary)
+
+**Error handling:**
+
+If `project.xml` already exists, returns error: `"Project already initialized"`
+
+== Configuration Reference
+
+=== Minimal Configuration
+
+[source,xml]
+----
+<?xml version="1.0" encoding="UTF-8"?>
+<project>
+  <name>MyApp</name>
+  <version>1.0.0</version>
+  <author>Your Name</author>
+  <license>BSD-3-Clause</license>
+
+  <build>
+    <mainSource>Main.pas</mainSource>
+    <executableName>myapp</executableName>
+  </build>
+</project>
+----
+
+=== Full Configuration
+
+[source,xml]
+----
+<?xml version="1.0" encoding="UTF-8"?>
+<project>
+  <!-- Project Metadata -->
+  <name>MyApplication</name>
+  <version>2.1.0</version>
+  <author>Your Name</author>
+  <license>BSD-3-Clause</license>
+
+  <!-- Build Configuration -->
+  <build>
+    <!-- Main source file in src/main/pascal/ -->
+    <mainSource>Main.pas</mainSource>
+
+    <!-- Executable name (without platform extension) -->
+    <executableName>myapp</executableName>
+
+    <!-- Output directory (default: target) -->
+    <outputDirectory>target</outputDirectory>
+
+    <!-- Global defines (available in all builds) -->
+    <defines>
+      <define>UseCThreads</define>
+      <define>MYAPP_FEATURE_X</define>
+    </defines>
+  </build>
+
+  <!-- Build Profiles -->
+  <profiles>
+    <profile>
+      <id>debug</id>
+      <defines>
+        <define>DEBUG</define>
+        <define>VERBOSE_LOGGING</define>
+      </defines>
+      <compilerOptions>
+        <option>-g</option>        <!-- Debug info -->
+        <option>-gl</option>       <!-- Line info -->
+        <option>-Criot</option>    <!-- Runtime checks -->
+        <option>-gh</option>       <!-- Heap trace -->
+      </compilerOptions>
+    </profile>
+
+    <profile>
+      <id>release</id>
+      <defines>
+        <define>RELEASE</define>
+      </defines>
+      <compilerOptions>
+        <option>-O3</option>       <!-- Max optimization -->
+        <option>-CX</option>       <!-- Smart linking -->
+        <option>-XX</option>       <!-- Strip symbols -->
+        <option>-Xs</option>       <!-- Strip all -->
+      </compilerOptions>
+    </profile>
+  </profiles>
+</project>
+----
+
+== Command-Line Reference
+
+=== Goals
+
+[source,shell]
+----
+pasbuild clean                    # Remove build artifacts
+pasbuild compile                  # Compile project
+pasbuild compile -p <profile>     # Compile with profile
+pasbuild package                  # Create release archive
+pasbuild init                     # Bootstrap new project
+----
+
+=== Options
+
+[source,shell]
+----
+-p <profile-id>                   # Activate build profile
+--profile <profile-id>            # Activate build profile (long form)
+-h, --help                        # Show help message
+-v, --version                     # Show version information
+----
+
+=== Examples
+
+[source,shell]
+----
+# Clean build with debug profile
+pasbuild clean
+pasbuild compile -p debug
+
+# Release build and package
+pasbuild compile -p release
+pasbuild package
+
+# Get help
+pasbuild --help
+pasbuild compile --help
+----
+
+== Directory Layout
+
+PasBuild follows Maven's Standard Directory Layout:
+
+[source]
+----
+project-root/
+├── project.xml              # Project configuration
+├── LICENSE                  # License file
+├── README.md               # Project documentation
+├── BOOTSTRAP.txt           # Bootstrap instructions (optional)
+│
+├── src/
+│   └── main/
+│       └── pascal/         # Application source files
+│           ├── Main.pas
+│           ├── Unit1.pas
+│           └── subdir/     # Subdirectories auto-scanned
+│               └── Unit2.pas
+│
+└── target/                 # Build output (auto-created)
+    ├── myapp               # Executable
+    ├── myapp-1.0.0.zip    # Package archive
+    └── units/             # Compiled units
+        ├── Unit1.ppu
+        ├── Unit1.o
+        └── ...
+----
+
+**Key Points:**
+
+* Source files go in `src/main/pascal/`
+* Build output goes in `target/`
+* `target/` is auto-created and cleaned
+* Subdirectories are automatically scanned for units
+
+== Troubleshooting
+
+=== FPC not found
+
+**Error:** `"Free Pascal Compiler (fpc) not found in PATH"`
+
+**Solution:**
+
+1. Verify FPC is installed: `fpc -iV`
+2. Add FPC to PATH
+3. Restart terminal
+
+=== Main source file not found
+
+**Error:** `"Main source file not found: src/main/pascal/Main.pas"`
+
+**Solution:**
+
+1. Check file exists in correct location
+2. Verify `<mainSource>` in `project.xml` matches filename
+3. File must be in `src/main/pascal/` directory
+
+=== Project already initialized
+
+**Error:** `"Project already initialized (project.xml exists)"`
+
+**Solution:**
+
+* Delete `project.xml` if you want to re-initialize
+* Or manually edit the existing `project.xml`
+
+=== Unit not found errors
+
+**Error:** `"Fatal: Can't find unit MyUnit used by Main"`
+
+**Solution:**
+
+1. Ensure unit file exists in `src/main/pascal/` or subdirectory
+2. PasBuild automatically scans subdirectories for units
+3. Check unit filename matches unit name in `uses` clause
+
+=== Permission denied on executable
+
+**Error:** Permission denied when running `./target/myapp`
+
+**Solution:**
+
+[source,shell]
+----
+chmod +x target/myapp
+----
+
+(PasBuild should set this automatically on Unix systems)
+
+== Next Steps
+
+* Read link:design.adoc[Design Document] for architecture details
+* Check link:implementation-progress.adoc[Implementation Progress] for feature roadmap
+* Join the community and contribute!
+
+== Getting Help
+
+* GitHub Issues: Report bugs and request features
+* Documentation: link:../README.adoc[README] | link:design.adoc[Design] | link:implementation-progress.adoc[Progress]
+* FPC Documentation: https://www.freepascal.org/docs.html
