@@ -16,7 +16,7 @@ This document tracks the implementation progress of PasBuild. All phases and tas
 
 **Last Updated:** 2025-12-06
 
-**Current Phase:** Phase 2 - Goal Implementation (2.1 ✅ | Working on 2.2)
+**Current Phase:** Phase 2 - Goal Implementation (2.1 ✅ | 2.2 ✅ | Working on 2.3)
 
 
 == Phase 0: Project Bootstrap ✅
@@ -411,84 +411,144 @@ The Command Pattern provides:
 
 ---
 
-=== 2.2 Compile Goal
+=== 2.2 Compile Goal ✅
 
-**File:** `src/main/pascal/PasBuild.Builder.pas`
+**Status:** COMPLETED 2025-12-06
+
+**File:** `src/main/pascal/PasBuild.Command.Compile.pas`
 
 [cols="1,3,1"]
 |===
 |Status |Task |Notes
 
-|⬜
-|Implement `RunCompile(Config: TProjectConfig; ProfileID: string): Integer`
-|Main entry point
+|✅
+|Implement `TCompileCommand.Execute`
+|Main entry point with full validation
 
-|⬜
+|✅
 |Validate `src/main/pascal/` exists
-|Use utility function
+|Via TUtils.VerifyDirectoryLayout
 
-|⬜
+|✅
 |Validate `mainSource` file exists
-|Full path check
+|Full path check with clear error
 
-|⬜
+|✅
 |Create `target/` directory if missing
 |Use `ForceDirectories`
 
-|⬜
+|✅
 |Create `target/units/` directory
 |For `-FU` output
 
-|⬜
+|✅
 |Scan for unit paths (`-Fu`)
-|Use utility function
+|TUtils.ScanForUnitPaths with recursion
 
-|⬜
+|✅
 |Construct base FPC command
-|`fpc -Mobjfpc -O1 ...`
+|`fpc -Mobjfpc -O1`
 
-|⬜
+|✅
 |Add `-FE` and `-FU` flags
-|Output directories
+|Output directories with normalized paths
 
-|⬜
+|✅
 |Add `-o` flag for executable name
-|Include platform suffix
+|Include platform suffix via TUtils
 
-|⬜
+|✅
 |Add global defines (`-d<name>`)
 |From `<build><defines>`
 
-|⬜
+|✅
 |Load active profile if specified
-|Lookup by ProfileID
+|Lookup by ProfileID with validation
 
-|⬜
+|✅
 |Add profile defines (`-d<name>`)
-|Merge with global defines
+|Merged with global defines
 
-|⬜
+|✅
 |Add profile compiler options
-|Append options from active profile
+|Appended after defaults (can override)
 
-|⬜
+|✅
 |Execute FPC command via TProcess
-|Use utility function
+|TUtils.ExecuteProcess with real-time output
 
-|⬜
+|✅
 |Stream compiler output to console
-|Real-time display
+|Real-time display during compilation
 
-|⬜
+|✅
 |Return FPC's exit code
-|0 = success
+|0 = success, propagate FPC errors
 
-|⬜
+|✅
 |Handle FPC not found error
-|Check before execution
+|TUtils.IsFPCAvailable check before execution
+
+|✅
+|Memory leak verification
+|Tested with -gh, zero leaks
 |===
 
 **Deliverable:** Functional `pasbuild compile` with profile support
+
+**Implementation Notes:**
+
+* **Command Construction** (`BuildCompilerCommand`):
+  - Base flags: `-Mobjfpc -O1` (Object Pascal mode, level 1 optimization)
+  - Source path: Normalized for cross-platform
+  - Output flags: `-FE<dir>` (executable), `-FU<dir>` (units)
+  - Executable name: `-o<name>` with platform suffix (.exe on Windows)
+  - Unit paths: Automatically scanned from subdirectories
+  - Global defines: All `-d` flags from config
+  - Profile defines: Additional `-d` flags from active profile
+  - Profile options: Can override optimization level and add debugging
+
+* **Validation Flow**:
+  1. Check directory layout (src/main/pascal exists)
+  2. Verify main source file exists
+  3. Check FPC availability in PATH
+  4. Create output directories
+  5. Build command string
+  6. Execute with real-time output
+  7. Report success/failure
+
+* **Profile Support**:
+  - Profile lookup by ID
+  - Warning if profile not found (continues without it)
+  - Profile defines merged with globals
+  - Profile compiler options appended (later flags override earlier ones)
+  - Example debug profile: `-g -gl` for debugging symbols
+  - Example release profile: `-O3 -CX -XX` for optimization + smart linking
+
+* **Testing**:
+  - Successfully compiled PasBuild itself
+  - Tested without profile (default build)
+  - Tested with debug profile (adds debugging flags)
+  - Verified compiled binary executes correctly
+  - Zero memory leaks confirmed with heap trace
+
+**Example Generated Commands:**
+
+Default build:
+```bash
+fpc -Mobjfpc -O1 src/main/pascal/PasBuild.pas -FEtarget -FUtarget/units -opasbuild -dUseCThreads
+```
+
+Debug profile:
+```bash
+fpc -Mobjfpc -O1 src/main/pascal/PasBuild.pas -FEtarget -FUtarget/units -opasbuild -dUseCThreads -dDEBUG -g -gl
+```
+
+Release profile:
+```bash
+fpc -Mobjfpc -O1 src/main/pascal/PasBuild.pas -FEtarget -FUtarget/units -opasbuild -dUseCThreads -dRELEASE -O3 -CX -XX
+```
+(Note: `-O3` overrides earlier `-O1`)
 
 ---
 
