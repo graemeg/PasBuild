@@ -686,6 +686,48 @@ end.
 * Configuration templates
 * Translation files (`.po`, `.mo`)
 
+=== Source Distribution Packaging
+
+**Goal:** `pasbuild package-source`
+
+**Behavior:**
+
+* Creates source archive: `target/<name>-<version>-src.zip`
+* Includes:
+  - `src/` directory (all source code)
+  - `project.xml`
+  - `LICENSE`, `README.*` files
+  - `.gitignore`
+  - `BOOTSTRAP.txt` (if exists)
+* Excludes:
+  - `target/` directory
+  - `.git/` directory
+  - `*.zip` archives
+  - Editor files (`.vscode/`, `.idea/`, `*.swp`)
+  - Build artifacts (`*.o`, `*.ppu`)
+
+**Use Cases:**
+
+* Creating official release source archives
+* Distribution to users without Git access
+* Archival/preservation of specific releases
+* Compliance with open source license requirements
+
+**Rationale:**
+
+Similar to Maven Assembly Plugin's `src` descriptor. While most developers will use Git, source archives are useful for:
+- Corporate environments with firewall restrictions
+- Offline usage scenarios
+- Official release distributions (like Apache projects)
+- Immutable release preservation
+
+**Implementation Notes:**
+
+* Uses same `zipper` unit as package goal
+* Follows Maven convention: output to `target/`
+* No dependencies (can run standalone)
+* Cleaned by `pasbuild clean`
+
 === Version Injection
 
 **Compiler Define Injection:**
