@@ -1,0 +1,829 @@
+= PasBuild Design Specification
+:toc: left
+:toclevels: 3
+:sectnums:
+:source-highlighter: rouge
+
+== Overview
+
+PasBuild is a build automation tool for Free Pascal projects, inspired by Apache Maven. It provides standardized project structure, declarative configuration, and repeatable builds through a goal-based execution model.
+
+=== Design Goals
+
+* **Standardization**: Eliminate per-project build script variations
+* **Simplicity**: Zero configuration for conforming projects
+* **Extensibility**: Support platform-specific and debug/release builds via profiles
+* **Cross-platform**: Work identically on Linux, Windows, macOS
+* **Self-hosting**: Tool builds itself using its own project.xml
+
+=== Non-Goals (MVP)
+
+* Dependency management (no artifact repository)
+* Incremental compilation (rebuild everything)
+* IDE integration (CLI-only)
+* Custom plugin system
+
+
+== Project Structure
+
+=== Standard Directory Layout
+
+All PasBuild projects follow the Maven Standard Directory Layout adapted for Pascal:
+
+[source]
+----
+MyProject/
+├── project.xml              # Project configuration (POM equivalent)
+├── LICENSE                  # Project license (optional)
+├── README.adoc              # Project documentation (optional)
+├── src/
+│   └── main/
+│       └── pascal/          # Application source code (*.pas, *.pp, *.lpr)
+│           ├── Main.pas     # Entry point
+│           ├── core/        # Optional: subdirectories for organization
+│           └── gui/         # Optional: more subdirectories
+└── target/                  # Build output (created by pasbuild)
+    ├── units/               # Compiled units (*.o, *.ppu)
+    └── <executable>         # Final binary
+----
+
+**Rules:**
+
+* `project.xml` MUST exist in project root
+* `src/main/pascal/` MUST exist
+* Subdirectories under `pascal/` are automatically scanned for `-Fu` paths
+* `target/` is generated; MUST NOT be committed to version control
+
+=== Rationale
+
+**Why strict layout?**
+
+* Eliminates "where should I put this file?" decisions
+* Tools can make assumptions (automation)
+* New contributors immediately understand structure
+* Cross-project consistency
+
+**Why `src/main/pascal/` instead of just `src/`?**
+
+* Future-proofs for `src/test/pascal/` (see <<future-test-phase>>)
+* Mirrors Maven exactly (easier mental model for Java developers)
+* Allows for `src/main/resources/` later (embedded resources, help files)
+
+
+== Configuration Format
+
+=== File: project.xml
+
+**Location:** Project root
+
+**Format:** XML 1.0
+
+**Encoding:** UTF-8
+
+=== Minimal Schema
+
+[source,xml]
+----
+<?xml version="1.0" encoding="UTF-8"?>
+<project>
+  <!-- Metadata -->
+  <name>MyPascalApp</name>                    <!-- REQUIRED: Project identifier -->
+  <version>1.0.0</version>                    <!-- REQUIRED: Semantic version -->
+  <author>Jane Doe</author>                   <!-- OPTIONAL: Creator -->
+  <license>MIT</license>                      <!-- OPTIONAL: SPDX identifier or "Proprietary" -->
+
+  <!-- Build Configuration -->
+  <build>
+    <mainSource>Main.pas</mainSource>         <!-- REQUIRED: Entry point relative to src/main/pascal/ -->
+    <outputDirectory>target</outputDirectory> <!-- OPTIONAL: Default = "target" -->
+    <executableName>myapp</executableName>    <!-- OPTIONAL: Default = <name> lowercased -->
+
+    <!-- Global compiler defines (always active) -->
+    <defines>
+      <define>UseCThreads</define>
+    </defines>
+  </build>
+
+  <!-- Build Profiles (environment-specific settings) -->
+  <profiles>
+    <profile>
+      <id>debug</id>
+      <defines>
+        <define>DEBUG</define>
+        <define>VERBOSE_LOGGING</define>
+      </defines>
+      <compilerOptions>
+        <option>-O1</option>
+        <option>-g</option>
+        <option>-gl</option>
+      </compilerOptions>
+    </profile>
+
+    <profile>
+      <id>release</id>
+      <defines>
+        <define>RELEASE</define>
+        <define>INLINE_FUNCTIONS</define>
+      </defines>
+      <compilerOptions>
+        <option>-O3</option>
+        <option>-CX</option>
+        <option>-XX</option>
+      </compilerOptions>
+    </profile>
+  </profiles>
+</project>
+----
+
+=== Field Specifications
+
+==== Required Fields
+
+[cols="1,2,2"]
+|===
+|Field |Type |Validation
+
+|`name`
+|String
+|Alphanumeric + hyphens/underscores only. Max 64 chars.
+
+|`version`
+|String
+|Semantic versioning: `MAJOR.MINOR.PATCH` (e.g., `1.0.0`)
+
+|`build/mainSource`
+|Path
+|Must exist in `src/main/pascal/`. Extension: `.pas`, `.pp`, or `.lpr`
+|===
+
+==== Optional Fields with Defaults
+
+[cols="1,2,2"]
+|===
+|Field |Default Value |Notes
+
+|`author`
+|`"Unknown"`
+|Included in package metadata
+
+|`license`
+|`"Proprietary"`
+|SPDX identifier (MIT, BSD-3-Clause, GPL-3.0, Apache-2.0, etc.) or "Proprietary"
+
+|`build/outputDirectory`
+|`"target"`
+|Relative to project root
+
+|`build/executableName`
+|Lowercased `<name>`
+|Platform suffix added automatically (`.exe` on Windows)
+|===
+
+=== Design Rationale
+
+**Why XML over JSON?**
+
+* Schema validation (XSD) for configuration correctness
+* Comments supported (users can document profiles)
+* Extensibility via namespaces (future custom goals)
+* Consistency with Maven (familiar to enterprise developers)
+* FPC's `DOM`/`XMLRead` units are mature and stable
+
+**Why semantic versioning?**
+
+* Industry standard
+* Clear upgrade impact (`MAJOR` = breaking changes)
+* Enables future dependency management
+
+
+== Build System Architecture
+
+=== Core Components
+
+[source]
+----
+pasbuild (executable)
+   ├── PasBuild.CLI          → Argument parsing, goal dispatch
+   ├── PasBuild.Config       → XML parsing, validation
+   ├── PasBuild.Types        → Shared data structures
+   ├── PasBuild.Cleaner      → "clean" goal implementation
+   ├── PasBuild.Builder      → "compile" goal implementation
+   ├── PasBuild.Archiver     → "package" goal implementation
+   └── PasBuild.Utils        → File operations, process execution
+----
+
+=== Data Flow
+
+[source]
+----
+User Command: pasbuild compile -p debug
+              ↓
+    1. CLI.ParseArguments
+              ↓
+    2. Config.LoadProjectXML
+              ↓
+    3. Config.ValidateSchema
+              ↓
+    4. Builder.Execute(config, profile="debug")
+              ↓
+    5. Utils.RunFPC(compiledCommand)
+              ↓
+    6. Display compiler output
+              ↓
+    7. Exit with FPC's exit code
+----
+
+
+== Build Goals
+
+=== Goal Execution Model
+
+PasBuild follows Maven's lifecycle model where goals can have dependencies on other goals.
+
+**Goal Dependencies:**
+
+[cols="1,2,2"]
+|===
+|Goal |Depends On |Execution Order
+
+|`clean`
+|None
+|clean
+
+|`compile`
+|None
+|compile
+
+|`package`
+|clean, compile
+|clean → compile → package
+
+|`init`
+|None
+|init
+|===
+
+**Behavior:**
+
+* When a goal declares dependencies, those goals execute **first** in order
+* Each dependency goal runs **once** (no duplicate execution)
+* If any dependency fails (exit code ≠ 0), execution stops immediately
+* Goals can be run individually or as part of a dependency chain
+
+**Example:**
+[source,bash]
+----
+pasbuild package
+# Executes: clean → compile → package
+# If compile fails, package never runs
+----
+
+=== Goal: clean
+
+**Purpose:** Delete all build artifacts
+
+**Usage:**
+[source,bash]
+----
+pasbuild clean
+----
+
+**Behavior:**
+
+1. Read `<build><outputDirectory>` from `project.xml` (default: `target`)
+2. If directory exists:
+   - Recursively delete all contents
+   - Delete directory itself
+3. Display: `"[INFO] Cleaned target directory"`
+
+**Implementation Notes:**
+
+* **Safety**: Only delete if path == configured output directory
+* **No confirmation**: Matches Maven behavior (add `--force` later if needed)
+* Use FPC's `DeleteDirectory` or manual recursive delete via `FindFirst`/`FindNext`
+
+=== Goal: compile
+
+**Purpose:** Build the executable
+
+**Usage:**
+[source,bash]
+----
+pasbuild compile              # Default build
+pasbuild compile -p debug     # With profile
+----
+
+**Behavior:**
+
+1. Validate `src/main/pascal/` exists
+2. Scan subdirectories for automatic `-Fu` paths
+3. Construct FPC command:
+   - Base: `fpc -Mobjfpc -O1`
+   - Source: `src/main/pascal/<mainSource>`
+   - Output: `-FE<outputDirectory> -FU<outputDirectory>/units`
+   - Defines: `-d<define>` for each global + profile define
+   - Unit paths: `-Fu<dir>` for each scanned subdirectory
+4. Execute via `TProcess`
+5. Stream compiler output to console in real-time
+6. Exit with FPC's exit code (0 = success)
+
+**Example Generated Command:**
+[source,bash]
+----
+fpc -Mobjfpc -O1 \
+    src/main/pascal/Main.pas \
+    -FEtarget \
+    -FUtarget/units \
+    -dUseCThreads \
+    -dDEBUG \
+    -Fusrc/main/pascal/core \
+    -Fusrc/main/pascal/gui \
+    -omyapp
+----
+
+**Directory Scanning Algorithm:**
+
+[source,pascal]
+----
+procedure ScanForUnitPaths(BaseDir: string; var Paths: TStringList);
+  // Recursively find all subdirectories under src/main/pascal/
+  // Add each as -Fu<path>
+  // Exclude: ., .., .git, .svn, backup~
+end;
+----
+
+=== Goal: package
+
+**Purpose:** Create release archive
+
+**Usage:**
+[source,bash]
+----
+pasbuild package              # Automatically runs: clean → compile → package
+----
+
+**Behavior:**
+
+1. Execute `clean` goal (dependency)
+2. Execute `compile` goal (dependency)
+3. If both dependencies succeed:
+   - Create zip: `<name>-<version>.zip`
+   - Include:
+     * Compiled executable from `target/`
+     * `LICENSE` file (if exists)
+     * `README.adoc` or `README.md` (if exists)
+   - Exclude:
+     * `*.o`, `*.ppu` files (intermediate artifacts)
+4. Save archive to project root
+5. Display: `"[INFO] Created myapp-1.0.0.zip"`
+
+**Archive Structure:**
+[source]
+----
+myapp-1.0.0.zip
+├── myapp          (or myapp.exe on Windows)
+├── LICENSE
+└── README.adoc
+----
+
+**Rationale:**
+
+* "Clean then build" ensures reproducibility
+* Flat structure (no intermediate directory) for simplicity
+* Only user-facing files (no build artifacts)
+
+
+== Profile System
+
+=== Purpose
+
+Allow environment-specific compiler settings without modifying source code.
+
+**Use Cases:**
+
+* Debug vs Release builds
+* Platform-specific backends (GTK2 vs Qt)
+* Feature flags (trial version vs full version)
+
+=== Activation
+
+**Command Line:**
+[source,bash]
+----
+pasbuild compile -p <profile-id>
+----
+
+**Example:**
+[source,bash]
+----
+pasbuild compile -p release
+----
+
+=== Semantics
+
+**Active Defines = Global Defines + Profile Defines**
+
+Given:
+[source,xml]
+----
+<build>
+  <defines>
+    <define>UseCThreads</define>
+  </defines>
+</build>
+
+<profiles>
+  <profile>
+    <id>release</id>
+    <defines>
+      <define>RELEASE</define>
+    </defines>
+  </profile>
+</profiles>
+----
+
+Result of `pasbuild compile -p release`:
+[source,bash]
+----
+fpc ... -dUseCThreads -dRELEASE ...
+----
+
+**Rules:**
+
+* Profiles are additive (not replacement)
+* Unknown profile ID → Warning + ignore profile
+* No profile specified → Only global defines used
+* Multiple `-p` flags → All profiles merged (future enhancement)
+
+
+== Compiler Integration
+
+=== FPC Discovery
+
+**Strategy:** Require `fpc` in system PATH
+
+**Validation:**
+
+1. Execute: `fpc -i` (or `fpc -iV` for short version)
+2. If exit code ≠ 0 → Error: `"FPC not found in PATH"`
+3. Parse version from output (informational only)
+
+**Note:** FPC 3.2.2+ uses `-i` for full info, `-iV` for short version string, `-iW` for full version string
+
+**Future Enhancement:** `<build><compilerPath>` override
+
+=== Default Compiler Flags
+
+**Always Applied:**
+
+[cols="1,3"]
+|===
+|Flag |Purpose
+
+|`-Mobjfpc`
+|Free Pascal object model (required for modern code)
+
+|`-O1`
+|Level 1 optimization (debug-friendly, reasonable speed)
+
+|`-FE<dir>`
+|Executable output directory
+
+|`-FU<dir>`
+|Unit files output directory (keeps `.ppu`/`.o` out of source tree)
+
+|`-o<name>`
+|Executable name
+|===
+
+**Automatically Generated:**
+
+[cols="1,3"]
+|===
+|Flag |Generated By
+
+|`-Fu<path>`
+|Scanned from all subdirectories under `src/main/pascal/`
+
+|`-d<define>`
+|From `<build><defines>` + active profile `<defines>`
+|===
+
+=== Compiler Output Handling
+
+**Real-time Streaming:**
+
+* Use `TProcess.Options := [poUsePipes, poStderrToOutPut]`
+* Read `TProcess.Output` during compilation
+* Display to console immediately (UX: user sees progress)
+
+**Exit Code Propagation:**
+
+* If FPC returns non-zero → pasbuild returns same code
+* Allows CI systems to detect build failures
+
+
+== Error Handling Strategy
+
+=== MVP Approach: Fail Fast
+
+**Philosophy:** Clear error messages, no automatic recovery
+
+**Error Categories:**
+
+[cols="1,2,2"]
+|===
+|Category |Detection |Response
+
+|Missing `project.xml`
+|File not found
+|`"ERROR: project.xml not found in current directory"`
+
+|Invalid XML
+|Parse exception
+|`"ERROR: Invalid XML in project.xml: <exception message>"`
+
+|Missing required field
+|XPath check
+|`"ERROR: Required field <name> missing in project.xml"`
+
+|Invalid directory layout
+|`DirectoryExists` check
+|`"ERROR: src/main/pascal/ not found. Run 'pasbuild init' to create structure."`
+
+|FPC not in PATH
+|`fpc -i` fails
+|`"ERROR: Free Pascal Compiler (fpc) not found in PATH"`
+
+|Compilation failure
+|FPC exit code ≠ 0
+|Display FPC output, exit with same code
+
+|Dependency goal failure
+|Goal exit code ≠ 0
+|`"ERROR: Goal '<goal>' failed, stopping execution"`
+|===
+
+**No Silent Failures:**
+
+* Every error writes to stderr
+* Exit code always reflects success (0) or failure (≠0)
+
+
+== Template Generation (init Goal)
+
+=== Goal: init
+
+**Purpose:** Bootstrap new PasBuild project
+
+**Usage:**
+[source,bash]
+----
+cd MyNewProject
+pasbuild init
+----
+
+**Interactive Prompts:**
+
+[source]
+----
+Project name [MyNewProject]:
+Version [1.0.0]:
+Author [Your Name]:
+License (MIT/BSD-3-Clause/GPL-3.0/Apache-2.0/Proprietary) [MIT]:
+----
+
+**Generated Structure:**
+[source]
+----
+MyNewProject/
+├── project.xml
+├── LICENSE              (Generated from SPDX template if MIT/GPL/Apache chosen)
+├── src/
+│   └── main/
+│       └── pascal/
+│           └── Main.pas
+----
+
+**Generated `project.xml`:**
+[source,xml]
+----
+<?xml version="1.0" encoding="UTF-8"?>
+<project>
+  <name>MyNewProject</name>
+  <version>1.0.0</version>
+  <author>Your Name</author>
+  <license>MIT</license>
+
+  <build>
+    <mainSource>Main.pas</mainSource>
+    <executableName>mynewproject</executableName>
+  </build>
+</project>
+----
+
+**Generated `Main.pas`:**
+[source,pascal]
+----
+program Main;
+
+{$mode objfpc}{$H+}
+
+uses
+  SysUtils;
+
+begin
+  WriteLn('Hello from MyNewProject!');
+  WriteLn('Build tool: PasBuild');
+end.
+----
+
+**Behavior:**
+
+* If `project.xml` exists → Error: `"Project already initialized"`
+* Non-interactive mode (future): `pasbuild init --name Foo --version 1.0.0`
+
+
+== Future Enhancements
+
+=== Test Phase [[future-test-phase]]
+
+**Goal:** `pasbuild test`
+
+**Requirements:**
+
+* Separate `src/test/pascal/` directory
+* FPCUnit framework integration
+* Test runner compilation:
+  - Add `-Fusrc/main/pascal` to test compilation
+  - Link against FPCUnit
+* Execute test runner, parse results
+* Fail build if tests fail
+
+**Configuration Addition:**
+[source,xml]
+----
+<test>
+  <testSource>TestRunner.pas</testSource>
+  <framework>fpcunit</framework>
+</test>
+----
+
+=== Resource Copying
+
+**Goal:** `pasbuild resources`
+
+**Behavior:**
+
+* Copy `src/main/resources/**/*` → `target/`
+* Preserve directory structure
+* Include in package archive
+
+**Use Cases:**
+
+* Help files (`.html`, `.chm`)
+* Icons, images
+* Configuration templates
+* Translation files (`.po`, `.mo`)
+
+=== Version Injection
+
+**Compiler Define Injection:**
+
+Automatically add: `-dVERSION='1.0.0'`
+
+**Usage in Code:**
+[source,pascal]
+----
+const
+  APP_VERSION = {$I %VERSION%};
+
+begin
+  WriteLn('MyApp version: ', APP_VERSION);
+end.
+----
+
+=== Source Code Packaging
+
+**Goal:** `pasbuild package-source`
+
+**Output:** `<name>-<version>-src.zip`
+
+**Contents:**
+
+* All files except:
+  - `target/` directory
+  - `.git/` directory
+  - Editor backup files (`*~`, `*.bak`)
+
+**Use Case:** Release source code without Git history
+
+=== Custom Compiler Options (Per-Profile)
+
+**Status:** Implemented in MVP (profiles already support this)
+
+**Configuration:**
+[source,xml]
+----
+<profiles>
+  <profile>
+    <id>release</id>
+    <defines>
+      <define>RELEASE</define>
+    </defines>
+    <compilerOptions>
+      <option>-O3</option>
+      <option>-CX</option>
+      <option>-XX</option>
+    </compilerOptions>
+  </profile>
+
+  <profile>
+    <id>debug</id>
+    <compilerOptions>
+      <option>-O1</option>
+      <option>-g</option>
+      <option>-gl</option>
+    </compilerOptions>
+  </profile>
+</profiles>
+----
+
+**Behavior:**
+
+* Profile compiler options **override** base optimization level
+* Options are appended to command after default flags
+* Multiple options can be specified
+* Useful for optimization levels, debugging symbols, smart linking
+
+**Example Generated Command (release profile):**
+[source,bash]
+----
+fpc -Mobjfpc -O1 ... -O3 -CX -XX src/main/pascal/Main.pas
+# Note: Later -O3 overrides earlier -O1
+----
+
+**Future Enhancement:** Global `<build><compilerOptions>` that apply to all profiles
+
+=== Multiple Profiles Activation
+
+**Command:**
+[source,bash]
+----
+pasbuild compile -p debug -p logging -p linux-gtk
+----
+
+**Semantics:** Merge all profile defines
+
+
+== Implementation Phases
+
+See `implementation-progress.adoc` for detailed task breakdown and current status.
+
+
+== Appendix: Technology Choices
+
+=== Programming Language
+
+**Free Pascal 3.2.2** in `-Mobjfpc` mode
+
+**Justification:**
+
+* Self-hosting (tool builds itself)
+* Demonstrates best practices to users
+* Cross-platform without dependencies
+
+=== Required FPC Units
+
+[cols="1,2"]
+|===
+|Unit |Purpose
+
+|`DOM`, `XMLRead`
+|Parse `project.xml`
+
+|`SysUtils`, `Classes`
+|File/directory operations
+
+|`Process`
+|Execute FPC compiler
+
+|`Zipper`
+|Create release archives
+|===
+
+=== Unit Namespace Convention
+
+**Pattern:** `PasBuild.<Module>`
+
+**Examples:**
+
+* `PasBuild.Config`
+* `PasBuild.Builder`
+* `PasBuild.Types`
+
+**Rationale:**
+
+* Avoids name collisions with user code
+* Professional organization
+* Demonstrates namespace usage to community

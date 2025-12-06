@@ -1,0 +1,710 @@
+= PasBuild Implementation Progress
+:toc: left
+:toclevels: 3
+:sectnums:
+
+== Overview
+
+This document tracks the implementation progress of PasBuild. All phases and tasks must be updated as work progresses.
+
+**Status Legend:**
+
+* ⬜ Not Started
+* 🔄 In Progress
+* ✅ Completed
+* ⏸️ Blocked / Deferred
+
+**Last Updated:** 2025-12-06
+
+
+== Phase 0: Project Bootstrap
+
+**Goal:** Create basic project structure and tooling
+
+[cols="1,3,1"]
+|===
+|Status |Task |Notes
+
+|⬜
+|Create PasBuild project directory structure
+|Follow `src/main/pascal/` layout
+
+|⬜
+|Create initial `project.xml` for PasBuild itself
+|Self-hosting configuration
+
+|⬜
+|Create `src/main/pascal/PasBuild.lpr` entry point
+|Main program file
+
+|⬜
+|Setup `.gitignore` (exclude `target/`, `*.o`, `*.ppu`, etc.)
+|
+
+|⬜
+|Create `docs/` directory structure
+|Already created
+|===
+
+
+== Phase 1: Core Infrastructure
+
+**Goal:** Foundation for all goals - config loading, validation, and CLI parsing
+
+=== 1.1 Data Structures
+
+[cols="1,3,1"]
+|===
+|Status |Task |Notes
+
+|⬜
+|Create `PasBuild.Types` unit
+|Shared type definitions
+
+|⬜
+|Define `TProjectConfig` record/class
+|Holds all project.xml data
+
+|⬜
+|Define `TBuildConfig` record/class
+|Nested under TProjectConfig
+
+|⬜
+|Define `TProfile` record/class
+|Profile data structure
+
+|⬜
+|Define `TProfileList` collection type
+|Array or TList of TProfile
+|===
+
+**Deliverable:** Complete type hierarchy for configuration
+
+---
+
+=== 1.2 Configuration Loader
+
+**File:** `src/main/pascal/PasBuild.Config.pas`
+
+[cols="1,3,1"]
+|===
+|Status |Task |Notes
+
+|⬜
+|Implement `LoadProjectXML(FilePath: string): TProjectConfig`
+|Main entry point
+
+|⬜
+|Parse required fields: `name`, `version`
+|Raise exception if missing
+
+|⬜
+|Parse optional fields with defaults
+|`author`, `license`, etc.
+
+|⬜
+|Parse `<build>` section
+|`mainSource`, `outputDirectory`, `executableName`
+
+|⬜
+|Parse `<build><defines>` list
+|Global defines
+
+|⬜
+|Parse `<profiles>` section
+|Into TProfileList
+
+|⬜
+|Parse profile `<compilerOptions>` section
+|Per-profile compiler flags
+
+|⬜
+|Implement `ValidateConfig(Config: TProjectConfig): Boolean`
+|Check semantic rules
+
+|⬜
+|Implement semantic versioning validation
+|Regex: `^\d+\.\d+\.\d+$`
+
+|⬜
+|Add error handling for malformed XML
+|Try/except with clear messages
+
+|⬜
+|Write unit tests for ConfigLoader
+|Test valid/invalid XML cases
+|===
+
+**Deliverable:** Fully functional XML parser with validation
+
+---
+
+=== 1.3 CLI Argument Parser
+
+**File:** `src/main/pascal/PasBuild.CLI.pas`
+
+[cols="1,3,1"]
+|===
+|Status |Task |Notes
+
+|⬜
+|Implement `ParseArguments(out Goal: string; out Profile: string): Boolean`
+|Extract goal and `-p` flag
+
+|⬜
+|Support goals: `clean`, `compile`, `package`, `init`
+|Case-insensitive matching
+
+|⬜
+|Support `-p <profile-id>` flag parsing
+|Extract profile ID
+
+|⬜
+|Support `--help` flag
+|Display usage instructions
+
+|⬜
+|Support `--version` flag
+|Show PasBuild + detected FPC version
+
+|⬜
+|Implement error handling for unknown goals
+|Clear error message
+
+|⬜
+|Implement error handling for invalid arguments
+|E.g., `-p` without profile ID
+|===
+
+**Deliverable:** Robust argument parser with help system
+
+---
+
+=== 1.4 Utility Functions
+
+**File:** `src/main/pascal/PasBuild.Utils.pas`
+
+[cols="1,3,1"]
+|===
+|Status |Task |Notes
+
+|⬜
+|Implement `VerifyDirectoryLayout(ProjectRoot: string): Boolean`
+|Check `src/main/pascal/` exists
+
+|⬜
+|Implement `ScanForUnitPaths(BaseDir: string): TStringList`
+|Recursive directory scan for `-Fu`
+
+|⬜
+|Implement `ExecuteProcess(Command: string; ShowOutput: Boolean): Integer`
+|Wrapper around TProcess
+
+|⬜
+|Implement `DetectFPCVersion(): string`
+|Run `fpc -i` or `fpc -iV`, parse output
+
+|⬜
+|Implement `GetPlatformExecutableSuffix(): string`
+|Return `.exe` on Windows, empty on Unix
+
+|⬜
+|Add logging helper: `LogInfo(Message: string)`
+|Format: `[INFO] Message`
+
+|⬜
+|Add logging helper: `LogError(Message: string)`
+|Format: `[ERROR] Message`, write to stderr
+|===
+
+**Deliverable:** Reusable utilities for file/process operations
+
+
+== Phase 2: Goal Implementation
+
+=== 2.1 Clean Goal
+
+**File:** `src/main/pascal/PasBuild.Cleaner.pas`
+
+[cols="1,3,1"]
+|===
+|Status |Task |Notes
+
+|⬜
+|Implement `RunClean(Config: TProjectConfig): Integer`
+|Main entry point
+
+|⬜
+|Check if output directory exists
+|Use `DirectoryExists`
+
+|⬜
+|Implement safe recursive delete
+|Custom function or platform-specific
+
+|⬜
+|Add safety check: only delete configured output directory
+|Prevent accidental deletion
+
+|⬜
+|Log actions: "Cleaning <directory>..."
+|
+
+|⬜
+|Return exit code 0 on success
+|
+
+|⬜
+|Handle errors gracefully (permissions, locked files)
+|Log error, return non-zero
+|===
+
+**Deliverable:** Functional `pasbuild clean` command
+
+---
+
+=== 2.2 Compile Goal
+
+**File:** `src/main/pascal/PasBuild.Builder.pas`
+
+[cols="1,3,1"]
+|===
+|Status |Task |Notes
+
+|⬜
+|Implement `RunCompile(Config: TProjectConfig; ProfileID: string): Integer`
+|Main entry point
+
+|⬜
+|Validate `src/main/pascal/` exists
+|Use utility function
+
+|⬜
+|Validate `mainSource` file exists
+|Full path check
+
+|⬜
+|Create `target/` directory if missing
+|Use `ForceDirectories`
+
+|⬜
+|Create `target/units/` directory
+|For `-FU` output
+
+|⬜
+|Scan for unit paths (`-Fu`)
+|Use utility function
+
+|⬜
+|Construct base FPC command
+|`fpc -Mobjfpc -O1 ...`
+
+|⬜
+|Add `-FE` and `-FU` flags
+|Output directories
+
+|⬜
+|Add `-o` flag for executable name
+|Include platform suffix
+
+|⬜
+|Add global defines (`-d<name>`)
+|From `<build><defines>`
+
+|⬜
+|Load active profile if specified
+|Lookup by ProfileID
+
+|⬜
+|Add profile defines (`-d<name>`)
+|Merge with global defines
+
+|⬜
+|Add profile compiler options
+|Append options from active profile
+
+|⬜
+|Execute FPC command via TProcess
+|Use utility function
+
+|⬜
+|Stream compiler output to console
+|Real-time display
+
+|⬜
+|Return FPC's exit code
+|0 = success
+
+|⬜
+|Handle FPC not found error
+|Check before execution
+|===
+
+**Deliverable:** Functional `pasbuild compile` with profile support
+
+---
+
+=== 2.3 Package Goal
+
+**File:** `src/main/pascal/PasBuild.Archiver.pas`
+
+[cols="1,3,1"]
+|===
+|Status |Task |Notes
+
+|⬜
+|Implement `RunPackage(Config: TProjectConfig): Integer`
+|Main entry point
+
+|⬜
+|Execute clean goal first
+|Call `Cleaner.RunClean`
+
+|⬜
+|Execute compile goal
+|Call `Builder.RunCompile`
+
+|⬜
+|Check if compilation succeeded
+|Exit code check
+
+|⬜
+|Locate compiled executable in `target/`
+|Path construction
+
+|⬜
+|Create archive filename: `<name>-<version>.zip`
+|Use Config metadata
+
+|⬜
+|Initialize TZipper
+|Configure compression level
+
+|⬜
+|Add executable to archive
+|Root of zip
+
+|⬜
+|Add LICENSE file if exists
+|Optional inclusion
+
+|⬜
+|Add README.adoc or README.md if exists
+|Optional inclusion
+
+|⬜
+|Exclude intermediate files (*.o, *.ppu)
+|Filter logic
+
+|⬜
+|Save archive to project root
+|Close TZipper
+
+|⬜
+|Log success: "Created <archive-name>"
+|
+
+|⬜
+|Return exit code 0 on success
+|
+|===
+
+**Deliverable:** Functional `pasbuild package` command
+
+
+== Phase 3: Template Generation (init Goal)
+
+**File:** `src/main/pascal/PasBuild.Initializer.pas`
+
+[cols="1,3,1"]
+|===
+|Status |Task |Notes
+
+|⬜
+|Implement `RunInit(): Integer`
+|Main entry point
+
+|⬜
+|Check if `project.xml` already exists
+|Error if present
+
+|⬜
+|Prompt user for project name
+|Default: current directory name
+
+|⬜
+|Prompt user for version
+|Default: `1.0.0`
+
+|⬜
+|Prompt user for author
+|Default: system username or "Unknown"
+
+|⬜
+|Prompt user for license
+|Options: MIT, BSD-3-Clause, GPL-3.0, Apache-2.0, Proprietary
+
+|⬜
+|Create `src/main/pascal/` directories
+|Use `ForceDirectories`
+
+|⬜
+|Generate `project.xml` from template
+|Use StringReplace for placeholders
+
+|⬜
+|Generate `Main.pas` Hello World program
+|Basic template
+
+|⬜
+|Generate LICENSE file if MIT/BSD/GPL/Apache chosen
+|Embedded SPDX templates (BSD-3-Clause added)
+
+|⬜
+|Log success message with next steps
+|"Run 'pasbuild compile' to build"
+
+|⬜
+|Return exit code 0
+|
+|===
+
+**Deliverable:** Functional `pasbuild init` command
+
+
+== Phase 4: Goal Dependencies & Integration
+
+=== 4.1 Goal Dependency System
+
+[cols="1,3,1"]
+|===
+|Status |Task |Notes
+
+|⬜
+|Implement goal dependency resolver
+|Execute dependencies in correct order
+
+|⬜
+|Add dependency tracking to prevent duplicate execution
+|`clean` shouldn't run twice
+
+|⬜
+|Implement fail-fast on dependency failure
+|Stop execution if any dependency fails
+
+|⬜
+|Wire `package` goal dependencies
+|Automatically run: clean → compile → package
+|===
+
+**Deliverable:** Maven-like goal lifecycle
+
+---
+
+=== 4.2 Integration & Polish
+
+[cols="1,3,1"]
+|===
+|Status |Task |Notes
+
+|⬜
+|Wire all goals into main program
+|`PasBuild.lpr` dispatch logic
+
+|⬜
+|Implement `--help` output
+|Usage examples for all goals
+
+|⬜
+|Implement `--version` output
+|Show PasBuild version + FPC version
+
+|⬜
+|Test all goals on Linux
+|Validation testing
+
+|⬜
+|Test all goals on Windows
+|Cross-platform verification
+
+|⬜
+|Create PasBuild's own `project.xml`
+|Self-hosting test
+
+|⬜
+|Build PasBuild using PasBuild
+|Ultimate test
+
+|⬜
+|Write user documentation (`README.adoc`)
+|Getting started guide
+
+|⬜
+|Create example project in `examples/`
+|Demonstration
+|===
+
+**Deliverable:** Production-ready PasBuild 1.0.0
+
+
+== Phase 5: Future Enhancements
+
+**Status:** ⏸️ Deferred until post-MVP
+
+[cols="1,3,1"]
+|===
+|Status |Task |Priority
+
+|⏸️
+|Implement test goal (`pasbuild test`)
+|High
+
+|⏸️
+|Implement resource copying
+|Medium
+
+|⏸️
+|Implement version injection (`-dVERSION`)
+|Low
+
+|⏸️
+|Implement source code packaging goal
+|Low
+
+|✅
+|Add `<compilerOptions>` support per-profile
+|Implemented in MVP (profiles support this)
+
+|⏸️
+|Add global `<build><compilerOptions>` support
+|Low (profile-level sufficient for MVP)
+
+|⏸️
+|Support multiple profile activation
+|Low
+
+|⏸️
+|Create XSD schema for `project.xml`
+|Medium
+
+|⏸️
+|Add `<build><compilerPath>` override
+|Low
+|===
+
+
+== Testing Strategy
+
+=== Manual Testing Checklist
+
+**Per Phase:** Test each goal individually before proceeding
+
+**Phase 2.1 (Clean):**
+
+- [ ] `pasbuild clean` deletes `target/` directory
+- [ ] Running clean when `target/` doesn't exist doesn't error
+- [ ] Clean with custom `<outputDirectory>` works
+
+**Phase 2.2 (Compile):**
+
+- [ ] `pasbuild compile` builds Hello World successfully
+- [ ] Executable runs and prints expected output
+- [ ] `pasbuild compile -p debug` activates profile defines
+- [ ] Invalid profile ID shows warning
+- [ ] Missing `src/main/pascal/` shows clear error
+- [ ] Missing FPC in PATH shows clear error
+- [ ] Subdirectories generate correct `-Fu` flags
+
+**Phase 2.3 (Package):**
+
+- [ ] `pasbuild package` creates zip archive
+- [ ] Archive contains executable + LICENSE
+- [ ] Archive name matches `<name>-<version>.zip`
+- [ ] Intermediate files (*.o, *.ppu) excluded
+
+**Phase 3 (Init):**
+
+- [ ] `pasbuild init` creates directory structure
+- [ ] Generated `project.xml` is valid
+- [ ] Generated `Main.pas` compiles
+- [ ] `pasbuild init` in existing project shows error
+- [ ] Selected license file is generated correctly (BSD-3-Clause support)
+- [ ] Profile compiler options override base options correctly
+
+**Phase 4 (Integration):**
+
+- [ ] Goal dependencies execute in correct order
+- [ ] `pasbuild package` runs: clean → compile → package
+- [ ] Failed dependency stops execution (fail-fast)
+- [ ] PasBuild builds itself using `pasbuild compile`
+- [ ] PasBuild packages itself using `pasbuild package`
+- [ ] `--help` displays all goals
+- [ ] `--version` shows correct versions
+
+=== Automated Testing (Future)
+
+- [ ] Unit tests for ConfigLoader (XML parsing)
+- [ ] Unit tests for CLI argument parsing
+- [ ] Integration tests for each goal
+- [ ] Cross-platform CI pipeline (GitHub Actions)
+
+
+== Known Issues / Blockers
+
+**None currently.**
+
+_(Update this section as issues arise during implementation)_
+
+
+== Development Notes
+
+=== Coding Standards
+
+* **Unit naming:** `PasBuild.<Module>.pas`
+* **Mode directive:** `{$mode objfpc}{$H+}`
+* **String type:** Always use `string` (AnsiString with `{$H+}`)
+* **Indentation:** 2 spaces (no tabs)
+* **Naming conventions:**
+  - Types: `TPascalCase`
+  - Variables: `PascalCase`
+  - Constants: `UPPER_SNAKE_CASE`
+  - Functions/procedures: `PascalCase`
+
+=== Build Commands (Self-Hosting)
+
+**Initial build (manual):**
+[source,bash]
+----
+fpc -Mobjfpc -O1 -FEtarget -FUtarget/units src/main/pascal/PasBuild.lpr
+----
+
+**After Phase 4 (self-hosted):**
+[source,bash]
+----
+./target/pasbuild compile
+----
+
+=== Git Workflow
+
+**Branches:**
+
+* `master` - Stable releases only
+* `develop` - Integration branch
+* `feature/phase-X` - Per-phase development
+
+**Commit Messages:**
+
+* Format: `[Phase X.Y] Brief description`
+* Example: `[Phase 1.2] Implement XML parsing for build section`
+
+=== Release Checklist
+
+**Before tagging 1.0.0:**
+
+- [ ] All Phase 4 tasks completed
+- [ ] Manual testing checklist passed on Linux
+- [ ] Manual testing checklist passed on Windows
+- [ ] Documentation complete (`README.adoc`, `design.adoc`)
+- [ ] Self-hosting test passed
+- [ ] Example project works
+- [ ] CHANGELOG.adoc created
