@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project>
+  <!-- PasBuild Project Configuration -->
+  <!-- This project builds itself! -->
+
+  <name>PasBuild</name>
+  <version>1.0.0</version>
+  <author>Graeme Geldenhuys</author>
+  <license>BSD-3-Clause</license>
+
+  <build>
+    <mainSource>PasBuild.pas</mainSource>
+    <outputDirectory>target</outputDirectory>
+    <executableName>pasbuild</executableName>
+
+    <!-- Global defines (always active) -->
+    <defines>
+      <define>UseCThreads</define>
+    </defines>
+  </build>
+
+  <!-- Build Profiles -->
+  <profiles>
+    <profile>
+      <id>debug</id>
+      <defines>
+        <define>DEBUG</define>
+      </defines>
+      <compilerOptions>
+        <option>-g</option>
+        <option>-gl</option>
+      </compilerOptions>
+    </profile>
+
+    <profile>
+      <id>release</id>
+      <defines>
+        <define>RELEASE</define>
+      </defines>
+      <compilerOptions>
+        <option>-O3</option>
+        <option>-CX</option>
+        <option>-XX</option>
+      </compilerOptions>
+    </profile>
+  </profiles>
+</project>
