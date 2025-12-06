@@ -1,3 +1,13 @@
+{
+  This file is part of PasBuild.
+
+  Copyright (c) 2025 Graeme Geldenhuys <graemeg@gmail.com>
+
+  SPDX-License-Identifier: BSD-3-Clause
+
+  See LICENSE file in the project root for full license terms.
+}
+
 program PasBuild.Test.Compile;
 
 {$mode objfpc}{$H+}
