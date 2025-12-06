@@ -122,7 +122,7 @@ See link:docs/quick-start-guide.adoc[Quick Start Guide] for detailed usage instr
 [source,bash]
 ----
 # Install PasBuild (bootstrap from source)
-git clone https://github.com/yourusername/pasbuild.git
+git clone https://github.com/graemeg/pasbuild.git
 cd pasbuild
 ./bootstrap.sh  # See BOOTSTRAP.txt for manual steps
 
