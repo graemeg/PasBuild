@@ -224,6 +224,8 @@ begin
 end;
 
 class function TConfigLoader.ValidateConfig(AConfig: TProjectConfig): Boolean;
+var
+  RegEx: TRegExpr;
 begin
   Result := False;
 
@@ -235,8 +237,13 @@ begin
     raise EProjectConfigError.CreateFmt('Invalid version format: %s (expected: MAJOR.MINOR.PATCH)', [AConfig.Version]);
 
   // Validate name contains only valid characters
-  if not TRegExpr.Create('^[a-zA-Z0-9_-]+$').Exec(AConfig.Name) then
-    raise EProjectConfigError.CreateFmt('Invalid project name: %s (only alphanumeric, hyphens, underscores allowed)', [AConfig.Name]);
+  RegEx := TRegExpr.Create('^[a-zA-Z0-9_-]+$');
+  try
+    if not RegEx.Exec(AConfig.Name) then
+      raise EProjectConfigError.CreateFmt('Invalid project name: %s (only alphanumeric, hyphens, underscores allowed)', [AConfig.Name]);
+  finally
+    RegEx.Free;
+  end;
 
   // Validate main source file has valid extension
   if not (AnsiEndsStr('.pas', AConfig.BuildConfig.MainSource) or
