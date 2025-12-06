@@ -374,7 +374,7 @@ pasbuild package              # Automatically runs: clean → compile → packag
      * `README.adoc` or `README.md` (if exists)
    - Exclude:
      * `*.o`, `*.ppu` files (intermediate artifacts)
-4. Save archive to project root
+4. Save archive to `target` directory.
 5. Display: `"[INFO] Created myapp-1.0.0.zip"`
 
 **Archive Structure:**
