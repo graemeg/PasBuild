@@ -16,6 +16,7 @@ fp.dsk
 pasbuild
 
 # Build output directory (PasBuild convention)
+# All build artifacts go here (Maven convention)
 target/
 
 # Documentation generated HTML (AsciiDoc renders)

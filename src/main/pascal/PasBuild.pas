@@ -13,6 +13,7 @@ uses
   PasBuild.Command,
   PasBuild.Command.Clean,
   PasBuild.Command.Compile,
+  PasBuild.Command.Package,
   PasBuild.Utils;
 
 var
@@ -97,11 +98,7 @@ begin
           Command := TCompileCommand.Create(Config, Args.ProfileId);
 
         bgPackage:
-          begin
-            TUtils.LogError('Package goal not yet implemented');
-            ExitCode := 1;
-            Exit;
-          end;
+          Command := TPackageCommand.Create(Config, Args.ProfileId);
 
         bgInit:
           begin
