@@ -14,6 +14,7 @@ uses
   PasBuild.Command.Clean,
   PasBuild.Command.Compile,
   PasBuild.Command.Package,
+  PasBuild.Command.Init,
   PasBuild.Utils;
 
 var
@@ -53,10 +54,17 @@ begin
     Exit;
   end;
 
-  // Load project configuration
-  try
-    Config := TConfigLoader.LoadProjectXML('project.xml');
-  except
+  // Load project configuration (skip for init goal)
+  if Args.Goal = bgInit then
+  begin
+    // Init goal creates project.xml, so create empty config
+    Config := TProjectConfig.Create;
+  end
+  else
+  begin
+    try
+      Config := TConfigLoader.LoadProjectXML('project.xml');
+    except
     on E: EProjectConfigError do
     begin
       TUtils.LogError(E.Message);
@@ -69,18 +77,22 @@ begin
       ExitCode := 1;
       Exit;
     end;
+    end;
   end;
 
   try
-    // Validate configuration
-    try
-      TConfigLoader.ValidateConfig(Config);
-    except
+    // Validate configuration (skip for init goal)
+    if Args.Goal <> bgInit then
+    begin
+      try
+        TConfigLoader.ValidateConfig(Config);
+      except
       on E: EProjectConfigError do
       begin
         TUtils.LogError(E.Message);
         ExitCode := 1;
         Exit;
+      end;
       end;
     end;
 
@@ -101,11 +113,7 @@ begin
           Command := TPackageCommand.Create(Config, Args.ProfileId);
 
         bgInit:
-          begin
-            TUtils.LogError('Init goal not yet implemented');
-            ExitCode := 1;
-            Exit;
-          end;
+          Command := TInitCommand.Create(Config, Args.ProfileId);
 
         else
         begin
