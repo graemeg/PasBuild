@@ -16,7 +16,7 @@ This document tracks the implementation progress of PasBuild. All phases and tas
 
 **Last Updated:** 2025-12-06
 
-**Current Phase:** Phase 1 - Core Infrastructure COMPLETE ✅
+**Current Phase:** Phase 2 - Goal Implementation (2.1 ✅ | Working on 2.2)
 
 
 == Phase 0: Project Bootstrap ✅
@@ -321,44 +321,93 @@ Maven-inspired path handling: Users write paths with `/` in `project.xml`, and `
 
 == Phase 2: Goal Implementation
 
-=== 2.1 Clean Goal
+=== 2.1 Clean Goal ✅
 
-**File:** `src/main/pascal/PasBuild.Cleaner.pas`
+**Status:** COMPLETED 2025-12-06
+
+**Files:** `src/main/pascal/PasBuild.Command.pas`, `PasBuild.Command.Clean.pas`
 
 [cols="1,3,1"]
 |===
 |Status |Task |Notes
 
-|⬜
-|Implement `RunClean(Config: TProjectConfig): Integer`
-|Main entry point
+|✅
+|Design Command Pattern architecture
+|TBuildCommand base class + TCommandExecutor
 
-|⬜
+|✅
+|Implement dependency resolution in executor
+|Automatic execution of goal dependencies
+
+|✅
+|Implement `TCleanCommand.Execute`
+|Main clean logic
+
+|✅
 |Check if output directory exists
-|Use `DirectoryExists`
+|Graceful handling of non-existent directory
 
-|⬜
+|✅
 |Implement safe recursive delete
-|Custom function or platform-specific
+|Custom implementation, no external dependencies
 
-|⬜
+|✅
 |Add safety check: only delete configured output directory
-|Prevent accidental deletion
+|Prevents deleting project root or external paths
 
-|⬜
+|✅
 |Log actions: "Cleaning <directory>..."
-|
+|Clear user feedback
 
-|⬜
+|✅
 |Return exit code 0 on success
-|
+|Proper exit codes
 
-|⬜
+|✅
 |Handle errors gracefully (permissions, locked files)
-|Log error, return non-zero
+|Try/except with clear error messages
+
+|✅
+|Memory leak verification
+|Tested with -gh, zero leaks
 |===
 
-**Deliverable:** Functional `pasbuild clean` command
+**Deliverable:** Functional `pasbuild clean` command with Command Pattern
+
+**Implementation Notes:**
+
+* **Command Pattern Architecture**:
+  - `TBuildCommand`: Abstract base class for all goals
+  - `TCommandExecutor`: Orchestrates command execution with dependency resolution
+  - `TBuildCommandList`: Generic list of commands
+  - Each goal extends `TBuildCommand` and implements `Execute` method
+  - Dependencies declared via `GetDependencies` method
+  - Executor tracks executed commands to prevent duplicates
+
+* **Clean Command Features**:
+  - Deletes configured output directory (normalized for cross-platform)
+  - Safety checks:
+    * Only deletes if directory is under project root
+    * Won't delete project root itself
+    * Won't delete external directories
+  - Gracefully handles already-clean state
+  - Custom recursive delete using `FindFirst`/`FindNext`
+  - No dependency on Lazarus FileUtil
+
+* **Testing**:
+  - `PasBuild.Test.Clean`: Tests clean command in isolation
+  - `PasBuild.Test.Command`: Tests command pattern with duplicates
+  - All tests verified with heap trace (-gh flag)
+  - Zero memory leaks detected
+
+**Design Benefits:**
+
+The Command Pattern provides:
+1. Clean separation of concerns (each goal is independent)
+2. Automatic dependency resolution (package will auto-run clean → compile)
+3. Duplicate prevention (same goal won't run twice)
+4. Easy extensibility (new goals just extend TBuildCommand)
+5. Testability (commands can be tested in isolation)
 
 ---
 
