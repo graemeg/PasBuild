@@ -113,6 +113,7 @@ function TCommandExecutor.Execute(ACommand: TBuildCommand): Integer;
 var
   Dependencies: TBuildCommandList;
   Dependency: TBuildCommand;
+  I: Integer;
 begin
   Result := 0;
 
@@ -135,6 +136,10 @@ begin
         Exit;
       end;
     end;
+
+    // Free dependency commands (they're not owned by the list)
+    for I := 0 to Dependencies.Count - 1 do
+      Dependencies[I].Free;
   finally
     Dependencies.Free;
   end;

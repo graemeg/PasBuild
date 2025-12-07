@@ -397,7 +397,7 @@ end;
 
 class function TUtils.ScanForIncludePathsFiltered(const ABaseDir: string; AConditionalPaths: TConditionalPathList; AActiveDefines: TStringList): TStringList;
 var
-  DirList: TStringList;
+  DirList, UnitDirs: TStringList;
   Dir, RelativePath: string;
   SearchRec: TSearchRec;
   ConditionalPath: TConditionalPath;
@@ -412,7 +412,14 @@ begin
   DirList := TStringList.Create;
   try
     DirList.Add(ExcludeTrailingPathDelimiter(ABaseDir));  // Include base directory
-    DirList.AddStrings(ScanForUnitPaths(ABaseDir));        // Include all subdirectories
+
+    // Get subdirectories (need to free the temporary list)
+    UnitDirs := ScanForUnitPaths(ABaseDir);
+    try
+      DirList.AddStrings(UnitDirs);
+    finally
+      UnitDirs.Free;
+    end;
 
     for I := 0 to DirList.Count - 1 do
     begin
