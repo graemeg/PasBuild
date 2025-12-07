@@ -45,7 +45,9 @@ var
   UnitPaths, IncludePaths, ActiveDefines: TStringList;
   UnitPath, IncludePath, Define, Option: string;
   Profile: TProfile;
+  ConditionalPath: TConditionalPath;
   BasePath: string;
+  I: Integer;
 begin
   // Base command with default flags
   Result := 'fpc -Mobjfpc -O1';
@@ -88,18 +90,45 @@ begin
         TUtils.LogWarning('Profile not found: ' + ProfileId);
     end;
 
-    // Add unit search paths (-Fu) with conditional filtering
+    // Add unit search paths (-Fu)
     BasePath := TUtils.NormalizePath('src/main/pascal');
-    UnitPaths := TUtils.ScanForUnitPathsFiltered(
-      BasePath,
-      Config.BuildConfig.UnitPaths,
-      ActiveDefines
-    );
-    try
-      for UnitPath in UnitPaths do
-        Result := Result + ' -Fu' + UnitPath;
-    finally
-      UnitPaths.Free;
+
+    if Config.BuildConfig.ManualUnitPaths then
+    begin
+      // Manual mode: Only use paths explicitly listed in <unitPaths>
+      // Apply conditional filtering to manual paths
+      UnitPaths := TStringList.Create;
+      try
+        UnitPaths.Duplicates := dupIgnore;
+        UnitPaths.Sorted := True;
+
+        for I := 0 to Config.BuildConfig.UnitPaths.Count - 1 do
+        begin
+          ConditionalPath := Config.BuildConfig.UnitPaths[I];
+          if TUtils.IsConditionMet(ConditionalPath.Condition, ActiveDefines) then
+            UnitPaths.Add(BasePath + DirectorySeparator + TUtils.NormalizePath(ConditionalPath.Path));
+        end;
+
+        for UnitPath in UnitPaths do
+          Result := Result + ' -Fu' + UnitPath;
+      finally
+        UnitPaths.Free;
+      end;
+    end
+    else
+    begin
+      // Auto-scan mode (default): Scan all directories, apply conditional filtering
+      UnitPaths := TUtils.ScanForUnitPathsFiltered(
+        BasePath,
+        Config.BuildConfig.UnitPaths,
+        ActiveDefines
+      );
+      try
+        for UnitPath in UnitPaths do
+          Result := Result + ' -Fu' + UnitPath;
+      finally
+        UnitPaths.Free;
+      end;
     end;
 
     // Add include search paths (-Fi) with conditional filtering

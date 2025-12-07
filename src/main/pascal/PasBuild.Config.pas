@@ -159,6 +159,9 @@ begin
   AConfig.BuildConfig.OutputDirectory := GetNodeText(ABuildNode, 'outputDirectory', 'target');
   AConfig.BuildConfig.ExecutableName := GetNodeText(ABuildNode, 'executableName');
 
+  // Parse manualUnitPaths flag (default: false = auto-scan enabled)
+  AConfig.BuildConfig.ManualUnitPaths := LowerCase(GetNodeText(ABuildNode, 'manualUnitPaths', 'false')) = 'true';
+
   // Parse global defines
   ParseDefines(ABuildNode, AConfig.BuildConfig.Defines);
 

@@ -71,6 +71,7 @@ type
     FDefines: TStringList;
     FUnitPaths: TConditionalPathList;
     FIncludePaths: TConditionalPathList;
+    FManualUnitPaths: Boolean;
   public
     constructor Create;
     destructor Destroy; override;
@@ -81,6 +82,7 @@ type
     property Defines: TStringList read FDefines;
     property UnitPaths: TConditionalPathList read FUnitPaths;
     property IncludePaths: TConditionalPathList read FIncludePaths;
+    property ManualUnitPaths: Boolean read FManualUnitPaths write FManualUnitPaths;
   end;
 
   { TProjectConfig - Complete project configuration }
@@ -173,6 +175,7 @@ begin
 
   // Set defaults
   FOutputDirectory := 'target';
+  FManualUnitPaths := False;  // Auto-scan by default
 end;
 
 destructor TBuildConfig.Destroy;
