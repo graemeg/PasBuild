@@ -1,0 +1,1060 @@
+= Library Project Support - Design & Implementation Plan
+:toc: left
+:toclevels: 3
+// :toc-placement!:
+:sectnums:
+:source-highlighter: rouge
+:icons: font
+
+Analysis and implementation plan for supporting library/framework projects in PasBuild.
+
+//toc::[]
+
+== Problem Statement
+
+=== Current Limitations
+
+PasBuild currently only supports **application projects** with these assumptions:
+
+1. Project must have a `program` unit with a main entry point
+2. Compilation produces an executable binary
+3. Package goal includes the executable in the archive
+
+=== Real-World Use Case: fpGUI Toolkit
+
+**fpGUI** is a GUI framework/library with:
+
+* **No main program** - consists only of units (.pas files)
+* **Platform-specific directories**:
+  - `corelib/x11/` - Linux/FreeBSD X11 implementation
+  - `corelib/gdi/` - Windows GDI implementation
+  - `corelib/cocoa/` - macOS Cocoa implementation
+* **Current workaround**: Manual bootstrap program listing all units
+* **Issue**: Auto-scanning includes wrong platform directories
+
+== Analysis
+
+=== How Other Build Systems Handle Libraries
+
+==== Maven (Java)
+
+**Default packaging:** `jar` (library)
+
+* Compiles all `.java` files in `src/main/java/`
+* Java compiler resolves dependencies automatically
+* Creates `.jar` with compiled `.class` files
+* No "main program" required (unless executable jar)
+
+**Package output:**
+
+[source]
+----
+mylib-1.0.0.jar           # Compiled library
+mylib-1.0.0-sources.jar   # Source code (optional)
+----
+
+**References:**
+
+* https://maven.apache.org/plugins/maven-jar-plugin/usage.html[Apache Maven JAR Plugin]
+* https://maven.apache.org/plugins/maven-source-plugin/jar-mojo.html[Maven Source Plugin]
+
+==== Free Pascal's fpcmake
+
+**Built-in tools:**
+
+* `fpcmake` - Makefile generator from Makefile.fpc
+* `ppdep` - Unit dependency analyzer
+* `ppufiles` - Determines unit dependencies
+* `ppumove` - Unit library mover
+
+**Library support:**
+
+* `libunits` - Comma-separated list of units for library
+* Compiles units in dependency order
+* Creates static/dynamic libraries
+
+**References:**
+
+* https://www.freepascal.org/tools/fpcmake.html[FPCMAKE - Free Pascal Makefile generator]
+* https://manpages.ubuntu.com/manpages/bionic/man5/fpcmake-3.0.4.5.html[Makefile.fpc manpage]
+
+=== Key Insights
+
+1. **Dependency Resolution**: FPC compiler handles unit dependencies automatically
+2. **Bootstrap Approach**: Compiling one unit that `uses` all others is a valid strategy
+3. **Platform Detection**: FPC has built-in defines (`{$IFDEF UNIX}`, `{$IFDEF WINDOWS}`)
+4. **Package Contents**: Libraries package `.ppu` files, sources, or both
+
+== Solution Design
+
+=== 1. Project Type Configuration
+
+Add `<projectType>` to distinguish applications from libraries.
+
+==== XML Schema Addition
+
+[source,xml]
+----
+<build>
+  <projectType>library</projectType>  <!-- or "application" (default) -->
+  <mainSource>fpg_base.pas</mainSource>
+  <libraryName>fpgui</libraryName>    <!-- NEW: for library type -->
+  <outputDirectory>target</outputDirectory>
+</build>
+----
+
+==== Behavior Differences
+
+[cols="1,2,2"]
+|===
+|Aspect |Application |Library
+
+|Main Source
+|Must be `program` unit
+|Can be any unit (used for bootstrap)
+
+|Compilation
+|Produces executable
+|Produces `.ppu` files (and optional bootstrap executable)
+
+|Package Contents
+|Executable + LICENSE + README
+|`.ppu` files + sources + LICENSE + README (or just sources)
+
+|Bootstrap Program
+|Not needed
+|Auto-generated to compile all units
+|===
+
+=== 2. Conditional Unit Paths with Auto-Scan Filtering
+
+Maximize automation while allowing platform-specific directory filtering.
+
+==== Core Principle: Convention Over Configuration
+
+**Default behavior (no configuration):**
+
+* Auto-scan `src/main/pascal/` and all subdirectories
+* Add all directories as `-Fu` (unit paths)
+* Add directories with `*.inc` files as `-Fi` (include paths)
+* Works for simple projects with no platform-specific code
+
+**Problem:** Auto-scan includes ALL directories, even wrong platform-specific ones.
+
+**Solution:** Keep auto-scan + Add **conditional filters** to exclude platform-specific directories when condition doesn't match.
+
+==== Improved Design: Auto-Scan with Conditional Filtering
+
+[source,xml]
+----
+<build>
+  <!-- Auto-scan is ALWAYS enabled -->
+  <!-- No need to list all directories manually -->
+
+  <unitPaths>
+    <!-- Only specify CONDITIONAL paths (filters) -->
+    <!-- These act as inclusion rules based on conditions -->
+    <path condition="UNIX">corelib/x11</path>
+    <path condition="WINDOWS">corelib/gdi</path>
+    <path condition="DARWIN">corelib/cocoa</path>
+  </unitPaths>
+</build>
+----
+
+**How it works:**
+
+1. **Scan** `src/main/pascal/` recursively (automatic)
+2. For each found directory:
+   * Check if path matches any `<path condition="...">` entry
+   * **If match found:**
+     - Include directory ONLY if condition is TRUE
+     - Skip directory if condition is FALSE
+   * **If no match:**
+     - Include directory unconditionally (normal auto-scan)
+3. Result: Maximum automation with selective platform filtering
+
+==== Path Matching Algorithm
+
+**Exact match:**
+```xml
+<path condition="UNIX">corelib/x11</path>
+```
+- Matches: `src/main/pascal/corelib/x11`
+- Matches: `src/main/pascal/corelib/x11/subdirectory` (path prefix)
+
+**Subdirectory handling:**
+```xml
+<path condition="UNIX">corelib/x11</path>
+```
+Automatically applies to all subdirectories within `corelib/x11/`
+
+==== Example: fpGUI Toolkit
+
+**Directory structure:**
+```
+src/main/pascal/
+├── corelib/
+│   ├── fpg_base.pas           ← Always included
+│   ├── fpg_main.pas           ← Always included
+│   ├── x11/                   ← Only on UNIX
+│   │   ├── fpg_x11.pas
+│   │   └── fpg_xft_x11.pas
+│   ├── gdi/                   ← Only on WINDOWS
+│   │   └── fpg_gdi.pas
+│   └── cocoa/                 ← Only on DARWIN
+│       └── fpg_cocoa.pas
+├── gui/                       ← Always included
+│   ├── fpg_button.pas
+│   └── fpg_menu.pas
+└── reportengine/              ← Always included
+    └── U_Report.pas
+```
+
+**Minimal configuration:**
+[source,xml]
+----
+<build>
+  <unitPaths>
+    <!-- ONLY specify platform-specific paths -->
+    <path condition="UNIX">corelib/x11</path>
+    <path condition="WINDOWS">corelib/gdi</path>
+    <path condition="DARWIN">corelib/cocoa</path>
+  </unitPaths>
+</build>
+----
+
+**On Linux:**
+* Auto-scanned: `corelib/`, `gui/`, `reportengine/`
+* Condition met: `corelib/x11/` ✅ (UNIX = true)
+* Condition not met: `corelib/gdi/` ✗ (WINDOWS = false, excluded)
+* Condition not met: `corelib/cocoa/` ✗ (DARWIN = false, excluded)
+
+**Result:** `-Fucorelib -Fucorelib/x11 -Fugui -Fureportengine`
+
+==== Include File Paths (-Fi)
+
+Include files (`*.inc`) need separate `-Fi` compiler arguments.
+
+**Auto-detection:**
+
+Same algorithm as unit paths, but for directories containing `*.inc` files.
+
+**Example:**
+```
+src/main/pascal/
+├── corelib/
+│   ├── fpg_defines.inc        ← Contains include file
+│   ├── keys.inc               ← Contains include file
+│   └── x11/
+│       └── x11_keys.inc       ← Contains include file (UNIX only)
+```
+
+**Generated compiler flags:**
+```bash
+-Ficorelib              # Has *.inc files
+-Ficorelib/x11          # Has *.inc files (UNIX only)
+```
+
+**Conditional filtering applies to -Fi paths too!**
+
+==== Supported Conditions
+
+**FPC Built-in Platform Defines:**
+
+* `UNIX` - All Unix-like systems (Linux, FreeBSD, macOS)
+* `LINUX` - Linux specifically
+* `FREEBSD` - FreeBSD specifically
+* `DARWIN` - macOS / iOS
+* `WINDOWS` - All Windows versions
+* `WIN32` - 32-bit Windows
+* `WIN64` - 64-bit Windows
+
+**Custom Defines:**
+
+Conditions can also reference custom defines from `<defines>`:
+
+[source,xml]
+----
+<build>
+  <defines>
+    <define>USE_OPENGL</define>
+  </defines>
+
+  <unitPaths>
+    <path condition="USE_OPENGL">rendering/opengl</path>
+  </unitPaths>
+</build>
+----
+
+NOTE: Custom define conditions evaluated at **PasBuild runtime**, not FPC compile time.
+
+==== Advantages of This Approach
+
+✅ **Minimal configuration** - Only specify exceptions, not everything
+
+✅ **Convention over configuration** - Auto-scan works for most projects
+
+✅ **Selective filtering** - Platform-specific directories conditionally included
+
+✅ **Future-proof** - Adding new directories requires no config changes
+
+✅ **Handles include files** - `-Fi` paths automatically detected and filtered
+
+✅ **Works with profiles** - Conditions can reference profile defines
+
+==== Comparison: Manual vs Auto-Scan Filtering
+
+**Manual enumeration (NOT recommended):**
+[source,xml]
+----
+<build>
+  <manualUnitPaths>true</manualUnitPaths>
+  <unitPaths>
+    <path>corelib</path>
+    <path>corelib/subdir1</path>
+    <path>corelib/subdir2</path>
+    <path>gui</path>
+    <path>gui/widgets</path>
+    <path>gui/dialogs</path>
+    <path>reportengine</path>
+    <!-- ... 50 more paths ... -->
+    <path condition="UNIX">corelib/x11</path>
+    <path condition="WINDOWS">corelib/gdi</path>
+  </unitPaths>
+</build>
+----
+❌ Laborious, error-prone, requires updates when adding directories
+
+**Auto-scan with filtering (RECOMMENDED):**
+[source,xml]
+----
+<build>
+  <unitPaths>
+    <!-- Only 3 lines! -->
+    <path condition="UNIX">corelib/x11</path>
+    <path condition="WINDOWS">corelib/gdi</path>
+    <path condition="DARWIN">corelib/cocoa</path>
+  </unitPaths>
+</build>
+----
+✅ Minimal, maintainable, automatic
+
+==== References
+
+* https://linux.die.net/man/1/fpc[FPC Compiler Manual]
+* https://manpages.ubuntu.com/manpages/bionic/man5/fpc-3.0.4.cfg.5.html[FPC Configuration File]
+
+=== 3. Auto-Generated Bootstrap Program
+
+For library projects, auto-generate a bootstrap program to compile all units.
+
+==== Generation Strategy
+
+**When:** During `compile` goal for `projectType=library`
+
+**Location:** `target/bootstrap_program.pas` (temporary, not committed)
+
+**Contents:**
+[source,pascal]
+----
+program bootstrap_program;
+
+{$mode objfpc}{$H+}
+
+uses
+  Unit1, Unit2, Unit3, ..., UnitN;
+
+begin
+  WriteLn('Library bootstrap compilation successful');
+end.
+----
+
+==== Unit Discovery Algorithm
+
+[source]
+----
+1. Scan all directories in <unitPaths> (respecting conditions)
+2. Find all *.pas files
+3. Filter out:
+   - Files already named *_program.pas or *_bootstrap*.pas
+   - Files in excluded directories
+4. Extract unit names from files (parse "unit UnitName;" declaration)
+5. Sort alphabetically for consistency
+6. Generate bootstrap program with all units in uses clause
+----
+
+==== Advantages
+
+* **Validates compilation** - All units must compile
+* **Dependency resolution** - FPC handles unit dependencies automatically
+* **Type checking** - Verifies unit interfaces are compatible
+* **No manual maintenance** - Auto-generated on each build
+
+==== Potential Issues & Solutions
+
+**Issue 1:** Circular dependencies
+
+* **Solution:** FPC will detect and report them (same as manual compilation)
+
+**Issue 2:** Units with initialization sections that conflict
+
+* **Solution:** Bootstrap program doesn't call anything, just includes units
+* **Mitigation:** Add `<excludeFromBootstrap>` config if needed
+
+**Issue 3:** Very large projects (1000+ units)
+
+* **Solution:** FPC handles this fine (fpGUI has ~100 units)
+* **Optimization:** Cache bootstrap program if source files unchanged
+
+=== 4. Library Packaging Strategy
+
+==== Option A: Package Compiled Units (.ppu files)
+
+**Archive contents:**
+[source]
+----
+fpgui-2.0.0.zip
+├── units/
+│   ├── fpg_base.ppu
+│   ├── fpg_base.o
+│   ├── fpg_main.ppu
+│   ├── fpg_main.o
+│   └── ...
+├── LICENSE
+└── README.md
+----
+
+**Pros:**
+
+* Users can link against pre-compiled units
+* Faster compilation for library users
+
+**Cons:**
+
+* Platform-specific (Linux .ppu won't work on Windows)
+* FPC version-specific (.ppu format can change)
+* Not human-readable
+
+==== Option B: Package Source Code Only
+
+**Archive contents:**
+[source]
+----
+fpgui-2.0.0-src.zip
+├── src/
+│   └── main/
+│       └── pascal/
+│           ├── corelib/
+│           │   ├── fpg_base.pas
+│           │   ├── x11/
+│           │   ├── gdi/
+│           │   └── cocoa/
+│           └── gui/
+├── project.xml
+├── LICENSE
+└── README.md
+----
+
+**Pros:**
+
+* Cross-platform (works everywhere)
+* FPC version-independent
+* Human-readable
+* Matches Maven's `-sources.jar` approach
+
+**Cons:**
+
+* Users must compile library themselves
+* Larger archive size
+
+==== Option C: Both (Recommended)
+
+**Multiple package artifacts:**
+
+[source,shell]
+----
+pasbuild package           # Creates source archive (default for libraries)
+pasbuild package -p binary # Creates binary (.ppu) archive
+----
+
+**Artifacts created:**
+[source]
+----
+fpgui-2.0.0-src.zip        # Source code
+fpgui-2.0.0-linux-x64.zip  # Compiled units for Linux
+----
+
+**Implementation:**
+
+* Default `package` goal for libraries creates source archive
+* Add `<packageBinary>true</packageBinary>` or `-p binary` flag for compiled units
+* Binary archives include platform/arch in filename
+
+==== Recommended: Option B (Sources Only) for MVP
+
+Simpler to implement, more portable. Add binary packaging in Phase 5.
+
+== Implementation Plan
+
+=== Phase 1: Configuration Schema Extensions
+
+**Files to modify:**
+
+* `PasBuild.Types.pas` - Add types for project type and conditional paths
+* `PasBuild.Config.pas` - Parse new XML elements
+
+**New Types:**
+
+[source,pascal]
+----
+type
+  TProjectType = (ptApplication, ptLibrary);
+
+  TConditionalPath = class
+  private
+    FPath: string;
+    FCondition: string;  // Empty string = unconditional
+  public
+    property Path: string read FPath write FPath;
+    property Condition: string read FCondition write FCondition;
+  end;
+
+  TConditionalPathList = specialize TFPGObjectList<TConditionalPath>;
+
+  TBuildConfig = class
+  private
+    FProjectType: TProjectType;
+    FLibraryName: string;
+    FUnitPaths: TConditionalPathList;
+    FManualUnitPaths: Boolean;  // If true, disable auto-scan
+  public
+    constructor Create;
+    destructor Destroy; override;
+
+    property ProjectType: TProjectType read FProjectType write FProjectType;
+    property LibraryName: string read FLibraryName write FLibraryName;
+    property UnitPaths: TConditionalPathList read FUnitPaths;
+    property ManualUnitPaths: Boolean read FManualUnitPaths write FManualUnitPaths;
+  end;
+----
+
+**XML Schema:**
+
+[source,xml]
+----
+<build>
+  <projectType>library</projectType>  <!-- application|library -->
+  <mainSource>fpg_base.pas</mainSource>
+  <libraryName>fpgui</libraryName>
+  <outputDirectory>target</outputDirectory>
+
+  <manualUnitPaths>true</manualUnitPaths>  <!-- Disable auto-scan -->
+  <unitPaths>
+    <path>corelib</path>
+    <path>gui</path>
+    <path>reportengine</path>
+    <path condition="UNIX">corelib/x11</path>
+    <path condition="WINDOWS">corelib/gdi</path>
+    <path condition="DARWIN">corelib/cocoa</path>
+  </unitPaths>
+</build>
+----
+
+=== Phase 2: Auto-Scan with Conditional Filtering
+
+**New utility functions:**
+
+[source,pascal]
+----
+// In PasBuild.Utils.pas
+class function TUtils.IsConditionMet(const ACondition: string): Boolean;
+class function TUtils.ScanForUnitPathsFiltered(
+  const ABasePath: string;
+  AConditionalPaths: TConditionalPathList
+): TStringList;
+class function TUtils.ScanForIncludePathsFiltered(
+  const ABasePath: string;
+  AConditionalPaths: TConditionalPathList
+): TStringList;
+----
+
+**IsConditionMet Implementation:**
+
+[source,pascal]
+----
+class function TUtils.IsConditionMet(const ACondition: string): Boolean;
+begin
+  if ACondition = '' then
+    Exit(True);  // Unconditional path
+
+  case UpperCase(ACondition) of
+    'UNIX':    Result := {$IFDEF UNIX}True{$ELSE}False{$ENDIF};
+    'LINUX':   Result := {$IFDEF LINUX}True{$ELSE}False{$ENDIF};
+    'FREEBSD': Result := {$IFDEF FREEBSD}True{$ELSE}False{$ENDIF};
+    'DARWIN':  Result := {$IFDEF DARWIN}True{$ELSE}False{$ENDIF};
+    'WINDOWS': Result := {$IFDEF WINDOWS}True{$ELSE}False{$ENDIF};
+    'WIN32':   Result := {$IFDEF WIN32}True{$ELSE}False{$ENDIF};
+    'WIN64':   Result := {$IFDEF WIN64}True{$ELSE}False{$ENDIF};
+  else
+    // Unknown condition - could be custom define
+    // Check against global defines and profile defines
+    Result := IsDefineActive(ACondition);
+  end;
+end;
+----
+
+**Auto-Scan with Filtering Algorithm:**
+
+[source,pascal]
+----
+class function TUtils.ScanForUnitPathsFiltered(
+  const ABasePath: string;
+  AConditionalPaths: TConditionalPathList
+): TStringList;
+var
+  AllPaths: TStringList;
+  Path: string;
+  ConditionalPath: TConditionalPath;
+  RelativePath: string;
+  IsConditional: Boolean;
+  ConditionMet: Boolean;
+begin
+  Result := TStringList.Create;
+  Result.Duplicates := dupIgnore;
+  Result.Sorted := True;
+
+  // 1. Auto-scan all directories
+  AllPaths := ScanForUnitPaths(ABasePath);
+  try
+    for Path in AllPaths do
+    begin
+      // Get path relative to base
+      RelativePath := ExtractRelativePath(ABasePath, Path);
+
+      // 2. Check if this path matches any conditional path
+      IsConditional := False;
+      ConditionMet := False;
+
+      for ConditionalPath in AConditionalPaths do
+      begin
+        // Check if path starts with conditional path
+        if AnsiStartsStr(ConditionalPath.Path, RelativePath) then
+        begin
+          IsConditional := True;
+          ConditionMet := IsConditionMet(ConditionalPath.Condition);
+          Break;  // First match wins
+        end;
+      end;
+
+      // 3. Include path based on condition
+      if IsConditional then
+      begin
+        // Conditional path - include only if condition is TRUE
+        if ConditionMet then
+          Result.Add(Path);
+      end
+      else
+      begin
+        // Non-conditional path - always include
+        Result.Add(Path);
+      end;
+    end;
+  finally
+    AllPaths.Free;
+  end;
+end;
+----
+
+**Include File Paths (-Fi) with Filtering:**
+
+[source,pascal]
+----
+class function TUtils.ScanForIncludePathsFiltered(
+  const ABasePath: string;
+  AConditionalPaths: TConditionalPathList
+): TStringList;
+var
+  SearchRec: TSearchRec;
+  DirList: TStringList;
+  Dir: string;
+  RelativePath: string;
+  ConditionalPath: TConditionalPath;
+  IsConditional, ConditionMet: Boolean;
+begin
+  Result := TStringList.Create;
+  Result.Duplicates := dupIgnore;
+  Result.Sorted := True;
+
+  // 1. Get all directories
+  DirList := ScanForUnitPaths(ABasePath);
+  try
+    for Dir in DirList do
+    begin
+      // 2. Check if directory contains *.inc files
+      if FindFirst(Dir + DirectorySeparator + '*.inc', faAnyFile, SearchRec) = 0 then
+      begin
+        FindClose(SearchRec);
+
+        // 3. Apply conditional filtering (same logic as unit paths)
+        RelativePath := ExtractRelativePath(ABasePath, Dir);
+        IsConditional := False;
+        ConditionMet := False;
+
+        for ConditionalPath in AConditionalPaths do
+        begin
+          if AnsiStartsStr(ConditionalPath.Path, RelativePath) then
+          begin
+            IsConditional := True;
+            ConditionMet := IsConditionMet(ConditionalPath.Condition);
+            Break;
+          end;
+        end;
+
+        // Include if non-conditional OR condition is met
+        if (not IsConditional) or ConditionMet then
+          Result.Add(Dir);
+      end;
+    end;
+  finally
+    DirList.Free;
+  end;
+end;
+----
+
+**Usage in Compile Command:**
+
+[source,pascal]
+----
+function TCompileCommand.BuildCompilerCommand: string;
+var
+  UnitPaths, IncludePaths: TStringList;
+  Path: string;
+begin
+  Result := 'fpc -Mobjfpc -O1';
+
+  // ... other flags ...
+
+  // Add unit search paths with conditional filtering
+  UnitPaths := TUtils.ScanForUnitPathsFiltered(
+    'src/main/pascal',
+    Config.BuildConfig.UnitPaths
+  );
+  try
+    for Path in UnitPaths do
+      Result := Result + ' -Fu' + TUtils.NormalizePath(Path);
+  finally
+    UnitPaths.Free;
+  end;
+
+  // Add include file paths with conditional filtering
+  IncludePaths := TUtils.ScanForIncludePathsFiltered(
+    'src/main/pascal',
+    Config.BuildConfig.UnitPaths
+  );
+  try
+    for Path in IncludePaths do
+      Result := Result + ' -Fi' + TUtils.NormalizePath(Path);
+  finally
+    IncludePaths.Free;
+  end;
+
+  // ... rest of compiler flags ...
+end;
+----
+
+=== Phase 3: Bootstrap Program Generation
+
+**New file:** `PasBuild.Bootstrap.pas`
+
+**Key functions:**
+
+[source,pascal]
+----
+type
+  TBootstrapGenerator = class
+  public
+    class function GenerateBootstrapProgram(
+      AConfig: TProjectConfig;
+      const AOutputPath: string
+    ): Boolean;
+  private
+    class function DiscoverUnits(
+      const AUnitPaths: TConditionalPathList
+    ): TStringList;
+    class function ParseUnitName(const AFilePath: string): string;
+  end;
+----
+
+**Algorithm:**
+
+[source,pascal]
+----
+class function TBootstrapGenerator.GenerateBootstrapProgram(
+  AConfig: TProjectConfig; const AOutputPath: string): Boolean;
+var
+  Units: TStringList;
+  BootstrapCode: string;
+  F: TextFile;
+  UnitName: string;
+begin
+  // 1. Discover all units
+  Units := DiscoverUnits(AConfig.BuildConfig.UnitPaths);
+  try
+    // 2. Generate bootstrap program code
+    BootstrapCode := 'program bootstrap_program;' + LineEnding +
+                     '' + LineEnding +
+                     '{$mode objfpc}{$H+}' + LineEnding +
+                     '' + LineEnding +
+                     'uses' + LineEnding;
+
+    for UnitName in Units do
+      BootstrapCode := BootstrapCode + '  ' + UnitName + ',' + LineEnding;
+
+    // Remove last comma
+    Delete(BootstrapCode, Length(BootstrapCode) - 1, 1);
+    BootstrapCode := BootstrapCode + ';' + LineEnding + LineEnding;
+
+    BootstrapCode := BootstrapCode +
+                     'begin' + LineEnding +
+                     '  WriteLn(''Library bootstrap compilation successful'');' + LineEnding +
+                     'end.' + LineEnding;
+
+    // 3. Write to file
+    AssignFile(F, AOutputPath);
+    Rewrite(F);
+    Write(F, BootstrapCode);
+    CloseFile(F);
+
+    Result := True;
+  finally
+    Units.Free;
+  end;
+end;
+----
+
+=== Phase 4: Compile Command Modifications
+
+**File:** `PasBuild.Command.Compile.pas`
+
+**Changes:**
+
+[source,pascal]
+----
+function TCompileCommand.Execute: Integer;
+var
+  BootstrapPath: string;
+begin
+  // Existing validation...
+
+  // NEW: For library projects, generate bootstrap program
+  if Config.BuildConfig.ProjectType = ptLibrary then
+  begin
+    TUtils.LogInfo('Generating bootstrap program for library...');
+    BootstrapPath := OutputDir + DirectorySeparator + 'bootstrap_program.pas';
+
+    if not TBootstrapGenerator.GenerateBootstrapProgram(Config, BootstrapPath) then
+    begin
+      TUtils.LogError('Failed to generate bootstrap program');
+      Result := 1;
+      Exit;
+    end;
+
+    // Temporarily override mainSource for compilation
+    MainSourcePath := BootstrapPath;
+  end;
+
+  // Continue with existing compile logic...
+end;
+----
+
+=== Phase 5: Package Command Modifications
+
+**File:** `PasBuild.Command.Package.pas`
+
+**Library packaging strategy:**
+
+[source,pascal]
+----
+function TPackageCommand.CreateArchive(const AArchiveName: string): Integer;
+begin
+  if Config.BuildConfig.ProjectType = ptLibrary then
+  begin
+    // Package source code instead of executable
+    Result := CreateSourceArchive(AArchiveName);
+  end
+  else
+  begin
+    // Existing application packaging logic
+    Result := CreateBinaryArchive(AArchiveName);
+  end;
+end;
+
+function TPackageCommand.CreateSourceArchive(const AArchiveName: string): Integer;
+var
+  Zip: TZipper;
+  SourceFiles: TStringList;
+begin
+  // Include:
+  // - All .pas files from src/
+  // - project.xml
+  // - LICENSE
+  // - README
+  // - BOOTSTRAP.txt (for library users)
+
+  // Exclude:
+  // - target/ directory
+  // - .git/
+  // - Editor files
+end;
+----
+
+=== Phase 6: Testing
+
+**Test cases:**
+
+1. **fpGUI library project**
+   * Configure as library with conditional paths
+   * Verify bootstrap generation
+   * Verify compilation succeeds
+   * Verify package creates source archive
+
+2. **Cross-platform detection**
+   * Test on Linux (UNIX path included)
+   * Test on Windows (WINDOWS path included)
+   * Verify wrong platform paths excluded
+
+3. **Application projects**
+   * Verify existing application projects still work
+   * No regression in compile/package goals
+
+== Configuration Examples
+
+=== fpGUI Library Example
+
+[source,xml]
+----
+<?xml version="1.0" encoding="UTF-8"?>
+<project>
+  <name>fpGUI Toolkit</name>
+  <version>2.0.0</version>
+  <author>Graeme Geldenhuys</author>
+  <license>BSD-3-Clause</license>
+
+  <build>
+    <projectType>library</projectType>
+    <mainSource>fpg_base.pas</mainSource>
+    <libraryName>fpgui</libraryName>
+    <outputDirectory>target</outputDirectory>
+
+    <manualUnitPaths>true</manualUnitPaths>
+    <unitPaths>
+      <path>corelib</path>
+      <path>corelib/render</path>
+      <path>gui</path>
+      <path>reportengine</path>
+
+      <!-- Platform-specific paths -->
+      <path condition="UNIX">corelib/x11</path>
+      <path condition="WINDOWS">corelib/gdi</path>
+      <path condition="DARWIN">corelib/cocoa</path>
+    </unitPaths>
+  </build>
+
+  <profiles>
+    <profile>
+      <id>debug</id>
+      <defines>
+        <define>DEBUG</define>
+      </defines>
+      <compilerOptions>
+        <option>-g</option>
+        <option>-gl</option>
+      </compilerOptions>
+    </profile>
+  </profiles>
+</project>
+----
+
+=== Cross-Platform Application with Conditional Paths
+
+[source,xml]
+----
+<build>
+  <projectType>application</projectType>
+  <mainSource>Main.pas</mainSource>
+  <executableName>myapp</executableName>
+
+  <unitPaths>
+    <path>common</path>
+    <path condition="UNIX">unix_specific</path>
+    <path condition="WINDOWS">windows_specific</path>
+  </unitPaths>
+</build>
+----
+
+== Implementation Phases
+
+=== Immediate (Now)
+
+**Quick workaround for fpGUI:**
+
+1. Add `<manualUnitPaths>` and `<unitPaths>` support
+2. Platform detection for conditional paths
+3. Document workaround with manual bootstrap program
+
+**Estimated effort:** 2-4 hours
+
+=== Phase 5.1: Library Support (Future Enhancement)
+
+1. Add `<projectType>library</projectType>` configuration
+2. Implement bootstrap program generation
+3. Modify compile command for library projects
+4. Modify package command for source archives
+
+**Estimated effort:** 1-2 days
+
+=== Phase 5.2: Binary Library Packaging (Future)
+
+1. Package compiled `.ppu` files
+2. Platform/architecture-specific archives
+3. Multiple artifact support
+
+**Estimated effort:** 4-6 hours
+
+== Questions for Decision
+
+1. **Bootstrap program naming:**
+   * `target/bootstrap_program.pas` ✓ (recommended)
+   * `target/<libraryName>_bootstrap.pas`
+
+2. **Source archive naming:**
+   * `<name>-<version>-src.zip` ✓ (Maven convention)
+   * `<name>-<version>-source.zip`
+
+3. **Condition evaluation:**
+   * Compile-time (FPC defines) ✓ (recommended)
+   * Runtime (read from environment)
+
+4. **Unknown conditions:**
+   * Include path (let FPC decide) ✓ (recommended)
+   * Exclude path (strict validation)
+   * Warning message
+
+== Success Criteria
+
+Library support is successful when:
+
+1. ✅ fpGUI can be configured without manual bootstrap program
+2. ✅ Platform-specific directories correctly included/excluded
+3. ✅ Bootstrap program automatically generated
+4. ✅ All fpGUI units compile successfully
+5. ✅ Source archive created with correct contents
+6. ✅ Existing application projects unaffected
+7. ✅ Documentation updated with library examples
+
+== References
+
+* https://maven.apache.org/plugins/maven-jar-plugin/usage.html[Apache Maven JAR Plugin]
+* https://maven.apache.org/plugins/maven-source-plugin/jar-mojo.html[Maven Source Plugin]
+* https://www.freepascal.org/tools/fpcmake.html[FPCMAKE - Free Pascal Makefile generator]
+* https://manpages.ubuntu.com/manpages/bionic/man5/fpcmake-3.0.4.5.html[Makefile.fpc manpage]
