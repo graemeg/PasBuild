@@ -126,6 +126,7 @@ pasbuild init
 
 [source]
 ----
+Project type (application/library) [application]:
 Project name [myapp]: MyApplication
 Version [1.0.0]:
 Author [yourusername]: Your Name
@@ -134,7 +135,7 @@ License (MIT/BSD-3-Clause/GPL-3.0/Apache-2.0/Proprietary) [MIT]: BSD-3-Clause
 
 Press ENTER to accept defaults shown in square brackets.
 
-**Generated Structure:**
+**Generated Structure (Application):**
 
 [source]
 ----
@@ -145,6 +146,19 @@ myapp/
     └── main/
         └── pascal/
             └── Main.pas
+----
+
+**Generated Structure (Library):**
+
+[source]
+----
+mylib/
+├── project.xml
+├── LICENSE
+└── src/
+    └── main/
+        └── pascal/
+            (empty - add your library units here)
 ----
 
 === Manual Project Setup
@@ -515,6 +529,7 @@ pasbuild init
 
 **Interactive prompts** for:
 
+* Project type (default: application)
 * Project name (default: current directory name)
 * Version (default: 1.0.0)
 * Author (default: $USER or $USERNAME)
@@ -522,9 +537,14 @@ pasbuild init
 
 **What it creates:**
 
-* `project.xml` - Project configuration
-* `src/main/pascal/Main.pas` - Hello World template
+* `project.xml` - Project configuration with appropriate projectType
+* `src/main/pascal/Main.pas` - Hello World template (application only)
 * `LICENSE` - Full license text (MIT, BSD-3-Clause, or Proprietary)
+
+**Project type behavior:**
+
+* **Application**: Creates Main.pas, includes mainSource and executableName in XML
+* **Library**: No Main.pas created, minimal XML (bootstrap auto-generated at compile time)
 
 **Error handling:**
 
