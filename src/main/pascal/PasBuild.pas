@@ -35,6 +35,7 @@ var
 
 begin
   WriteLn('[INFO] PasBuild ', PASBUILD_VERSION);
+  WriteLn('[INFO] Copyright (c) 2025 by Graeme Geldenhuys');
   WriteLn;
 
   // Parse command line arguments

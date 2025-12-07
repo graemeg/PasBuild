@@ -46,6 +46,9 @@ type
 
 implementation
 
+uses
+  PasBuild.Utils;
+
 { TArgumentParser }
 
 class function TArgumentParser.GoalFromString(const AGoalStr: string): TBuildGoal;
@@ -186,8 +189,7 @@ begin
   WriteLn;
 
   // Try to detect FPC version
-  // Note: This will be implemented in PasBuild.Utils later
-  WriteLn('For FPC version detection, run: fpc -iV');
+  WriteLn('FPC version detected (fpc -iV): ', TUtils.DetectFPCVersion());
   WriteLn;
 end;
 
