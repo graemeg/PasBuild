@@ -79,6 +79,36 @@ sudo cp target/PasBuild /usr/local/bin/pasbuild
 
 Download the latest release from GitHub Releases and extract to your PATH.
 
+== Project Types
+
+PasBuild supports two types of projects:
+
+1. **Application Projects** - Executable programs with a main entry point
+2. **Library Projects** - Frameworks/libraries consisting only of units (no executable)
+
+=== Application vs Library
+
+[cols="1,2,2"]
+|===
+|Aspect |Application |Library
+
+|Main Source
+|Required: must be `program` unit
+|Optional: auto-generated bootstrap program
+
+|Compilation Output
+|Executable binary
+|Compiled units (.ppu files)
+
+|Package Contents
+|Executable + LICENSE + README
+|Source code or compiled units
+
+|Bootstrap Program
+|Not needed
+|Auto-generated in target/
+|===
+
 == Creating Your First Project
 
 === Using `pasbuild init`
@@ -163,6 +193,51 @@ begin
   WriteLn('Hello from MyApplication!');
 end.
 ----
+
+=== Creating a Library Project
+
+Library projects (frameworks, toolkits) don't have a main program. PasBuild automatically generates a bootstrap program to compile all units.
+
+**1. Create `project.xml` for a library:**
+
+[source,xml]
+----
+<?xml version="1.0" encoding="UTF-8"?>
+<project>
+  <name>MyLibrary</name>
+  <version>1.0.0</version>
+  <author>Your Name</author>
+  <license>BSD-3-Clause</license>
+
+  <build>
+    <projectType>library</projectType>
+    <outputDirectory>target</outputDirectory>
+  </build>
+</project>
+----
+
+**2. Add your library units:**
+
+[source]
+----
+src/main/pascal/
+├── MyLib.Core.pas
+├── MyLib.Utils.pas
+└── MyLib.Types.pas
+----
+
+**3. Compile:**
+
+[source,shell]
+----
+pasbuild compile
+----
+
+PasBuild will:
+
+1. Auto-discover all .pas files
+2. Generate `target/bootstrap_program.pas` with all units in uses clause
+3. Compile the bootstrap to verify all units compile successfully
 
 == Building Your Project
 
@@ -260,6 +335,99 @@ In your Pascal code:
   // Release-specific code
 {$ENDIF}
 ----
+
+== Advanced Features
+
+=== Platform-Specific Code with Conditional Paths
+
+For cross-platform projects with platform-specific directories, use conditional unit paths.
+
+**Example: Cross-Platform GUI Library**
+
+[source]
+----
+src/main/pascal/
+├── core/
+│   ├── MyLib.Base.pas       ← Always included
+│   ├── MyLib.Common.pas     ← Always included
+│   ├── x11/                 ← Linux/FreeBSD only
+│   │   └── MyLib.X11.pas
+│   ├── gdi/                 ← Windows only
+│   │   └── MyLib.GDI.pas
+│   └── cocoa/               ← macOS only
+│       └── MyLib.Cocoa.pas
+----
+
+**Configure conditional paths in `project.xml`:**
+
+[source,xml]
+----
+<build>
+  <projectType>library</projectType>
+  <outputDirectory>target</outputDirectory>
+
+  <unitPaths>
+    <!-- Only specify platform-specific paths -->
+    <!-- PasBuild auto-scans everything else -->
+    <path condition="UNIX">core/x11</path>
+    <path condition="WINDOWS">core/gdi</path>
+    <path condition="DARWIN">core/cocoa</path>
+  </unitPaths>
+</build>
+----
+
+**How it works:**
+
+1. PasBuild auto-scans all directories (core/, etc.)
+2. For conditional paths:
+   - On Linux: includes `core/x11/`, excludes `core/gdi/` and `core/cocoa/`
+   - On Windows: includes `core/gdi/`, excludes `core/x11/` and `core/cocoa/`
+   - On macOS: includes `core/cocoa/`, excludes `core/x11/` and `core/gdi/`
+3. Non-conditional directories always included
+
+**Supported platform conditions:**
+
+* `UNIX` - All Unix-like systems (Linux, FreeBSD, macOS)
+* `LINUX` - Linux specifically
+* `FREEBSD` - FreeBSD specifically
+* `DARWIN` - macOS / iOS
+* `WINDOWS` - All Windows versions
+* `WIN32` - 32-bit Windows
+* `WIN64` - 64-bit Windows
+* Custom defines from `<defines>` or profiles
+
+**Include files (*.inc):**
+
+PasBuild automatically detects directories containing `*.inc` files and adds them as include paths (`-Fi`). The same conditional filtering applies - if a platform-specific directory contains `.inc` files, it's only added as an include path when that platform's condition is met.
+
+=== Manual Unit Path Control
+
+By default, PasBuild auto-scans all subdirectories. For explicit control, use manual mode:
+
+[source,xml]
+----
+<build>
+  <manualUnitPaths>true</manualUnitPaths>
+
+  <unitPaths>
+    <!-- Must list ALL paths explicitly -->
+    <path>core</path>
+    <path>gui</path>
+    <path>utils</path>
+    <!-- Platform-specific paths still support conditions -->
+    <path condition="UNIX">core/x11</path>
+    <path condition="WINDOWS">core/gdi</path>
+  </unitPaths>
+</build>
+----
+
+**When to use manual mode:**
+
+* Large projects where auto-scan is slow
+* Need explicit control over compilation order
+* Want to exclude certain directories from compilation
+
+**Note:** Manual mode still respects conditional filtering for listed paths.
 
 == Available Goals
 
@@ -382,7 +550,7 @@ If `project.xml` already exists, returns error: `"Project already initialized"`
 </project>
 ----
 
-=== Full Configuration
+=== Full Configuration (Application)
 
 [source,xml]
 ----
@@ -396,6 +564,9 @@ If `project.xml` already exists, returns error: `"Project already initialized"`
 
   <!-- Build Configuration -->
   <build>
+    <!-- Project type (application or library, default: application) -->
+    <projectType>application</projectType>
+
     <!-- Main source file in src/main/pascal/ -->
     <mainSource>Main.pas</mainSource>
 
@@ -410,6 +581,14 @@ If `project.xml` already exists, returns error: `"Project already initialized"`
       <define>UseCThreads</define>
       <define>MYAPP_FEATURE_X</define>
     </defines>
+
+    <!-- Conditional unit paths (platform-specific directories) -->
+    <!-- Include paths (*.inc) are auto-detected with same filtering -->
+    <unitPaths>
+      <path condition="UNIX">platform/x11</path>
+      <path condition="WINDOWS">platform/gdi</path>
+      <path condition="DARWIN">platform/cocoa</path>
+    </unitPaths>
   </build>
 
   <!-- Build Profiles -->
@@ -438,6 +617,65 @@ If `project.xml` already exists, returns error: `"Project already initialized"`
         <option>-CX</option>       <!-- Smart linking -->
         <option>-XX</option>       <!-- Strip symbols -->
         <option>-Xs</option>       <!-- Strip all -->
+      </compilerOptions>
+    </profile>
+  </profiles>
+</project>
+----
+
+=== Full Configuration (Library)
+
+[source,xml]
+----
+<?xml version="1.0" encoding="UTF-8"?>
+<project>
+  <!-- Project Metadata -->
+  <name>MyLibrary</name>
+  <version>1.0.0</version>
+  <author>Your Name</author>
+  <license>BSD-3-Clause</license>
+
+  <!-- Build Configuration -->
+  <build>
+    <!-- Library project - no mainSource needed -->
+    <projectType>library</projectType>
+    <outputDirectory>target</outputDirectory>
+
+    <!-- Global defines -->
+    <defines>
+      <define>UseCThreads</define>
+    </defines>
+
+    <!-- Platform-specific unit paths -->
+    <!-- Bootstrap program auto-generated with all discovered units -->
+    <unitPaths>
+      <path condition="UNIX">corelib/x11</path>
+      <path condition="WINDOWS">corelib/gdi</path>
+      <path condition="DARWIN">corelib/cocoa</path>
+    </unitPaths>
+  </build>
+
+  <!-- Build Profiles -->
+  <profiles>
+    <profile>
+      <id>debug</id>
+      <defines>
+        <define>DEBUG</define>
+      </defines>
+      <compilerOptions>
+        <option>-g</option>
+        <option>-gl</option>
+      </compilerOptions>
+    </profile>
+
+    <profile>
+      <id>release</id>
+      <defines>
+        <define>RELEASE</define>
+      </defines>
+      <compilerOptions>
+        <option>-O3</option>
+        <option>-CX</option>
       </compilerOptions>
     </profile>
   </profiles>

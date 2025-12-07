@@ -16,60 +16,113 @@ Analysis and implementation plan for supporting library/framework projects in Pa
 |===
 | Phase | Status | Notes
 
+| Phase 1: Configuration Schema
+| ✅ **COMPLETED**
+| TProjectType enum, TConditionalPath, and manualUnitPaths fully implemented and tested.
+
 | Phase 2: Conditional Path Filtering
 | ✅ **COMPLETED**
 | Auto-scan with conditional filtering for unit paths and include paths fully implemented and tested. Zero memory leaks verified with -gh.
 
-| Phase 1: Configuration Schema
-| ⏸️ **PARTIAL**
-| TConditionalPath and parsing complete. ProjectType and LibraryName not yet implemented (future).
-
 | Phase 3: Bootstrap Generation
-| ⏳ **PENDING**
-| Awaiting full library project type support.
+| ✅ **COMPLETED**
+| Bootstrap program auto-generation with multi-line comment handling implemented and tested with fpGUI.
 
 | Phase 4: Compile Modifications
-| ⏳ **PENDING**
-| Conditional filtering integrated. Bootstrap generation for libraries pending.
+| ✅ **COMPLETED**
+| Library project compilation fully integrated with bootstrap generation. Successfully compiles fpGUI toolkit.
 
 | Phase 5: Package Modifications
 | ⏳ **PENDING**
-| Awaiting library project type support. Will use `-sources.zip` naming.
+| Will use `-sources.zip` naming for library source archives.
 
 | Phase 6: Testing
-| ⏸️ **PARTIAL**
-| Conditional filtering tested. Full library workflow pending.
+| ✅ **COMPLETED**
+| Tested with real-world fpGUI library project (112 units). All tests passing.
 |===
 
 === Completed Implementation Details
+
+**Phase 1 Deliverables (Completed):**
+
+* ✅ `TProjectType` enum (ptApplication, ptLibrary) in PasBuild.Types.pas
+* ✅ `<projectType>library</projectType>` XML parsing in PasBuild.Config.pas
+* ✅ `<manualUnitPaths>true</manualUnitPaths>` toggle to disable auto-scan
+* ✅ Updated validation: mainSource only required for application projects
+* ✅ Library projects can omit mainSource (auto-generated bootstrap used instead)
 
 **Phase 2 Deliverables (Completed):**
 
 * ✅ `TConditionalPath` class in PasBuild.Types.pas
 * ✅ `TConditionalPathList` collection type
 * ✅ `ParseConditionalPaths()` in PasBuild.Config.pas
-* ✅ `IsConditionMet()` - evaluates built-in FPC defines + custom defines
+* ✅ `IsConditionMet()` - evaluates built-in FPC defines + custom/profile defines
 * ✅ `ScanForUnitPathsFiltered()` - auto-scan with conditional filtering
 * ✅ `ScanForIncludePathsFiltered()` - *.inc file detection with filtering
+* ✅ `DirectoryContainsIncludeFiles()` - manual mode include detection
 * ✅ Updated TCompileCommand to use filtered scanning
 * ✅ Comprehensive tests in PasBuild.Test.Utils
 * ✅ Memory leak fixes (zero leaks verified with -gh)
 * ✅ Support for both built-in defines (UNIX, WINDOWS, etc.) and custom defines
+* ✅ Manual mode respects conditional filtering for listed paths
+
+**Phase 3 Deliverables (Completed):**
+
+* ✅ New unit: PasBuild.Bootstrap.pas with TBootstrapGenerator class
+* ✅ `ParseUnitName()` - extracts unit names from Pascal source files
+* ✅ Multi-line comment tracking ({ } and (* *)) to avoid parsing comment text
+* ✅ `DiscoverUnits()` - scans directories respecting manual/auto mode
+* ✅ `GenerateBootstrapProgram()` - creates bootstrap_program.pas in target/
+* ✅ Bootstrap includes all discovered units in uses clause
+* ✅ Respects manualUnitPaths and conditional path filtering
+
+**Phase 4 Deliverables (Completed):**
+
+* ✅ Compile command detects library project type
+* ✅ Auto-generates bootstrap before compilation for libraries
+* ✅ BuildCompilerCommand accepts source path parameter
+* ✅ Correctly passes bootstrap path for library projects
+* ✅ Successfully tested with fpGUI (112 units discovered and compiled)
 
 **Commits:**
 
 * `5d8b224` - Implement conditional path filtering for library project support
 * `5b5837f` - Fix memory leaks in dependency execution and path scanning
+* `73626d9` - Implement manualUnitPaths toggle for explicit path control
+* `9dce4a3` - Fix include file handling to respect manual mode
+* `2e61604` - Implement Phase 3: Bootstrap program generation for library projects
+* `7c9c0bf` - Fix bootstrap generator: Handle multi-line comments and pass correct source path
 
 **Current Capability:**
 
-PasBuild now supports conditional unit paths and include paths for **both application and library projects**. Users can filter platform-specific directories without manual enumeration.
+PasBuild now **fully supports library projects** with automatic bootstrap generation. Users can build library/framework projects without manually maintaining a bootstrap program. The system handles platform-specific conditional paths, respects manual vs auto-scan modes, and properly parses Pascal source files while skipping comment blocks.
 
-**Example Configuration (Works Today):**
+**Example Configuration - Library Project (Works Today):**
 
 [source,xml]
 ----
 <build>
+  <projectType>library</projectType>
+  <outputDirectory>target</outputDirectory>
+
+  <unitPaths>
+    <path condition="UNIX">corelib/x11</path>
+    <path condition="WINDOWS">corelib/gdi</path>
+    <path condition="DARWIN">corelib/cocoa</path>
+  </unitPaths>
+
+  <includePaths>
+    <path condition="UNIX">corelib/x11</path>
+  </includePaths>
+</build>
+----
+
+**Example Configuration - Application Project (Works Today):**
+
+[source,xml]
+----
+<build>
+  <projectType>application</projectType>
   <mainSource>Main.pas</mainSource>
   <executableName>myapp</executableName>
 
@@ -78,22 +131,15 @@ PasBuild now supports conditional unit paths and include paths for **both applic
     <path condition="WINDOWS">platform/gdi</path>
     <path condition="DARWIN">platform/cocoa</path>
   </unitPaths>
-
-  <includePaths>
-    <path condition="UNIX">platform/x11</path>
-  </includePaths>
 </build>
 ----
 
 === Future Work
 
-**Phase 1 - Full Schema (Not Yet Implemented):**
+**Phase 5 - Package Modifications (Not Yet Implemented):**
 
-* `<projectType>library</projectType>` configuration
-* `<libraryName>` field
-* `<manualUnitPaths>` toggle to disable auto-scan
-
-These features are **designed but not implemented**. Current workaround: Use application project type with conditional paths, provide manual bootstrap program if needed.
+* Source archive creation for library projects using `-sources.zip` naming
+* Optional binary (.ppu) packaging with platform-specific naming
 
 == Problem Statement
 
@@ -1146,19 +1192,20 @@ end;
 5. ✅ Comprehensive tests written and passing
 6. ✅ Documentation updated with examples
 
-=== Full Library Support Success Criteria (Pending)
+=== Full Library Support Success Criteria
 
-**Not Yet Completed:**
+**Completed:**
 
-1. ⏳ fpGUI can be configured without manual bootstrap program
-2. ⏳ Bootstrap program automatically generated
-3. ⏳ All fpGUI units compile successfully (needs testing with real fpGUI)
-4. ⏳ Source archive created with `-sources.zip` naming
-5. ⏳ Documentation with full library workflow examples
+1. ✅ fpGUI can be configured without manual bootstrap program
+2. ✅ Bootstrap program automatically generated (target/bootstrap_program.pas)
+3. ✅ All fpGUI units compile successfully (tested with real fpGUI - 112 units)
+4. ✅ Multi-line comment handling prevents comment text from being parsed as units
+5. ✅ Documentation with library workflow examples
 
-**Current Workaround:**
+**Remaining Work:**
 
-Users can configure conditional paths today, but must provide manual bootstrap program for library projects until Phase 3 (bootstrap generation) is implemented.
+1. ⏳ Source archive creation with `-sources.zip` naming (Phase 5)
+2. ⏳ Optional binary (.ppu) packaging (Phase 5 - future enhancement)
 
 == References
 
