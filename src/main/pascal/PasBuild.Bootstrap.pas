@@ -47,6 +47,9 @@ var
   F: TextFile;
   Line: string;
   UnitPos: Integer;
+  InBraceComment: Boolean;
+  InParenComment: Boolean;
+  CommentEndPos: Integer;
 begin
   Result := '';
 
@@ -57,14 +60,90 @@ begin
     AssignFile(F, AFilePath);
     Reset(F);
     try
+      InBraceComment := False;
+      InParenComment := False;
+
       // Read first few lines looking for "unit <name>;"
       while not EOF(F) and (Result = '') do
       begin
         ReadLn(F, Line);
         Line := Trim(Line);
 
-        // Skip empty lines and comments
-        if (Line = '') or AnsiStartsStr('//', Line) or AnsiStartsStr('{', Line) or AnsiStartsStr('(*', Line) then
+        // Skip empty lines
+        if Line = '' then
+          Continue;
+
+        // Track multi-line comment state for { ... }
+        if InBraceComment then
+        begin
+          CommentEndPos := Pos('}', Line);
+          if CommentEndPos > 0 then
+          begin
+            Delete(Line, 1, CommentEndPos);  // Remove everything up to and including }
+            Line := Trim(Line);
+            InBraceComment := False;
+            if Line = '' then
+              Continue;
+          end
+          else
+            Continue;  // Still inside comment block
+        end;
+
+        // Track multi-line comment state for (* ... *)
+        if InParenComment then
+        begin
+          CommentEndPos := Pos('*)', Line);
+          if CommentEndPos > 0 then
+          begin
+            Delete(Line, 1, CommentEndPos + 1);  // Remove everything up to and including *)
+            Line := Trim(Line);
+            InParenComment := False;
+            if Line = '' then
+              Continue;
+          end
+          else
+            Continue;  // Still inside comment block
+        end;
+
+        // Check if line starts a multi-line comment
+        if AnsiStartsStr('{', Line) then
+        begin
+          CommentEndPos := Pos('}', Line);
+          if CommentEndPos > 0 then
+          begin
+            // Single-line comment, remove it
+            Delete(Line, 1, CommentEndPos);
+            Line := Trim(Line);
+            if Line = '' then
+              Continue;
+          end
+          else
+          begin
+            InBraceComment := True;
+            Continue;
+          end;
+        end;
+
+        if AnsiStartsStr('(*', Line) then
+        begin
+          CommentEndPos := Pos('*)', Line);
+          if CommentEndPos > 0 then
+          begin
+            // Single-line comment, remove it
+            Delete(Line, 1, CommentEndPos + 1);
+            Line := Trim(Line);
+            if Line = '' then
+              Continue;
+          end
+          else
+          begin
+            InParenComment := True;
+            Continue;
+          end;
+        end;
+
+        // Skip single-line // comments
+        if AnsiStartsStr('//', Line) then
           Continue;
 
         // Look for "unit <name>;"

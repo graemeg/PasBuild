@@ -26,7 +26,7 @@ type
   TCompileCommand = class(TBuildCommand)
   protected
     function GetName: string; override;
-    function BuildCompilerCommand: string;
+    function BuildCompilerCommand(const ASourcePath: string): string;
   public
     function Execute: Integer; override;
   end;
@@ -40,9 +40,9 @@ begin
   Result := 'compile';
 end;
 
-function TCompileCommand.BuildCompilerCommand: string;
+function TCompileCommand.BuildCompilerCommand(const ASourcePath: string): string;
 var
-  SourcePath, OutputDir, ExeName: string;
+  OutputDir, ExeName: string;
   UnitPaths, IncludePaths, ActiveDefines: TStringList;
   UnitPath, IncludePath, Define, Option: string;
   Profile: TProfile;
@@ -53,9 +53,8 @@ begin
   // Base command with default flags
   Result := 'fpc -Mobjfpc -O1';
 
-  // Source file path (normalized for cross-platform)
-  SourcePath := TUtils.NormalizePath('src/main/pascal/' + Config.BuildConfig.MainSource);
-  Result := Result + ' ' + SourcePath;
+  // Source file path (passed as parameter)
+  Result := Result + ' ' + ASourcePath;
 
   // Output directory
   OutputDir := TUtils.NormalizePath(Config.BuildConfig.OutputDirectory);
@@ -290,7 +289,7 @@ begin
   end;
 
   // Build compiler command
-  Command := BuildCompilerCommand;
+  Command := BuildCompilerCommand(MainSourcePath);
 
   TUtils.LogInfo('Build command: ' + Command);
   WriteLn;
