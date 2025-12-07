@@ -27,11 +27,11 @@ type
     function PromptUser(const APrompt, ADefault: string): string;
     function GetDefaultProjectName: string;
     function GetDefaultAuthor: string;
-    function GenerateProjectXML(const AName, AVersion, AAuthor, ALicense: string): string;
+    function GenerateProjectXML(const AName, AVersion, AAuthor, ALicense, AProjectType: string): string;
     function GenerateMainPas(const AProjectName: string): string;
     function GenerateLicenseFile(const ALicense: string): string;
     function CreateDirectoryStructure: Boolean;
-    function WriteProjectFiles(const AName, AVersion, AAuthor, ALicense: string): Integer;
+    function WriteProjectFiles(const AName, AVersion, AAuthor, ALicense, AProjectType: string): Integer;
   protected
     function GetName: string; override;
   public
@@ -82,7 +82,7 @@ begin
     Result := 'Your Name';
 end;
 
-function TInitCommand.GenerateProjectXML(const AName, AVersion, AAuthor, ALicense: string): string;
+function TInitCommand.GenerateProjectXML(const AName, AVersion, AAuthor, ALicense, AProjectType: string): string;
 var
   ExeName: string;
 begin
@@ -96,10 +96,26 @@ begin
             '  <author>' + AAuthor + '</author>' + LineEnding +
             '  <license>' + ALicense + '</license>' + LineEnding +
             '' + LineEnding +
-            '  <build>' + LineEnding +
+            '  <build>' + LineEnding;
+
+  // Add project type
+  if AnsiLowerCase(AProjectType) = 'library' then
+  begin
+    Result := Result +
+            '    <projectType>library</projectType>' + LineEnding +
+            '    <outputDirectory>target</outputDirectory>' + LineEnding;
+  end
+  else
+  begin
+    // Application project (default)
+    Result := Result +
+            '    <projectType>application</projectType>' + LineEnding +
             '    <mainSource>Main.pas</mainSource>' + LineEnding +
             '    <executableName>' + ExeName + '</executableName>' + LineEnding +
-            '    <outputDirectory>target</outputDirectory>' + LineEnding +
+            '    <outputDirectory>target</outputDirectory>' + LineEnding;
+  end;
+
+  Result := Result +
             '  </build>' + LineEnding +
             '</project>' + LineEnding;
 end;
@@ -214,17 +230,18 @@ begin
   Result := True;
 end;
 
-function TInitCommand.WriteProjectFiles(const AName, AVersion, AAuthor, ALicense: string): Integer;
+function TInitCommand.WriteProjectFiles(const AName, AVersion, AAuthor, ALicense, AProjectType: string): Integer;
 var
   ProjectXML, MainPas, LicenseText: string;
   F: TextFile;
   MainPasPath: string;
+  IsLibrary: Boolean;
 begin
   Result := 0;
+  IsLibrary := AnsiLowerCase(AProjectType) = 'library';
 
   // Generate content
-  ProjectXML := GenerateProjectXML(AName, AVersion, AAuthor, ALicense);
-  MainPas := GenerateMainPas(AName);
+  ProjectXML := GenerateProjectXML(AName, AVersion, AAuthor, ALicense, AProjectType);
   LicenseText := GenerateLicenseFile(ALicense);
 
   // Write project.xml
@@ -243,21 +260,25 @@ begin
     end;
   end;
 
-  // Write Main.pas
-  MainPasPath := 'src' + DirectorySeparator + 'main' + DirectorySeparator +
-                 'pascal' + DirectorySeparator + 'Main.pas';
-  try
-    AssignFile(F, MainPasPath);
-    Rewrite(F);
-    Write(F, MainPas);
-    CloseFile(F);
-    TUtils.LogInfo('Created: ' + MainPasPath);
-  except
-    on E: Exception do
-    begin
-      TUtils.LogError('Failed to write Main.pas: ' + E.Message);
-      Result := 1;
-      Exit;
+  // Write Main.pas only for application projects
+  if not IsLibrary then
+  begin
+    MainPas := GenerateMainPas(AName);
+    MainPasPath := 'src' + DirectorySeparator + 'main' + DirectorySeparator +
+                   'pascal' + DirectorySeparator + 'Main.pas';
+    try
+      AssignFile(F, MainPasPath);
+      Rewrite(F);
+      Write(F, MainPas);
+      CloseFile(F);
+      TUtils.LogInfo('Created: ' + MainPasPath);
+    except
+      on E: Exception do
+      begin
+        TUtils.LogError('Failed to write Main.pas: ' + E.Message);
+        Result := 1;
+        Exit;
+      end;
     end;
   end;
 
@@ -280,7 +301,8 @@ end;
 
 function TInitCommand.Execute: Integer;
 var
-  ProjectName, Version, Author, License: string;
+  ProjectName, Version, Author, License, ProjectType: string;
+  IsLibrary: Boolean;
 begin
   Result := 0;
 
@@ -296,6 +318,7 @@ begin
   end;
 
   // Interactive prompts
+  ProjectType := PromptUser('Project type (application/library)', 'application');
   ProjectName := PromptUser('Project name', GetDefaultProjectName);
   Version := PromptUser('Version', '1.0.0');
   Author := PromptUser('Author', GetDefaultAuthor);
@@ -312,17 +335,29 @@ begin
   end;
 
   // Write files
-  Result := WriteProjectFiles(ProjectName, Version, Author, License);
+  Result := WriteProjectFiles(ProjectName, Version, Author, License, ProjectType);
 
   if Result = 0 then
   begin
+    IsLibrary := AnsiLowerCase(ProjectType) = 'library';
+
     WriteLn;
     TUtils.LogInfo('Project initialized successfully!');
     WriteLn;
     TUtils.LogInfo('Next steps:');
-    TUtils.LogInfo('  1. Edit src/main/pascal/Main.pas');
-    TUtils.LogInfo('  2. Run: pasbuild compile');
-    TUtils.LogInfo('  3. Run: ./target/' + LowerCase(StringReplace(ProjectName, ' ', '', [rfReplaceAll])) + TUtils.GetPlatformExecutableSuffix);
+
+    if IsLibrary then
+    begin
+      TUtils.LogInfo('  1. Add your library units to src/main/pascal/');
+      TUtils.LogInfo('  2. Run: pasbuild compile');
+      TUtils.LogInfo('     (Bootstrap program will be auto-generated)');
+    end
+    else
+    begin
+      TUtils.LogInfo('  1. Edit src/main/pascal/Main.pas');
+      TUtils.LogInfo('  2. Run: pasbuild compile');
+      TUtils.LogInfo('  3. Run: ./target/' + LowerCase(StringReplace(ProjectName, ' ', '', [rfReplaceAll])) + TUtils.GetPlatformExecutableSuffix);
+    end;
   end
   else
     TUtils.LogError('Project initialization failed');
