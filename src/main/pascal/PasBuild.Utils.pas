@@ -30,6 +30,7 @@ type
     class function ScanForUnitPaths(const ABaseDir: string): TStringList;
     class function ScanForUnitPathsFiltered(const ABaseDir: string; AConditionalPaths: TConditionalPathList; AActiveDefines: TStringList): TStringList;
     class function ScanForIncludePathsFiltered(const ABaseDir: string; AConditionalPaths: TConditionalPathList; AActiveDefines: TStringList): TStringList;
+    class function DirectoryContainsIncludeFiles(const ADirectory: string): Boolean;
 
     { Condition evaluation }
     class function IsConditionMet(const ACondition: string; AActiveDefines: TStringList): Boolean;
@@ -306,6 +307,21 @@ end;
 class procedure TUtils.LogWarning(const AMessage: string);
 begin
   WriteLn('[WARNING] ', AMessage);
+end;
+
+class function TUtils.DirectoryContainsIncludeFiles(const ADirectory: string): Boolean;
+var
+  SearchRec: TSearchRec;
+begin
+  Result := False;
+  if not DirectoryExists(ADirectory) then
+    Exit;
+
+  if FindFirst(IncludeTrailingPathDelimiter(ADirectory) + '*.inc', faAnyFile and not faDirectory, SearchRec) = 0 then
+  begin
+    Result := True;
+    FindClose(SearchRec);
+  end;
 end;
 
 class function TUtils.IsConditionMet(const ACondition: string; AActiveDefines: TStringList): Boolean;

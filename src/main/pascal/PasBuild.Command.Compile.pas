@@ -131,13 +131,43 @@ begin
       end;
     end;
 
-    // Add include search paths (-Fi) with conditional filtering
-    IncludePaths := TUtils.ScanForIncludePathsFiltered(
-      BasePath,
-      Config.BuildConfig.IncludePaths,
-      ActiveDefines
-    );
+    // Add include search paths (-Fi)
+    // Check all unit paths (both base and subdirs) for *.inc files
+    IncludePaths := TStringList.Create;
     try
+      IncludePaths.Duplicates := dupIgnore;
+      IncludePaths.Sorted := True;
+
+      if Config.BuildConfig.ManualUnitPaths then
+      begin
+        // Manual mode: Check base path + manually listed paths for *.inc files
+        // Check base directory
+        if TUtils.DirectoryContainsIncludeFiles(BasePath) then
+          IncludePaths.Add(BasePath);
+
+        // Check each manually specified unit path
+        for I := 0 to Config.BuildConfig.UnitPaths.Count - 1 do
+        begin
+          ConditionalPath := Config.BuildConfig.UnitPaths[I];
+          if TUtils.IsConditionMet(ConditionalPath.Condition, ActiveDefines) then
+          begin
+            UnitPath := BasePath + DirectorySeparator + TUtils.NormalizePath(ConditionalPath.Path);
+            if TUtils.DirectoryContainsIncludeFiles(UnitPath) then
+              IncludePaths.Add(UnitPath);
+          end;
+        end;
+      end
+      else
+      begin
+        // Auto-scan mode: Use full auto-scan with conditional filtering
+        IncludePaths.Free;
+        IncludePaths := TUtils.ScanForIncludePathsFiltered(
+          BasePath,
+          Config.BuildConfig.IncludePaths,
+          ActiveDefines
+        );
+      end;
+
       for IncludePath in IncludePaths do
         Result := Result + ' -Fi' + IncludePath;
     finally
