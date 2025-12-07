@@ -176,6 +176,9 @@ begin
   // Parse global defines
   ParseDefines(ABuildNode, AConfig.BuildConfig.Defines);
 
+  // Parse global compiler options
+  ParseCompilerOptions(ABuildNode, AConfig.BuildConfig.CompilerOptions);
+
   // Parse conditional unit paths
   ParseConditionalPaths(ABuildNode, 'unitPaths', AConfig.BuildConfig.UnitPaths);
 

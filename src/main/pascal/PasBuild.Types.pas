@@ -73,6 +73,7 @@ type
     FOutputDirectory: string;
     FExecutableName: string;
     FDefines: TStringList;
+    FCompilerOptions: TStringList;
     FUnitPaths: TConditionalPathList;
     FIncludePaths: TConditionalPathList;
     FManualUnitPaths: Boolean;
@@ -85,6 +86,7 @@ type
     property OutputDirectory: string read FOutputDirectory write FOutputDirectory;
     property ExecutableName: string read FExecutableName write FExecutableName;
     property Defines: TStringList read FDefines;
+    property CompilerOptions: TStringList read FCompilerOptions;
     property UnitPaths: TConditionalPathList read FUnitPaths;
     property IncludePaths: TConditionalPathList read FIncludePaths;
     property ManualUnitPaths: Boolean read FManualUnitPaths write FManualUnitPaths;
@@ -172,6 +174,9 @@ begin
   FDefines.Duplicates := dupIgnore;
   FDefines.Sorted := True;
 
+  FCompilerOptions := TStringList.Create;
+  FCompilerOptions.Duplicates := dupIgnore;
+
   FUnitPaths := TConditionalPathList.Create;
   FUnitPaths.FreeObjects := True;
 
@@ -187,6 +192,7 @@ end;
 destructor TBuildConfig.Destroy;
 begin
   FDefines.Free;
+  FCompilerOptions.Free;
   FUnitPaths.Free;
   FIncludePaths.Free;
   inherited Destroy;

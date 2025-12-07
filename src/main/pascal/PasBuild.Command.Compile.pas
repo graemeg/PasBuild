@@ -178,6 +178,10 @@ begin
     for Define in Config.BuildConfig.Defines do
       Result := Result + ' -d' + Define;
 
+    // Add global compiler options (extends defaults)
+    for Option in Config.BuildConfig.CompilerOptions do
+      Result := Result + ' ' + Option;
+
     // Add profile-specific defines and compiler options (applied in order)
     for ProfileId in ProfileIds do
     begin
@@ -188,7 +192,7 @@ begin
         for Define in Profile.Defines do
           Result := Result + ' -d' + Define;
 
-        // Profile compiler options (these can override defaults)
+        // Profile compiler options (these can override defaults and global options)
         for Option in Profile.CompilerOptions do
           Result := Result + ' ' + Option;
       end;

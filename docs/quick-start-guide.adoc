@@ -388,6 +388,43 @@ pasbuild compile -p base,debug        # Base + debug symbols
 pasbuild compile -p base,debug,logging # Base + debug + logging
 ----
 
+=== Compiler Options Order
+
+PasBuild applies compiler options in a specific additive order, allowing you to set defaults and override them as needed:
+
+1. **Hardcoded defaults**: `-Mobjfpc -O1` (always applied)
+2. **Global compiler options**: From `<build><compilerOptions>` (extends defaults)
+3. **Profile-specific options**: From `<profile><compilerOptions>` (extends further, can override)
+
+**Example:**
+
+[source,xml]
+----
+<build>
+  <compilerOptions>
+    <option>-vh</option>       <!-- Show hints globally -->
+  </compilerOptions>
+</build>
+
+<profiles>
+  <profile>
+    <id>debug</id>
+    <compilerOptions>
+      <option>-g</option>      <!-- Add debug symbols -->
+      <option>-O-</option>     <!-- Disable optimization (overrides -O1) -->
+    </compilerOptions>
+  </profile>
+</profiles>
+----
+
+Result with `pasbuild compile -p debug`:
+
+----
+fpc -Mobjfpc -O1 -vh -g -O- ...
+----
+
+The `-O-` flag overrides the default `-O1` because FPC applies the last occurrence of conflicting flags.
+
 === Using Conditional Compilation
 
 In your Pascal code:
@@ -655,6 +692,12 @@ If `project.xml` already exists, returns error: `"Project already initialized"`
       <define>UseCThreads</define>
       <define>MYAPP_FEATURE_X</define>
     </defines>
+
+    <!-- Global compiler options (extends defaults: -Mobjfpc -O1) -->
+    <compilerOptions>
+      <option>-vh</option>       <!-- Show hints -->
+      <option>-vn</option>       <!-- Show notes -->
+    </compilerOptions>
 
     <!-- Conditional unit paths (platform-specific directories) -->
     <!-- Include paths (*.inc) are auto-detected with same filtering -->
