@@ -50,8 +50,8 @@ begin
   Result := TBuildCommandList.Create(False); // Don't own the objects
   try
     // Package depends on: clean → compile
-    Result.Add(TCleanCommand.Create(Config, ProfileId));
-    Result.Add(TCompileCommand.Create(Config, ProfileId));
+    Result.Add(TCleanCommand.Create(Config, ProfileIds));
+    Result.Add(TCompileCommand.Create(Config, ProfileIds));
   except
     Result.Free;
     raise;

@@ -28,13 +28,13 @@ type
   protected
     function GetName: string; override;
   public
-    constructor Create(AConfig: TProjectConfig; const AProfileId: string; const AName: string);
+    constructor Create(AConfig: TProjectConfig; AProfileIds: TStringList; const AName: string);
     function Execute: Integer; override;
   end;
 
-constructor TMockCommand.Create(AConfig: TProjectConfig; const AProfileId: string; const AName: string);
+constructor TMockCommand.Create(AConfig: TProjectConfig; AProfileIds: TStringList; const AName: string);
 begin
-  inherited Create(AConfig, AProfileId);
+  inherited Create(AConfig, AProfileIds);
   FCommandName := AName;
 end;
 
@@ -66,8 +66,8 @@ begin
       Executor := TCommandExecutor.Create;
       try
         WriteLn('[Test 1: Execute same command twice - should skip second time]');
-        Clean1 := TCleanCommand.Create(Config, '');
-        Clean2 := TCleanCommand.Create(Config, '');
+        Clean1 := TCleanCommand.Create(Config, nil);
+        Clean2 := TCleanCommand.Create(Config, nil);
         try
           ExitCode := Executor.Execute(Clean1);
           WriteLn;
@@ -79,7 +79,7 @@ begin
         end;
 
         WriteLn('[Test 2: Execute mock command]');
-        Mock1 := TMockCommand.Create(Config, '', 'test-mock');
+        Mock1 := TMockCommand.Create(Config, nil, 'test-mock');
         try
           ExitCode := Executor.Execute(Mock1);
         finally

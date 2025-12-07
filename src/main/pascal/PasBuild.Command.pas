@@ -29,10 +29,11 @@ type
   TBuildCommand = class
   protected
     FConfig: TProjectConfig;
-    FProfileId: string;
+    FProfileIds: TStringList;
     function GetName: string; virtual; abstract;
   public
-    constructor Create(AConfig: TProjectConfig; const AProfileId: string); virtual;
+    constructor Create(AConfig: TProjectConfig; AProfileIds: TStringList); virtual;
+    destructor Destroy; override;
 
     { Execute the command }
     function Execute: Integer; virtual; abstract;
@@ -42,7 +43,7 @@ type
 
     property Name: string read GetName;
     property Config: TProjectConfig read FConfig;
-    property ProfileId: string read FProfileId;
+    property ProfileIds: TStringList read FProfileIds;
   end;
 
   { Command executor - executes commands with dependency resolution }
@@ -69,11 +70,19 @@ uses
 
 { TBuildCommand }
 
-constructor TBuildCommand.Create(AConfig: TProjectConfig; const AProfileId: string);
+constructor TBuildCommand.Create(AConfig: TProjectConfig; AProfileIds: TStringList);
 begin
   inherited Create;
   FConfig := AConfig;
-  FProfileId := AProfileId;
+  FProfileIds := TStringList.Create;
+  if Assigned(AProfileIds) then
+    FProfileIds.AddStrings(AProfileIds);
+end;
+
+destructor TBuildCommand.Destroy;
+begin
+  FProfileIds.Free;
+  inherited Destroy;
 end;
 
 function TBuildCommand.GetDependencies: TBuildCommandList;

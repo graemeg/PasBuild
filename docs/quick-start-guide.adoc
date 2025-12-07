@@ -334,6 +334,60 @@ pasbuild compile -p debug      # Debug build
 pasbuild compile -p release    # Release build
 ----
 
+**Build with multiple profiles:**
+
+Profiles can be combined by specifying multiple profile IDs separated by commas. Profiles are applied in the order specified, with later profiles able to override settings from earlier ones.
+
+[source,shell]
+----
+# Activate multiple profiles at once
+pasbuild compile -p base,debug,logging
+
+# Profiles are applied in order (left to right)
+# Each profile's defines and compiler options are added sequentially
+----
+
+This is useful for composing build configurations. For example:
+
+[source,xml]
+----
+<profiles>
+  <profile>
+    <id>base</id>
+    <defines>
+      <define>APP_NAME</define>
+    </defines>
+  </profile>
+
+  <profile>
+    <id>debug</id>
+    <defines>
+      <define>DEBUG</define>
+    </defines>
+    <compilerOptions>
+      <option>-g</option>
+      <option>-gl</option>
+    </compilerOptions>
+  </profile>
+
+  <profile>
+    <id>logging</id>
+    <defines>
+      <define>ENABLE_LOGGING</define>
+    </defines>
+  </profile>
+</profiles>
+----
+
+Then you can build with different combinations:
+
+[source,shell]
+----
+pasbuild compile -p base              # Just base settings
+pasbuild compile -p base,debug        # Base + debug symbols
+pasbuild compile -p base,debug,logging # Base + debug + logging
+----
+
 === Using Conditional Compilation
 
 In your Pascal code:
@@ -719,7 +773,7 @@ pasbuild init                     # Bootstrap new project
 
 [source,shell]
 ----
--p <profile-id>                   # Activate build profile
+-p <profile[,profile...]>         # Activate build profile(s)
 --profile <profile-id>            # Activate build profile (long form)
 -h, --help                        # Show help message
 -v, --version                     # Show version information
@@ -736,6 +790,9 @@ pasbuild compile -p debug
 # Release build and package
 pasbuild compile -p release
 pasbuild package
+
+# Build with multiple profiles
+pasbuild compile -p base,debug,logging
 
 # Get help
 pasbuild --help

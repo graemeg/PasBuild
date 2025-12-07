@@ -27,7 +27,7 @@ type
   { Parsed command-line arguments }
   TCommandLineArgs = record
     Goal: TBuildGoal;
-    ProfileId: string;
+    ProfileIds: TStringList;  // Changed from ProfileId to support multiple profiles
     ShowHelp: Boolean;
     ShowVersion: Boolean;
     ErrorMessage: string;
@@ -93,7 +93,9 @@ var
 begin
   // Initialize result
   Result.Goal := bgUnknown;
-  Result.ProfileId := '';
+  Result.ProfileIds := TStringList.Create;
+  Result.ProfileIds.Delimiter := ',';
+  Result.ProfileIds.StrictDelimiter := True;
   Result.ShowHelp := False;
   Result.ShowVersion := False;
   Result.ErrorMessage := '';
@@ -145,7 +147,8 @@ begin
         Result.ErrorMessage := 'Option ' + Arg + ' requires a profile ID';
         Exit;
       end;
-      Result.ProfileId := ParamStr(I);
+      // Parse comma-separated profile IDs (e.g., -p debug,logging)
+      Result.ProfileIds.DelimitedText := ParamStr(I);
     end
     else
     begin
@@ -168,17 +171,19 @@ begin
   WriteLn('  init               Create new project structure');
   WriteLn;
   WriteLn('Options:');
-  WriteLn('  -p <profile>       Activate build profile');
-  WriteLn('  --profile <id>     Activate build profile (same as -p)');
-  WriteLn('  --help, -h         Show this help message');
-  WriteLn('  --version, -v      Show version information');
+  WriteLn('  -p <profile[,profile...]>    Activate build profile(s)');
+  WriteLn('  --profile <id>               Activate build profile (same as -p)');
+  WriteLn('  --help, -h                   Show this help message');
+  WriteLn('  --version, -v                Show version information');
   WriteLn;
   WriteLn('Examples:');
-  WriteLn('  pasbuild compile              # Build with default settings');
-  WriteLn('  pasbuild compile -p debug     # Build with debug profile');
-  WriteLn('  pasbuild compile -p release   # Build with release profile');
-  WriteLn('  pasbuild package              # Create release archive');
-  WriteLn('  pasbuild init                 # Create new project');
+  WriteLn('  pasbuild compile                      # Build with default settings');
+  WriteLn('  pasbuild compile -p debug             # Build with debug profile');
+  WriteLn('  pasbuild compile -p release           # Build with release profile');
+  WriteLn('  pasbuild compile -p base,debug        # Build with base + debug profiles');
+  WriteLn('  pasbuild compile -p base,debug,log    # Build with multiple profiles');
+  WriteLn('  pasbuild package                      # Create release archive');
+  WriteLn('  pasbuild init                         # Create new project');
   WriteLn;
 end;
 

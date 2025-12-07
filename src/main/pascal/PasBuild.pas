@@ -115,16 +115,16 @@ begin
       // Create appropriate command based on goal
       case Args.Goal of
         bgClean:
-          Command := TCleanCommand.Create(Config, Args.ProfileId);
+          Command := TCleanCommand.Create(Config, Args.ProfileIds);
 
         bgCompile:
-          Command := TCompileCommand.Create(Config, Args.ProfileId);
+          Command := TCompileCommand.Create(Config, Args.ProfileIds);
 
         bgPackage:
-          Command := TPackageCommand.Create(Config, Args.ProfileId);
+          Command := TPackageCommand.Create(Config, Args.ProfileIds);
 
         bgInit:
-          Command := TInitCommand.Create(Config, Args.ProfileId);
+          Command := TInitCommand.Create(Config, Args.ProfileIds);
 
         else
         begin
@@ -149,6 +149,7 @@ begin
     end;
 
   finally
+    Args.ProfileIds.Free;
     Config.Free;
   end;
 end.

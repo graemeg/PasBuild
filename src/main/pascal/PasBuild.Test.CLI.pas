@@ -19,6 +19,7 @@ uses
 procedure TestParseArguments;
 var
   Args: TCommandLineArgs;
+  ProfileId: string;
 begin
   WriteLn('=== Testing CLI Argument Parser ===');
   WriteLn;
@@ -34,6 +35,7 @@ begin
       WriteLn('  Error: ', Args.ErrorMessage);
     WriteLn;
     TArgumentParser.ShowHelp;
+    Args.ProfileIds.Free;
     Exit;
   end;
 
@@ -42,11 +44,20 @@ begin
     WriteLn('  Action: Show Version');
     WriteLn;
     TArgumentParser.ShowVersion;
+    Args.ProfileIds.Free;
     Exit;
   end;
 
   WriteLn('  Goal: ', Ord(Args.Goal));
-  WriteLn('  Profile: ', Args.ProfileId);
+  Write('  Profiles: ');
+  if Args.ProfileIds.Count = 0 then
+    WriteLn('(none)')
+  else
+  begin
+    for ProfileId in Args.ProfileIds do
+      Write(ProfileId, ' ');
+    WriteLn;
+  end;
 
   if Args.ErrorMessage <> '' then
   begin
@@ -59,6 +70,8 @@ begin
     WriteLn;
     WriteLn('[SUCCESS] Arguments parsed correctly');
   end;
+
+  Args.ProfileIds.Free;
 end;
 
 begin

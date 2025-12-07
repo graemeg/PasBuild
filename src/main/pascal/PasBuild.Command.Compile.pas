@@ -44,7 +44,7 @@ function TCompileCommand.BuildCompilerCommand(const ASourcePath: string): string
 var
   OutputDir, ExeName: string;
   UnitPaths, IncludePaths, ActiveDefines: TStringList;
-  UnitPath, IncludePath, Define, Option: string;
+  UnitPath, IncludePath, Define, Option, ProfileId: string;
   Profile: TProfile;
   ConditionalPath: TConditionalPath;
   BasePath: string;
@@ -77,8 +77,8 @@ begin
     // Add global defines
     ActiveDefines.AddStrings(Config.BuildConfig.Defines);
 
-    // Add profile defines if profile is active
-    if ProfileId <> '' then
+    // Add profile defines for each active profile (applied in order)
+    for ProfileId in ProfileIds do
     begin
       Profile := Config.Profiles.FindById(ProfileId);
       if Assigned(Profile) then
@@ -178,8 +178,8 @@ begin
     for Define in Config.BuildConfig.Defines do
       Result := Result + ' -d' + Define;
 
-    // Add profile-specific defines and compiler options
-    if ProfileId <> '' then
+    // Add profile-specific defines and compiler options (applied in order)
+    for ProfileId in ProfileIds do
     begin
       Profile := Config.Profiles.FindById(ProfileId);
       if Assigned(Profile) then
@@ -201,7 +201,7 @@ end;
 
 function TCompileCommand.Execute: Integer;
 var
-  MainSourcePath, OutputDir, UnitsDir, BootstrapPath: string;
+  MainSourcePath, OutputDir, UnitsDir, BootstrapPath, ProfileId: string;
   Command: string;
   ActiveDefines: TStringList;
   Profile: TProfile;
@@ -247,7 +247,8 @@ begin
       ActiveDefines.Sorted := True;
       ActiveDefines.AddStrings(Config.BuildConfig.Defines);
 
-      if ProfileId <> '' then
+      // Add defines from each active profile in order
+      for ProfileId in ProfileIds do
       begin
         Profile := Config.Profiles.FindById(ProfileId);
         if Assigned(Profile) then
