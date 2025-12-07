@@ -42,9 +42,10 @@ end;
 function TCompileCommand.BuildCompilerCommand: string;
 var
   SourcePath, OutputDir, ExeName: string;
-  UnitPaths: TStringList;
-  UnitPath, Define, Option: string;
+  UnitPaths, IncludePaths, ActiveDefines: TStringList;
+  UnitPath, IncludePath, Define, Option: string;
   Profile: TProfile;
+  BasePath: string;
 begin
   // Base command with default flags
   Result := 'fpc -Mobjfpc -O1';
@@ -65,37 +66,77 @@ begin
   if ExeName <> '' then
     Result := Result + ' -o' + ExeName + TUtils.GetPlatformExecutableSuffix;
 
-  // Add unit search paths (-Fu) by scanning subdirectories
-  UnitPaths := TUtils.ScanForUnitPaths(TUtils.NormalizePath('src/main/pascal'));
+  // Collect all active defines (global + profile)
+  ActiveDefines := TStringList.Create;
   try
-    for UnitPath in UnitPaths do
-      Result := Result + ' -Fu' + UnitPath;
-  finally
-    UnitPaths.Free;
-  end;
+    ActiveDefines.Duplicates := dupIgnore;
+    ActiveDefines.Sorted := True;
 
-  // Add global defines
-  for Define in Config.BuildConfig.Defines do
-    Result := Result + ' -d' + Define;
+    // Add global defines
+    ActiveDefines.AddStrings(Config.BuildConfig.Defines);
 
-  // Add profile-specific defines and compiler options
-  if ProfileId <> '' then
-  begin
-    Profile := Config.Profiles.FindById(ProfileId);
-    if Assigned(Profile) then
+    // Add profile defines if profile is active
+    if ProfileId <> '' then
     begin
-      TUtils.LogInfo('Activating profile: ' + ProfileId);
+      Profile := Config.Profiles.FindById(ProfileId);
+      if Assigned(Profile) then
+      begin
+        TUtils.LogInfo('Activating profile: ' + ProfileId);
+        ActiveDefines.AddStrings(Profile.Defines);
+      end
+      else
+        TUtils.LogWarning('Profile not found: ' + ProfileId);
+    end;
 
-      // Profile defines
-      for Define in Profile.Defines do
-        Result := Result + ' -d' + Define;
+    // Add unit search paths (-Fu) with conditional filtering
+    BasePath := TUtils.NormalizePath('src/main/pascal');
+    UnitPaths := TUtils.ScanForUnitPathsFiltered(
+      BasePath,
+      Config.BuildConfig.UnitPaths,
+      ActiveDefines
+    );
+    try
+      for UnitPath in UnitPaths do
+        Result := Result + ' -Fu' + UnitPath;
+    finally
+      UnitPaths.Free;
+    end;
 
-      // Profile compiler options (these can override defaults)
-      for Option in Profile.CompilerOptions do
-        Result := Result + ' ' + Option;
-    end
-    else
-      TUtils.LogWarning('Profile not found: ' + ProfileId);
+    // Add include search paths (-Fi) with conditional filtering
+    IncludePaths := TUtils.ScanForIncludePathsFiltered(
+      BasePath,
+      Config.BuildConfig.IncludePaths,
+      ActiveDefines
+    );
+    try
+      for IncludePath in IncludePaths do
+        Result := Result + ' -Fi' + IncludePath;
+    finally
+      IncludePaths.Free;
+    end;
+
+    // Add global defines to compiler
+    for Define in Config.BuildConfig.Defines do
+      Result := Result + ' -d' + Define;
+
+    // Add profile-specific defines and compiler options
+    if ProfileId <> '' then
+    begin
+      Profile := Config.Profiles.FindById(ProfileId);
+      if Assigned(Profile) then
+      begin
+        // Profile defines
+        for Define in Profile.Defines do
+          Result := Result + ' -d' + Define;
+
+        // Profile compiler options (these can override defaults)
+        for Option in Profile.CompilerOptions do
+          Result := Result + ' ' + Option;
+      end;
+    end;
+
+  finally
+    ActiveDefines.Free;
   end;
 end;
 

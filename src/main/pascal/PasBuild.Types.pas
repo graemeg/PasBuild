@@ -23,6 +23,23 @@ type
   TProfile = class;
   TBuildConfig = class;
   TProjectConfig = class;
+  TConditionalPath = class;
+
+  { TConditionalPath - Represents a path with an optional condition }
+  TConditionalPath = class
+  private
+    FPath: string;
+    FCondition: string;
+  public
+    constructor Create(const APath: string; const ACondition: string = '');
+
+    property Path: string read FPath write FPath;
+    property Condition: string read FCondition write FCondition;
+  end;
+
+  { TConditionalPathList - Strongly-typed collection of conditional paths }
+  TConditionalPathList = class(specialize TFPGObjectList<TConditionalPath>)
+  end;
 
   { TProfile - Represents a build profile with defines and compiler options }
   TProfile = class
@@ -52,6 +69,8 @@ type
     FOutputDirectory: string;
     FExecutableName: string;
     FDefines: TStringList;
+    FUnitPaths: TConditionalPathList;
+    FIncludePaths: TConditionalPathList;
   public
     constructor Create;
     destructor Destroy; override;
@@ -60,6 +79,8 @@ type
     property OutputDirectory: string read FOutputDirectory write FOutputDirectory;
     property ExecutableName: string read FExecutableName write FExecutableName;
     property Defines: TStringList read FDefines;
+    property UnitPaths: TConditionalPathList read FUnitPaths;
+    property IncludePaths: TConditionalPathList read FIncludePaths;
   end;
 
   { TProjectConfig - Complete project configuration }
@@ -88,6 +109,15 @@ type
   end;
 
 implementation
+
+{ TConditionalPath }
+
+constructor TConditionalPath.Create(const APath: string; const ACondition: string = '');
+begin
+  inherited Create;
+  FPath := APath;
+  FCondition := ACondition;
+end;
 
 { TProfile }
 
@@ -135,6 +165,12 @@ begin
   FDefines.Duplicates := dupIgnore;
   FDefines.Sorted := True;
 
+  FUnitPaths := TConditionalPathList.Create;
+  FUnitPaths.FreeObjects := True;
+
+  FIncludePaths := TConditionalPathList.Create;
+  FIncludePaths.FreeObjects := True;
+
   // Set defaults
   FOutputDirectory := 'target';
 end;
@@ -142,6 +178,8 @@ end;
 destructor TBuildConfig.Destroy;
 begin
   FDefines.Free;
+  FUnitPaths.Free;
+  FIncludePaths.Free;
   inherited Destroy;
 end;
 

@@ -28,6 +28,7 @@ type
     class function GetNodeText(AParent: TDOMNode; const ATagName: string; const ADefault: string = ''): string;
     class procedure ParseDefines(AParent: TDOMNode; ADefines: TStringList);
     class procedure ParseCompilerOptions(AParent: TDOMNode; AOptions: TStringList);
+    class procedure ParseConditionalPaths(AParent: TDOMNode; const ATagName: string; APaths: TConditionalPathList);
     class procedure ParseBuildSection(ABuildNode: TDOMNode; AConfig: TProjectConfig);
     class procedure ParseProfile(AProfileNode: TDOMNode; AProfile: TProfile);
     class procedure ParseProfiles(AProfilesNode: TDOMNode; AConfig: TProjectConfig);
@@ -105,6 +106,49 @@ begin
   end;
 end;
 
+class procedure TConfigLoader.ParseConditionalPaths(AParent: TDOMNode; const ATagName: string; APaths: TConditionalPathList);
+var
+  PathsNode, PathNode: TDOMNode;
+  Element: TDOMElement;
+  ConditionalPath: TConditionalPath;
+  PathValue, Condition: string;
+  I: Integer;
+begin
+  if not Assigned(AParent) then
+    Exit;
+
+  PathsNode := AParent.FindNode(ATagName);
+  if not Assigned(PathsNode) then
+    Exit;
+
+  // Iterate through <path> children
+  for I := 0 to PathsNode.ChildNodes.Count - 1 do
+  begin
+    PathNode := PathsNode.ChildNodes[I];
+    if (PathNode.NodeType = ELEMENT_NODE) and (PathNode.NodeName = 'path') then
+    begin
+      if Assigned(PathNode.FirstChild) then
+      begin
+        PathValue := Trim(PathNode.TextContent);
+        if PathValue <> '' then
+        begin
+          // Get optional condition attribute
+          Condition := '';
+          if PathNode is TDOMElement then
+          begin
+            Element := TDOMElement(PathNode);
+            if Element.HasAttribute('condition') then
+              Condition := Trim(Element.GetAttribute('condition'));
+          end;
+
+          ConditionalPath := TConditionalPath.Create(PathValue, Condition);
+          APaths.Add(ConditionalPath);
+        end;
+      end;
+    end;
+  end;
+end;
+
 class procedure TConfigLoader.ParseBuildSection(ABuildNode: TDOMNode; AConfig: TProjectConfig);
 begin
   if not Assigned(ABuildNode) then
@@ -117,6 +161,12 @@ begin
 
   // Parse global defines
   ParseDefines(ABuildNode, AConfig.BuildConfig.Defines);
+
+  // Parse conditional unit paths
+  ParseConditionalPaths(ABuildNode, 'unitPaths', AConfig.BuildConfig.UnitPaths);
+
+  // Parse conditional include paths
+  ParseConditionalPaths(ABuildNode, 'includePaths', AConfig.BuildConfig.IncludePaths);
 end;
 
 class procedure TConfigLoader.ParseProfile(AProfileNode: TDOMNode; AProfile: TProfile);

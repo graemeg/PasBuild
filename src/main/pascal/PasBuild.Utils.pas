@@ -15,7 +15,8 @@ unit PasBuild.Utils;
 interface
 
 uses
-  Classes, SysUtils, StrUtils, Process;
+  Classes, SysUtils, StrUtils, Process,
+  PasBuild.Types;
 
 type
   { Utility functions for file operations and process execution }
@@ -27,6 +28,11 @@ type
     { Directory and file operations }
     class function VerifyDirectoryLayout(const AProjectRoot: string): Boolean;
     class function ScanForUnitPaths(const ABaseDir: string): TStringList;
+    class function ScanForUnitPathsFiltered(const ABaseDir: string; AConditionalPaths: TConditionalPathList; AActiveDefines: TStringList): TStringList;
+    class function ScanForIncludePathsFiltered(const ABaseDir: string; AConditionalPaths: TConditionalPathList; AActiveDefines: TStringList): TStringList;
+
+    { Condition evaluation }
+    class function IsConditionMet(const ACondition: string; AActiveDefines: TStringList): Boolean;
 
     { Process execution }
     class function ExecuteProcess(const ACommand: string; AShowOutput: Boolean): Integer;
@@ -300,6 +306,152 @@ end;
 class procedure TUtils.LogWarning(const AMessage: string);
 begin
   WriteLn('[WARNING] ', AMessage);
+end;
+
+class function TUtils.IsConditionMet(const ACondition: string; AActiveDefines: TStringList): Boolean;
+var
+  Condition: string;
+begin
+  // Empty condition means unconditional (always true)
+  if ACondition = '' then
+    Exit(True);
+
+  Condition := UpperCase(ACondition);
+
+  // Check built-in FPC platform defines
+  case Condition of
+    'UNIX':    Result := {$IFDEF UNIX}True{$ELSE}False{$ENDIF};
+    'LINUX':   Result := {$IFDEF LINUX}True{$ELSE}False{$ENDIF};
+    'FREEBSD': Result := {$IFDEF FREEBSD}True{$ELSE}False{$ENDIF};
+    'DARWIN':  Result := {$IFDEF DARWIN}True{$ELSE}False{$ENDIF};
+    'WINDOWS': Result := {$IFDEF WINDOWS}True{$ELSE}False{$ENDIF};
+    'WIN32':   Result := {$IFDEF WIN32}True{$ELSE}False{$ENDIF};
+    'WIN64':   Result := {$IFDEF WIN64}True{$ELSE}False{$ENDIF};
+  else
+    // Unknown built-in define - check against active defines (global + profile)
+    Result := (AActiveDefines <> nil) and (AActiveDefines.IndexOf(ACondition) >= 0);
+  end;
+end;
+
+class function TUtils.ScanForUnitPathsFiltered(const ABaseDir: string; AConditionalPaths: TConditionalPathList; AActiveDefines: TStringList): TStringList;
+var
+  AllPaths: TStringList;
+  Path, RelativePath: string;
+  ConditionalPath: TConditionalPath;
+  IsConditional, ConditionMet: Boolean;
+  I: Integer;
+begin
+  Result := TStringList.Create;
+  Result.Duplicates := dupIgnore;
+  Result.Sorted := True;
+
+  // 1. Auto-scan all directories
+  AllPaths := ScanForUnitPaths(ABaseDir);
+  try
+    for I := 0 to AllPaths.Count - 1 do
+    begin
+      Path := AllPaths[I];
+
+      // Get path relative to base directory
+      RelativePath := ExtractRelativePath(IncludeTrailingPathDelimiter(ABaseDir), Path);
+
+      // 2. Check if this path matches any conditional path
+      IsConditional := False;
+      ConditionMet := False;
+
+      if AConditionalPaths <> nil then
+      begin
+        for ConditionalPath in AConditionalPaths do
+        begin
+          // Check if path starts with conditional path (prefix matching)
+          // Normalize both paths to use forward slashes for comparison
+          if AnsiStartsStr(
+               StringReplace(ConditionalPath.Path, '\', '/', [rfReplaceAll]),
+               StringReplace(RelativePath, '\', '/', [rfReplaceAll])
+             ) then
+          begin
+            IsConditional := True;
+            ConditionMet := IsConditionMet(ConditionalPath.Condition, AActiveDefines);
+            Break;  // First match wins
+          end;
+        end;
+      end;
+
+      // 3. Include path based on condition
+      if IsConditional then
+      begin
+        // Conditional path - include only if condition is TRUE
+        if ConditionMet then
+          Result.Add(Path);
+      end
+      else
+      begin
+        // Non-conditional path - always include
+        Result.Add(Path);
+      end;
+    end;
+  finally
+    AllPaths.Free;
+  end;
+end;
+
+class function TUtils.ScanForIncludePathsFiltered(const ABaseDir: string; AConditionalPaths: TConditionalPathList; AActiveDefines: TStringList): TStringList;
+var
+  DirList: TStringList;
+  Dir, RelativePath: string;
+  SearchRec: TSearchRec;
+  ConditionalPath: TConditionalPath;
+  IsConditional, ConditionMet: Boolean;
+  I: Integer;
+begin
+  Result := TStringList.Create;
+  Result.Duplicates := dupIgnore;
+  Result.Sorted := True;
+
+  // 1. Get all directories (including base directory itself)
+  DirList := TStringList.Create;
+  try
+    DirList.Add(ExcludeTrailingPathDelimiter(ABaseDir));  // Include base directory
+    DirList.AddStrings(ScanForUnitPaths(ABaseDir));        // Include all subdirectories
+
+    for I := 0 to DirList.Count - 1 do
+    begin
+      Dir := DirList[I];
+
+      // 2. Check if directory contains *.inc files
+      if FindFirst(IncludeTrailingPathDelimiter(Dir) + '*.inc', faAnyFile and not faDirectory, SearchRec) = 0 then
+      begin
+        FindClose(SearchRec);
+
+        // 3. Apply conditional filtering (same logic as unit paths)
+        RelativePath := ExtractRelativePath(IncludeTrailingPathDelimiter(ABaseDir), Dir);
+        IsConditional := False;
+        ConditionMet := False;
+
+        if AConditionalPaths <> nil then
+        begin
+          for ConditionalPath in AConditionalPaths do
+          begin
+            if AnsiStartsStr(
+                 StringReplace(ConditionalPath.Path, '\', '/', [rfReplaceAll]),
+                 StringReplace(RelativePath, '\', '/', [rfReplaceAll])
+               ) then
+            begin
+              IsConditional := True;
+              ConditionMet := IsConditionMet(ConditionalPath.Condition, AActiveDefines);
+              Break;
+            end;
+          end;
+        end;
+
+        // Include if non-conditional OR condition is met
+        if (not IsConditional) or ConditionMet then
+          Result.Add(Dir);
+      end;
+    end;
+  finally
+    DirList.Free;
+  end;
 end;
 
 end.
