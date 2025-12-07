@@ -18,7 +18,8 @@ uses
   Classes, SysUtils,
   PasBuild.Types,
   PasBuild.Command,
-  PasBuild.Utils;
+  PasBuild.Utils,
+  PasBuild.Bootstrap;
 
 type
   { Compile command - builds the executable }
@@ -201,8 +202,10 @@ end;
 
 function TCompileCommand.Execute: Integer;
 var
-  MainSourcePath, OutputDir, UnitsDir: string;
+  MainSourcePath, OutputDir, UnitsDir, BootstrapPath: string;
   Command: string;
+  ActiveDefines: TStringList;
+  Profile: TProfile;
 begin
   Result := 0;
 
@@ -215,25 +218,7 @@ begin
     Exit;
   end;
 
-  // Check if main source file exists
-  MainSourcePath := TUtils.NormalizePath('src/main/pascal/' + Config.BuildConfig.MainSource);
-  if not FileExists(MainSourcePath) then
-  begin
-    TUtils.LogError('Main source file not found: ' + MainSourcePath);
-    Result := 1;
-    Exit;
-  end;
-
-  // Check if FPC is available
-  if not TUtils.IsFPCAvailable then
-  begin
-    TUtils.LogError('Free Pascal Compiler (fpc) not found in PATH');
-    TUtils.LogError('Please install FPC or add it to your PATH');
-    Result := 1;
-    Exit;
-  end;
-
-  // Create output directories
+  // Create output directories first (needed for bootstrap generation)
   OutputDir := TUtils.NormalizePath(Config.BuildConfig.OutputDirectory);
   UnitsDir := OutputDir + DirectorySeparator + 'units';
 
@@ -247,6 +232,59 @@ begin
   if not ForceDirectories(UnitsDir) then
   begin
     TUtils.LogError('Failed to create units directory: ' + UnitsDir);
+    Result := 1;
+    Exit;
+  end;
+
+  // For library projects, generate bootstrap program
+  if Config.BuildConfig.ProjectType = ptLibrary then
+  begin
+    BootstrapPath := OutputDir + DirectorySeparator + 'bootstrap_program.pas';
+
+    // Collect active defines (same logic as BuildCompilerCommand)
+    ActiveDefines := TStringList.Create;
+    try
+      ActiveDefines.Duplicates := dupIgnore;
+      ActiveDefines.Sorted := True;
+      ActiveDefines.AddStrings(Config.BuildConfig.Defines);
+
+      if ProfileId <> '' then
+      begin
+        Profile := Config.Profiles.FindById(ProfileId);
+        if Assigned(Profile) then
+          ActiveDefines.AddStrings(Profile.Defines);
+      end;
+
+      if not TBootstrapGenerator.GenerateBootstrapProgram(Config, BootstrapPath, ActiveDefines) then
+      begin
+        TUtils.LogError('Failed to generate bootstrap program');
+        Result := 1;
+        Exit;
+      end;
+    finally
+      ActiveDefines.Free;
+    end;
+
+    // Use bootstrap program as main source
+    MainSourcePath := BootstrapPath;
+  end
+  else
+  begin
+    // Application project: Check if main source file exists
+    MainSourcePath := TUtils.NormalizePath('src/main/pascal/' + Config.BuildConfig.MainSource);
+    if not FileExists(MainSourcePath) then
+    begin
+      TUtils.LogError('Main source file not found: ' + MainSourcePath);
+      Result := 1;
+      Exit;
+    end;
+  end;
+
+  // Check if FPC is available
+  if not TUtils.IsFPCAvailable then
+  begin
+    TUtils.LogError('Free Pascal Compiler (fpc) not found in PATH');
+    TUtils.LogError('Please install FPC or add it to your PATH');
     Result := 1;
     Exit;
   end;

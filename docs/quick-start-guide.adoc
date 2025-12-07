@@ -1,13 +1,14 @@
 = PasBuild Quick Start Guide
-:toc:
-:toc-placement!:
+:toc: left
+:toclevels: 3
+// :toc-placement!:
 :sectnums:
 :source-highlighter: rouge
 :icons: font
 
 Complete guide to getting started with PasBuild.
 
-toc::[]
+// toc::[]
 
 == Prerequisites
 

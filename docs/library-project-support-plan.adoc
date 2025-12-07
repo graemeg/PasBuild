@@ -309,6 +309,7 @@ src/main/pascal/
 ----
 
 **On Linux:**
+
 * Auto-scanned: `corelib/`, `gui/`, `reportengine/`
 * Condition met: `corelib/x11/` ✅ (UNIX = true)
 * Condition not met: `corelib/gdi/` ✗ (WINDOWS = false, excluded)

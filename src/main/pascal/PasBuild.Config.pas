@@ -150,9 +150,20 @@ begin
 end;
 
 class procedure TConfigLoader.ParseBuildSection(ABuildNode: TDOMNode; AConfig: TProjectConfig);
+var
+  ProjectTypeStr: string;
 begin
   if not Assigned(ABuildNode) then
     raise EProjectConfigError.Create('Missing required <build> section');
+
+  // Parse project type (default: application)
+  ProjectTypeStr := LowerCase(GetNodeText(ABuildNode, 'projectType', 'application'));
+  if ProjectTypeStr = 'library' then
+    AConfig.BuildConfig.ProjectType := ptLibrary
+  else if ProjectTypeStr = 'application' then
+    AConfig.BuildConfig.ProjectType := ptApplication
+  else
+    raise EProjectConfigError.CreateFmt('Invalid project type: %s (expected: application or library)', [ProjectTypeStr]);
 
   // Parse build configuration
   AConfig.BuildConfig.MainSource := GetNodeText(ABuildNode, 'mainSource');
@@ -261,8 +272,9 @@ begin
       ParseBuildSection(BuildNode, Result);
 
       // Validate required build fields
-      if Result.BuildConfig.MainSource = '' then
-        raise EProjectConfigError.Create('Missing required field: <build><mainSource>');
+      // MainSource is required for applications, optional for libraries (auto-generated bootstrap)
+      if (Result.BuildConfig.ProjectType = ptApplication) and (Result.BuildConfig.MainSource = '') then
+        raise EProjectConfigError.Create('Missing required field: <build><mainSource> for application projects');
 
       // Set default executable name if not specified
       if Result.BuildConfig.ExecutableName = '' then
@@ -308,11 +320,14 @@ begin
     RegEx.Free;
   end;
 
-  // Validate main source file has valid extension
-  if not (AnsiEndsStr('.pas', AConfig.BuildConfig.MainSource) or
-          AnsiEndsStr('.pp', AConfig.BuildConfig.MainSource) or
-          AnsiEndsStr('.lpr', AConfig.BuildConfig.MainSource)) then
-    raise EProjectConfigError.CreateFmt('Invalid main source extension: %s (expected: .pas, .pp, or .lpr)', [AConfig.BuildConfig.MainSource]);
+  // Validate main source file has valid extension (only for applications with mainSource)
+  if (AConfig.BuildConfig.ProjectType = ptApplication) and (AConfig.BuildConfig.MainSource <> '') then
+  begin
+    if not (AnsiEndsStr('.pas', AConfig.BuildConfig.MainSource) or
+            AnsiEndsStr('.pp', AConfig.BuildConfig.MainSource) or
+            AnsiEndsStr('.lpr', AConfig.BuildConfig.MainSource)) then
+      raise EProjectConfigError.CreateFmt('Invalid main source extension: %s (expected: .pas, .pp, or .lpr)', [AConfig.BuildConfig.MainSource]);
+  end;
 
   Result := True;
 end;

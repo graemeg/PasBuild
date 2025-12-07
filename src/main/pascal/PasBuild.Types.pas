@@ -19,6 +19,9 @@ uses
   Classes, SysUtils, fgl;
 
 type
+  { Project type enumeration }
+  TProjectType = (ptApplication, ptLibrary);
+
   { Forward declarations }
   TProfile = class;
   TBuildConfig = class;
@@ -65,6 +68,7 @@ type
   { TBuildConfig - Build configuration section }
   TBuildConfig = class
   private
+    FProjectType: TProjectType;
     FMainSource: string;
     FOutputDirectory: string;
     FExecutableName: string;
@@ -76,6 +80,7 @@ type
     constructor Create;
     destructor Destroy; override;
 
+    property ProjectType: TProjectType read FProjectType write FProjectType;
     property MainSource: string read FMainSource write FMainSource;
     property OutputDirectory: string read FOutputDirectory write FOutputDirectory;
     property ExecutableName: string read FExecutableName write FExecutableName;
@@ -174,6 +179,7 @@ begin
   FIncludePaths.FreeObjects := True;
 
   // Set defaults
+  FProjectType := ptApplication;  // Application by default
   FOutputDirectory := 'target';
   FManualUnitPaths := False;  // Auto-scan by default
 end;
