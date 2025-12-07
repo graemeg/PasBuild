@@ -10,6 +10,91 @@ Analysis and implementation plan for supporting library/framework projects in Pa
 
 //toc::[]
 
+== Implementation Status
+
+[cols="1,1,3", options="header"]
+|===
+| Phase | Status | Notes
+
+| Phase 2: Conditional Path Filtering
+| ✅ **COMPLETED**
+| Auto-scan with conditional filtering for unit paths and include paths fully implemented and tested. Zero memory leaks verified with -gh.
+
+| Phase 1: Configuration Schema
+| ⏸️ **PARTIAL**
+| TConditionalPath and parsing complete. ProjectType and LibraryName not yet implemented (future).
+
+| Phase 3: Bootstrap Generation
+| ⏳ **PENDING**
+| Awaiting full library project type support.
+
+| Phase 4: Compile Modifications
+| ⏳ **PENDING**
+| Conditional filtering integrated. Bootstrap generation for libraries pending.
+
+| Phase 5: Package Modifications
+| ⏳ **PENDING**
+| Awaiting library project type support. Will use `-sources.zip` naming.
+
+| Phase 6: Testing
+| ⏸️ **PARTIAL**
+| Conditional filtering tested. Full library workflow pending.
+|===
+
+=== Completed Implementation Details
+
+**Phase 2 Deliverables (Completed):**
+
+* ✅ `TConditionalPath` class in PasBuild.Types.pas
+* ✅ `TConditionalPathList` collection type
+* ✅ `ParseConditionalPaths()` in PasBuild.Config.pas
+* ✅ `IsConditionMet()` - evaluates built-in FPC defines + custom defines
+* ✅ `ScanForUnitPathsFiltered()` - auto-scan with conditional filtering
+* ✅ `ScanForIncludePathsFiltered()` - *.inc file detection with filtering
+* ✅ Updated TCompileCommand to use filtered scanning
+* ✅ Comprehensive tests in PasBuild.Test.Utils
+* ✅ Memory leak fixes (zero leaks verified with -gh)
+* ✅ Support for both built-in defines (UNIX, WINDOWS, etc.) and custom defines
+
+**Commits:**
+
+* `5d8b224` - Implement conditional path filtering for library project support
+* `5b5837f` - Fix memory leaks in dependency execution and path scanning
+
+**Current Capability:**
+
+PasBuild now supports conditional unit paths and include paths for **both application and library projects**. Users can filter platform-specific directories without manual enumeration.
+
+**Example Configuration (Works Today):**
+
+[source,xml]
+----
+<build>
+  <mainSource>Main.pas</mainSource>
+  <executableName>myapp</executableName>
+
+  <unitPaths>
+    <path condition="UNIX">platform/x11</path>
+    <path condition="WINDOWS">platform/gdi</path>
+    <path condition="DARWIN">platform/cocoa</path>
+  </unitPaths>
+
+  <includePaths>
+    <path condition="UNIX">platform/x11</path>
+  </includePaths>
+</build>
+----
+
+=== Future Work
+
+**Phase 1 - Full Schema (Not Yet Implemented):**
+
+* `<projectType>library</projectType>` configuration
+* `<libraryName>` field
+* `<manualUnitPaths>` toggle to disable auto-scan
+
+These features are **designed but not implemented**. Current workaround: Use application project type with conditional paths, provide manual bootstrap program if needed.
+
 == Problem Statement
 
 === Current Limitations
@@ -492,7 +577,11 @@ fpgui-2.0.0-linux-x64.zip  # Compiled units for Linux
 
 ==== Recommended: Option B (Sources Only) for MVP
 
+**Decision: SELECTED** ✅
+
 Simpler to implement, more portable. Add binary packaging in Phase 5.
+
+**Archive naming:** `<name>-<version>-sources.zip` (changed from `-src.zip` to `-sources.zip` for clarity)
 
 == Implementation Plan
 
@@ -1021,36 +1110,54 @@ end;
 
 **Estimated effort:** 4-6 hours
 
-== Questions for Decision
+== Design Decisions
 
-1. **Bootstrap program naming:**
-   * `target/bootstrap_program.pas` ✓ (recommended)
-   * `target/<libraryName>_bootstrap.pas`
+1. **Bootstrap program naming:** ✅ **DECIDED**
+   * ✅ `target/bootstrap_program.pas` - **SELECTED**
+   * ❌ `target/<libraryName>_bootstrap.pas`
 
-2. **Source archive naming:**
-   * `<name>-<version>-src.zip` ✓ (Maven convention)
-   * `<name>-<version>-source.zip`
+2. **Source archive naming:** ✅ **DECIDED**
+   * ✅ `<name>-<version>-sources.zip` - **SELECTED** (improved from `-src.zip` for clarity)
+   * ❌ `<name>-<version>-source.zip`
 
-3. **Condition evaluation:**
-   * Compile-time (FPC defines) ✓ (recommended)
-   * Runtime (read from environment)
+3. **Condition evaluation:** ✅ **IMPLEMENTED**
+   * ✅ Compile-time (FPC defines) - **IMPLEMENTED** in IsConditionMet()
+   * ❌ Runtime (read from environment)
+   * **Implementation:** Uses {$IFDEF} directives for built-in defines, checks ActiveDefines list for custom defines
 
-4. **Unknown conditions:**
-   * Include path (let FPC decide) ✓ (recommended)
-   * Exclude path (strict validation)
-   * Warning message
+4. **Unknown conditions:** ✅ **IMPLEMENTED**
+   * ✅ Check against custom defines from global/profile configuration - **IMPLEMENTED**
+   * ❌ Include path (let FPC decide)
+   * ❌ Exclude path (strict validation)
+   * ❌ Warning message
+   * **Implementation:** Custom defines checked via ActiveDefines.IndexOf(), returns FALSE if not found
 
 == Success Criteria
 
-Library support is successful when:
+=== Phase 2 Success Criteria (Conditional Path Filtering)
 
-1. ✅ fpGUI can be configured without manual bootstrap program
-2. ✅ Platform-specific directories correctly included/excluded
-3. ✅ Bootstrap program automatically generated
-4. ✅ All fpGUI units compile successfully
-5. ✅ Source archive created with correct contents
-6. ✅ Existing application projects unaffected
-7. ✅ Documentation updated with library examples
+**Completed:**
+
+1. ✅ Platform-specific directories correctly included/excluded
+2. ✅ Include file paths (*.inc) detected and filtered
+3. ✅ Existing application projects unaffected
+4. ✅ Zero memory leaks (verified with -gh)
+5. ✅ Comprehensive tests written and passing
+6. ✅ Documentation updated with examples
+
+=== Full Library Support Success Criteria (Pending)
+
+**Not Yet Completed:**
+
+1. ⏳ fpGUI can be configured without manual bootstrap program
+2. ⏳ Bootstrap program automatically generated
+3. ⏳ All fpGUI units compile successfully (needs testing with real fpGUI)
+4. ⏳ Source archive created with `-sources.zip` naming
+5. ⏳ Documentation with full library workflow examples
+
+**Current Workaround:**
+
+Users can configure conditional paths today, but must provide manual bootstrap program for library projects until Phase 3 (bootstrap generation) is implemented.
 
 == References
 
