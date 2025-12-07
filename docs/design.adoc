@@ -103,6 +103,11 @@ MyProject/
     <defines>
       <define>UseCThreads</define>
     </defines>
+
+    <!-- Global compiler options (extends defaults: -Mobjfpc -O1) -->
+    <compilerOptions>
+      <option>-vh</option>  <!-- Show hints -->
+    </compilerOptions>
   </build>
 
   <!-- Build Profiles (environment-specific settings) -->
@@ -454,7 +459,7 @@ fpc ... -dUseCThreads -dRELEASE ...
 * Profiles are additive (not replacement)
 * Unknown profile ID → Warning + ignore profile
 * No profile specified → Only global defines used
-* Multiple `-p` flags → All profiles merged (future enhancement)
+* Multiple profiles supported via comma-separated list: `-p profile1,profile2`
 
 
 == Compiler Integration
@@ -806,17 +811,49 @@ fpc -Mobjfpc -O1 ... -O3 -CX -XX src/main/pascal/Main.pas
 # Note: Later -O3 overrides earlier -O1
 ----
 
-**Future Enhancement:** Global `<build><compilerOptions>` that apply to all profiles
+=== Global Compiler Options
+
+**Status:** Implemented
+
+Global compiler options can be specified in the `<build>` section and apply to all builds, extending the hardcoded defaults.
+
+**Configuration:**
+[source,xml]
+----
+<build>
+  <compilerOptions>
+    <option>-vh</option>  <!-- Show hints -->
+    <option>-vn</option>  <!-- Show notes -->
+  </compilerOptions>
+</build>
+----
+
+**Compiler Options Application Order:**
+
+1. Hardcoded defaults: `-Mobjfpc -O1`
+2. Global compiler options from `<build><compilerOptions>`
+3. Profile-specific options from `<profile><compilerOptions>`
+
+This additive approach allows global settings to extend defaults, with profiles able to further extend or override as needed.
 
 === Multiple Profiles Activation
+
+**Status:** Implemented
+
+Multiple profiles can be activated simultaneously using comma-separated profile IDs.
 
 **Command:**
 [source,bash]
 ----
-pasbuild compile -p debug -p logging -p linux-gtk
+pasbuild compile -p base,debug,logging
 ----
 
-**Semantics:** Merge all profile defines
+**Semantics:**
+
+* Profiles are applied in the order specified (left to right)
+* Each profile's defines and compiler options are added sequentially
+* Later profiles can override settings from earlier profiles
+* Useful for composing build configurations from reusable profile components
 
 
 == Implementation Phases
