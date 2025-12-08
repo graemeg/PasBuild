@@ -304,10 +304,15 @@ var
   LogStream: TFileStream;
   Line: string;
   OutputLine: string;
+  Header: string;
 begin
   LogStream := TFileStream.Create(ALogFile, fmCreate);
   AProcess := TProcess.Create(nil);
   try
+    // Write build command header to log file
+    Header := '# Build command:' + LineEnding + ACommand + LineEnding + LineEnding;
+    LogStream.WriteBuffer(Header[1], Length(Header));
+
     {$IFDEF UNIX}
     AProcess.Executable := '/bin/sh';
     AProcess.Parameters.Add('-c');
