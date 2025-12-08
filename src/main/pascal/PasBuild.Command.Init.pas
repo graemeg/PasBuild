@@ -29,6 +29,7 @@ type
     function GetDefaultAuthor: string;
     function GenerateProjectXML(const AName, AVersion, AAuthor, ALicense, AProjectType: string): string;
     function GenerateMainPas(const AProjectName: string): string;
+    function GenerateTestRunnerPas(const AProjectName: string): string;
     function GenerateLicenseFile(const ALicense: string): string;
     function CreateDirectoryStructure: Boolean;
     function WriteProjectFiles(const AName, AVersion, AAuthor, ALicense, AProjectType: string): Integer;
@@ -117,6 +118,14 @@ begin
 
   Result := Result +
             '  </build>' + LineEnding +
+            '' + LineEnding +
+            '  <test>' + LineEnding +
+            '    <framework>auto</framework>' + LineEnding +
+            '    <testSource>TestRunner.pas</testSource>' + LineEnding +
+            '    <frameworkOptions>' + LineEnding +
+            '      <option>--all</option>' + LineEnding +
+            '    </frameworkOptions>' + LineEnding +
+            '  </test>' + LineEnding +
             '</project>' + LineEnding;
 end;
 
@@ -132,6 +141,41 @@ begin
             'begin' + LineEnding +
             '  WriteLn(''Hello from ' + AProjectName + '!'');' + LineEnding +
             '  WriteLn(''Build tool: PasBuild'');' + LineEnding +
+            'end.' + LineEnding;
+end;
+
+function TInitCommand.GenerateTestRunnerPas(const AProjectName: string): string;
+begin
+  Result := 'program TestRunner;' + LineEnding +
+            '' + LineEnding +
+            '{$mode objfpc}{$H+}' + LineEnding +
+            '' + LineEnding +
+            'uses' + LineEnding +
+            '  Classes, SysUtils, fpcunit, testregistry, consoletestrunner;' + LineEnding +
+            '' + LineEnding +
+            'type' + LineEnding +
+            '  { Sample test case - replace with your actual tests }' + LineEnding +
+            '  TSampleTest = class(TTestCase)' + LineEnding +
+            '  published' + LineEnding +
+            '    procedure TestExample;' + LineEnding +
+            '  end;' + LineEnding +
+            '' + LineEnding +
+            'procedure TSampleTest.TestExample;' + LineEnding +
+            'begin' + LineEnding +
+            '  AssertEquals(''Sample test'', 2, 1 + 1);' + LineEnding +
+            'end;' + LineEnding +
+            '' + LineEnding +
+            'var' + LineEnding +
+            '  Application: TTestRunner;' + LineEnding +
+            '' + LineEnding +
+            'begin' + LineEnding +
+            '  Application := TTestRunner.Create(nil);' + LineEnding +
+            '  try' + LineEnding +
+            '    Application.Initialize;' + LineEnding +
+            '    Application.Run;' + LineEnding +
+            '  finally' + LineEnding +
+            '    Application.Free;' + LineEnding +
+            '  end;' + LineEnding +
             'end.' + LineEnding;
 end;
 
@@ -214,27 +258,36 @@ end;
 
 function TInitCommand.CreateDirectoryStructure: Boolean;
 var
-  SourceDir: string;
+  MainSourceDir, TestSourceDir: string;
 begin
   Result := False;
 
-  SourceDir := 'src' + DirectorySeparator + 'main' + DirectorySeparator + 'pascal';
-
-  if not ForceDirectories(SourceDir) then
+  // Create main source directory
+  MainSourceDir := 'src' + DirectorySeparator + 'main' + DirectorySeparator + 'pascal';
+  if not ForceDirectories(MainSourceDir) then
   begin
-    TUtils.LogError('Failed to create directory structure: ' + SourceDir);
+    TUtils.LogError('Failed to create directory structure: ' + MainSourceDir);
     Exit;
   end;
+  TUtils.LogInfo('Created directory: ' + MainSourceDir);
 
-  TUtils.LogInfo('Created directory: ' + SourceDir);
+  // Create test source directory
+  TestSourceDir := 'src' + DirectorySeparator + 'test' + DirectorySeparator + 'pascal';
+  if not ForceDirectories(TestSourceDir) then
+  begin
+    TUtils.LogError('Failed to create directory structure: ' + TestSourceDir);
+    Exit;
+  end;
+  TUtils.LogInfo('Created directory: ' + TestSourceDir);
+
   Result := True;
 end;
 
 function TInitCommand.WriteProjectFiles(const AName, AVersion, AAuthor, ALicense, AProjectType: string): Integer;
 var
-  ProjectXML, MainPas, LicenseText: string;
+  ProjectXML, MainPas, TestRunnerPas, LicenseText: string;
   F: TextFile;
-  MainPasPath: string;
+  MainPasPath, TestRunnerPath: string;
   IsLibrary: Boolean;
 begin
   Result := 0;
@@ -242,6 +295,7 @@ begin
 
   // Generate content
   ProjectXML := GenerateProjectXML(AName, AVersion, AAuthor, ALicense, AProjectType);
+  TestRunnerPas := GenerateTestRunnerPas(AName);
   LicenseText := GenerateLicenseFile(ALicense);
 
   // Write project.xml
@@ -293,6 +347,24 @@ begin
     on E: Exception do
     begin
       TUtils.LogError('Failed to write LICENSE: ' + E.Message);
+      Result := 1;
+      Exit;
+    end;
+  end;
+
+  // Write TestRunner.pas
+  TestRunnerPath := 'src' + DirectorySeparator + 'test' + DirectorySeparator +
+                    'pascal' + DirectorySeparator + 'TestRunner.pas';
+  try
+    AssignFile(F, TestRunnerPath);
+    Rewrite(F);
+    Write(F, TestRunnerPas);
+    CloseFile(F);
+    TUtils.LogInfo('Created: ' + TestRunnerPath);
+  except
+    on E: Exception do
+    begin
+      TUtils.LogError('Failed to write TestRunner.pas: ' + E.Message);
       Result := 1;
       Exit;
     end;
@@ -349,14 +421,18 @@ begin
     if IsLibrary then
     begin
       TUtils.LogInfo('  1. Add your library units to src/main/pascal/');
-      TUtils.LogInfo('  2. Run: pasbuild compile');
+      TUtils.LogInfo('  2. Add your tests to src/test/pascal/');
+      TUtils.LogInfo('  3. Run: pasbuild compile');
       TUtils.LogInfo('     (Bootstrap program will be auto-generated)');
+      TUtils.LogInfo('  4. Run: pasbuild test');
     end
     else
     begin
       TUtils.LogInfo('  1. Edit src/main/pascal/Main.pas');
-      TUtils.LogInfo('  2. Run: pasbuild compile');
-      TUtils.LogInfo('  3. Run: ./target/' + LowerCase(StringReplace(ProjectName, ' ', '', [rfReplaceAll])) + TUtils.GetPlatformExecutableSuffix);
+      TUtils.LogInfo('  2. Add your tests to src/test/pascal/TestRunner.pas');
+      TUtils.LogInfo('  3. Run: pasbuild compile');
+      TUtils.LogInfo('  4. Run: ./target/' + LowerCase(StringReplace(ProjectName, ' ', '', [rfReplaceAll])) + TUtils.GetPlatformExecutableSuffix);
+      TUtils.LogInfo('  5. Run: pasbuild test');
     end;
   end
   else
