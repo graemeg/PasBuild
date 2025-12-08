@@ -23,6 +23,7 @@ uses
   PasBuild.Command,
   PasBuild.Command.Clean,
   PasBuild.Command.Compile,
+  PasBuild.Command.Test,
   PasBuild.Command.Package,
   PasBuild.Command.Init,
   PasBuild.Utils;
@@ -119,6 +120,12 @@ begin
 
         bgCompile:
           Command := TCompileCommand.Create(Config, Args.ProfileIds);
+
+        bgTestCompile:
+          Command := TTestCompileCommand.Create(Config, Args.ProfileIds);
+
+        bgTest:
+          Command := TTestCommand.Create(Config, Args.ProfileIds);
 
         bgPackage:
           Command := TPackageCommand.Create(Config, Args.ProfileIds);

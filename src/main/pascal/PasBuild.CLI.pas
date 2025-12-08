@@ -22,7 +22,7 @@ const
 
 type
   { Valid build goals }
-  TBuildGoal = (bgUnknown, bgClean, bgCompile, bgPackage, bgInit, bgHelp, bgVersion);
+  TBuildGoal = (bgUnknown, bgClean, bgCompile, bgTestCompile, bgTest, bgPackage, bgInit, bgHelp, bgVersion);
 
   { Parsed command-line arguments }
   TCommandLineArgs = record
@@ -61,6 +61,10 @@ begin
     Result := bgClean
   else if GoalLower = 'compile' then
     Result := bgCompile
+  else if GoalLower = 'test-compile' then
+    Result := bgTestCompile
+  else if GoalLower = 'test' then
+    Result := bgTest
   else if GoalLower = 'package' then
     Result := bgPackage
   else if GoalLower = 'init' then
@@ -78,6 +82,8 @@ begin
   case AGoal of
     bgClean: Result := 'clean';
     bgCompile: Result := 'compile';
+    bgTestCompile: Result := 'test-compile';
+    bgTest: Result := 'test';
     bgPackage: Result := 'package';
     bgInit: Result := 'init';
     bgHelp: Result := '--help';
@@ -167,6 +173,8 @@ begin
   WriteLn('Goals:');
   WriteLn('  clean              Delete all build artifacts');
   WriteLn('  compile            Build the executable');
+  WriteLn('  test-compile       Compile tests (runs: compile -> test-compile)');
+  WriteLn('  test               Run tests (runs: compile -> test-compile -> test)');
   WriteLn('  package            Create release archive (runs: clean -> compile -> package)');
   WriteLn('  init               Create new project structure');
   WriteLn;
@@ -182,6 +190,7 @@ begin
   WriteLn('  pasbuild compile -p release           # Build with release profile');
   WriteLn('  pasbuild compile -p base,debug        # Build with base + debug profiles');
   WriteLn('  pasbuild compile -p base,debug,log    # Build with multiple profiles');
+  WriteLn('  pasbuild test                         # Run tests');
   WriteLn('  pasbuild package                      # Create release archive');
   WriteLn('  pasbuild init                         # Create new project');
   WriteLn;
