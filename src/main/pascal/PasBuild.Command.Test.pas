@@ -126,7 +126,8 @@ end;
 function TTestCompileCommand.BuildTestCompilerCommand(const ATestSourcePath: string): string;
 var
   OutputDir: string;
-  Define, Option: string;
+  UnitPaths: TStringList;
+  UnitPath, Define, Option: string;
   Profile: TProfile;
   ProfileId: string;
   ActiveDefines: TStringList;
@@ -137,12 +138,12 @@ begin
   // Test source file path
   Result := Result + ' ' + ATestSourcePath;
 
-  // Output directory
+  // Output directory for test executable
   OutputDir := TUtils.NormalizePath(Config.BuildConfig.OutputDirectory);
   Result := Result + ' -FE' + OutputDir;
 
-  // Unit output directory
-  Result := Result + ' -FU' + OutputDir + DirectorySeparator + 'units';
+  // Test unit output directory (separate from main units)
+  Result := Result + ' -FU' + OutputDir + DirectorySeparator + 'test-units';
 
   // Test executable name
   Result := Result + ' -oTestRunner' + TUtils.GetPlatformExecutableSuffix;
@@ -150,8 +151,17 @@ begin
   // Link to already-compiled main units (compiled by 'compile' goal)
   Result := Result + ' -Fu' + OutputDir + DirectorySeparator + 'units';
 
-  // Add test source directory
+  // Add test source directory and its subdirectories
   Result := Result + ' -Fusrc/test/pascal';
+
+  // Scan and add test subdirectories
+  UnitPaths := TUtils.ScanForUnitPaths(TUtils.NormalizePath('src/test/pascal'));
+  try
+    for UnitPath in UnitPaths do
+      Result := Result + ' -Fu' + UnitPath;
+  finally
+    UnitPaths.Free;
+  end;
 
   // Collect active defines (global + profile)
   ActiveDefines := TStringList.Create;
@@ -225,11 +235,21 @@ begin
     tfFPTest: TUtils.LogInfo('Using test framework: FPTest');
   end;
 
-  // Create output directories (should already exist from compile goal)
+  // Create output directories
   OutputDir := TUtils.NormalizePath(Config.BuildConfig.OutputDirectory);
+
+  // Main units directory (should already exist from compile goal)
   if not ForceDirectories(OutputDir + DirectorySeparator + 'units') then
   begin
     TUtils.LogError('Failed to create units directory');
+    Result := 1;
+    Exit;
+  end;
+
+  // Test units directory (separate from main units)
+  if not ForceDirectories(OutputDir + DirectorySeparator + 'test-units') then
+  begin
+    TUtils.LogError('Failed to create test-units directory');
     Result := 1;
     Exit;
   end;
