@@ -25,6 +25,8 @@ allowing you to override only what you need to change.
 
 * ✅ **pasbuild clean** - Removes build artifacts
 * ✅ **pasbuild compile [-p profile]** - Compiles with FPC
+* ✅ **pasbuild test-compile** - Compiles tests (compile → test-compile)
+* ✅ **pasbuild test** - Runs tests (compile → test-compile → test)
 * ✅ **pasbuild package** - Creates ZIP archive (clean → compile → package)
 * ✅ **pasbuild init** - Bootstraps new projects
 * ✅ **--help** / **--version** - Built-in help system
@@ -32,6 +34,7 @@ allowing you to override only what you need to change.
 **Advanced Features:**
 
 * ✅ Build profiles (debug/release with custom compiler options)
+* ✅ Multiple test frameworks (FPCUnit, FPTest) with auto-detection
 * ✅ Automatic dependency resolution between goals
 * ✅ Duplicate goal prevention
 * ✅ Fail-fast error handling
@@ -57,12 +60,17 @@ PasBuild follows Maven's philosophy: sensible defaults mean minimal configuratio
 myproject/
 ├── project.xml          # Minimal configuration
 ├── src/
-│   └── main/
-│       └── pascal/      # Your source files here
-│           └── Main.pas
+│   ├── main/
+│   │   └── pascal/      # Your source files here
+│   │       └── Main.pas
+│   └── test/
+│       └── pascal/      # Your test files here
+│           └── TestRunner.pas
 └── target/              # Build output (auto-created)
     ├── myproject        # Compiled executable
+    ├── TestRunner       # Compiled test runner
     ├── units/           # Compiled units (.ppu, .o)
+    ├── test-units/      # Compiled test units
     └── myproject-1.0.0.zip  # Package archive
 ----
 
@@ -83,12 +91,23 @@ Just define your project metadata - everything else uses sensible defaults:
     <mainSource>Main.pas</mainSource>
     <executableName>myproject</executableName>
   </build>
+
+  <test>
+    <framework>auto</framework>           <!-- auto-detect FPCUnit or FPTest -->
+    <testSource>TestRunner.pas</testSource>
+    <frameworkOptions>
+      <option>--all</option>              <!-- Run all tests -->
+    </frameworkOptions>
+  </test>
 </project>
 ----
 
 **What You Get for Free:**
 
 * Automatic unit path scanning (`-Fu` flags)
+* Automatic include path scanning (`-Fi` flags for .inc files)
+* Test framework auto-detection (FPCUnit/FPTest)
+* Separate test compilation (Maven-style `target/test-units`)
 * Cross-platform executable naming (`.exe` on Windows)
 * Standard output directories (`target/`)
 * Archive creation with LICENSE and README inclusion
@@ -133,6 +152,9 @@ pasbuild init
 # Build and run
 pasbuild compile
 ./target/myapp
+
+# Run tests
+pasbuild test
 
 # Create release package
 pasbuild package
