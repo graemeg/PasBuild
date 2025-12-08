@@ -30,6 +30,7 @@ type
     class procedure ParseCompilerOptions(AParent: TDOMNode; AOptions: TStringList);
     class procedure ParseConditionalPaths(AParent: TDOMNode; const ATagName: string; APaths: TConditionalPathList);
     class procedure ParseBuildSection(ABuildNode: TDOMNode; AConfig: TProjectConfig);
+    class procedure ParseTestSection(ATestNode: TDOMNode; AConfig: TProjectConfig);
     class procedure ParseProfile(AProfileNode: TDOMNode; AProfile: TProfile);
     class procedure ParseProfiles(AProfilesNode: TDOMNode; AConfig: TProjectConfig);
   public
@@ -186,6 +187,45 @@ begin
   ParseConditionalPaths(ABuildNode, 'includePaths', AConfig.BuildConfig.IncludePaths);
 end;
 
+class procedure TConfigLoader.ParseTestSection(ATestNode: TDOMNode; AConfig: TProjectConfig);
+var
+  FrameworkStr: string;
+  OptionsNode, OptionNode: TDOMNode;
+  I: Integer;
+begin
+  if not Assigned(ATestNode) then
+    Exit; // Test section is optional
+
+  // Parse framework (optional, defaults to auto)
+  FrameworkStr := LowerCase(GetNodeText(ATestNode, 'framework', 'auto'));
+  if FrameworkStr = 'fpcunit' then
+    AConfig.TestConfig.Framework := tfFPCUnit
+  else if FrameworkStr = 'fptest' then
+    AConfig.TestConfig.Framework := tfFPTest
+  else if FrameworkStr = 'auto' then
+    AConfig.TestConfig.Framework := tfAuto
+  else
+    raise EProjectConfigError.CreateFmt('Invalid test framework: %s (expected: auto, fpcunit, or fptest)', [FrameworkStr]);
+
+  // Parse test source (optional)
+  AConfig.TestConfig.TestSource := GetNodeText(ATestNode, 'testSource', 'TestRunner.pas');
+
+  // Parse framework-specific options
+  OptionsNode := ATestNode.FindNode('frameworkOptions');
+  if Assigned(OptionsNode) then
+  begin
+    for I := 0 to OptionsNode.ChildNodes.Count - 1 do
+    begin
+      OptionNode := OptionsNode.ChildNodes[I];
+      if (OptionNode.NodeType = ELEMENT_NODE) and (OptionNode.NodeName = 'option') then
+      begin
+        if Assigned(OptionNode.FirstChild) then
+          AConfig.TestConfig.FrameworkOptions.Add(Trim(OptionNode.TextContent));
+      end;
+    end;
+  end;
+end;
+
 class procedure TConfigLoader.ParseProfile(AProfileNode: TDOMNode; AProfile: TProfile);
 begin
   // Parse profile ID (required)
@@ -230,7 +270,7 @@ end;
 class function TConfigLoader.LoadProjectXML(const AFilePath: string): TProjectConfig;
 var
   Doc: TXMLDocument;
-  RootNode, BuildNode, ProfilesNode: TDOMNode;
+  RootNode, BuildNode, TestNode, ProfilesNode: TDOMNode;
 begin
   Result := nil;
 
@@ -282,6 +322,10 @@ begin
       // Set default executable name if not specified
       if Result.BuildConfig.ExecutableName = '' then
         Result.BuildConfig.ExecutableName := LowerCase(Result.Name);
+
+      // Parse <test> section (optional)
+      TestNode := RootNode.FindNode('test');
+      ParseTestSection(TestNode, Result);
 
       // Parse <profiles> section (optional)
       ProfilesNode := RootNode.FindNode('profiles');

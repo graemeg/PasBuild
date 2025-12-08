@@ -22,9 +22,13 @@ type
   { Project type enumeration }
   TProjectType = (ptApplication, ptLibrary);
 
+  { Test framework enumeration }
+  TTestFramework = (tfAuto, tfFPCUnit, tfFPTest);
+
   { Forward declarations }
   TProfile = class;
   TBuildConfig = class;
+  TTestConfig = class;
   TProjectConfig = class;
   TConditionalPath = class;
 
@@ -92,6 +96,21 @@ type
     property ManualUnitPaths: Boolean read FManualUnitPaths write FManualUnitPaths;
   end;
 
+  { TTestConfig - Test configuration section }
+  TTestConfig = class
+  private
+    FFramework: TTestFramework;
+    FTestSource: string;
+    FFrameworkOptions: TStringList;
+  public
+    constructor Create;
+    destructor Destroy; override;
+
+    property Framework: TTestFramework read FFramework write FFramework;
+    property TestSource: string read FTestSource write FTestSource;
+    property FrameworkOptions: TStringList read FFrameworkOptions;
+  end;
+
   { TProjectConfig - Complete project configuration }
   TProjectConfig = class
   private
@@ -102,6 +121,7 @@ type
     FProjectUrl: string;
     FRepoUrl: string;
     FBuildConfig: TBuildConfig;
+    FTestConfig: TTestConfig;
     FProfiles: TProfileList;
   public
     constructor Create;
@@ -114,6 +134,7 @@ type
     property ProjectUrl: string read FProjectUrl write FProjectUrl;
     property RepoUrl: string read FRepoUrl write FRepoUrl;
     property BuildConfig: TBuildConfig read FBuildConfig;
+    property TestConfig: TTestConfig read FTestConfig;
     property Profiles: TProfileList read FProfiles;
   end;
 
@@ -198,12 +219,32 @@ begin
   inherited Destroy;
 end;
 
+{ TTestConfig }
+
+constructor TTestConfig.Create;
+begin
+  inherited Create;
+  FFrameworkOptions := TStringList.Create;
+  FFrameworkOptions.Duplicates := dupIgnore;
+
+  // Set defaults
+  FFramework := tfAuto;  // Auto-detect by default
+  FTestSource := 'TestRunner.pas';  // Common default name
+end;
+
+destructor TTestConfig.Destroy;
+begin
+  FFrameworkOptions.Free;
+  inherited Destroy;
+end;
+
 { TProjectConfig }
 
 constructor TProjectConfig.Create;
 begin
   inherited Create;
   FBuildConfig := TBuildConfig.Create;
+  FTestConfig := TTestConfig.Create;
   FProfiles := TProfileList.Create;
   FProfiles.FreeObjects := True;
 
@@ -215,6 +256,7 @@ end;
 destructor TProjectConfig.Destroy;
 begin
   FBuildConfig.Free;
+  FTestConfig.Free;
   FProfiles.Free;
   inherited Destroy;
 end;
