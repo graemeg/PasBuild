@@ -126,11 +126,12 @@ end;
 function TTestCompileCommand.BuildTestCompilerCommand(const ATestSourcePath: string): string;
 var
   OutputDir: string;
-  UnitPaths: TStringList;
-  UnitPath, Define, Option: string;
+  UnitPaths, IncludePaths: TStringList;
+  UnitPath, IncludePath, Define, Option: string;
   Profile: TProfile;
   ProfileId: string;
   ActiveDefines: TStringList;
+  TestBaseDir: string;
 begin
   // Base command with default flags
   Result := 'fpc -Mobjfpc -O1';
@@ -152,15 +153,25 @@ begin
   Result := Result + ' -Fu' + OutputDir + DirectorySeparator + 'units';
 
   // Add test source directory and its subdirectories
-  Result := Result + ' -Fusrc/test/pascal';
+  TestBaseDir := TUtils.NormalizePath('src/test/pascal');
+  Result := Result + ' -Fu' + TestBaseDir;
 
-  // Scan and add test subdirectories
-  UnitPaths := TUtils.ScanForUnitPaths(TUtils.NormalizePath('src/test/pascal'));
+  // Scan and add test subdirectories (unit paths)
+  UnitPaths := TUtils.ScanForUnitPaths(TestBaseDir);
   try
     for UnitPath in UnitPaths do
       Result := Result + ' -Fu' + UnitPath;
   finally
     UnitPaths.Free;
+  end;
+
+  // Scan and add include paths for test directory
+  IncludePaths := TUtils.ScanForIncludePaths(TestBaseDir);
+  try
+    for IncludePath in IncludePaths do
+      Result := Result + ' -Fi' + IncludePath;
+  finally
+    IncludePaths.Free;
   end;
 
   // Collect active defines (global + profile)

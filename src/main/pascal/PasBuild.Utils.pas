@@ -28,6 +28,7 @@ type
     { Directory and file operations }
     class function VerifyDirectoryLayout(const AProjectRoot: string): Boolean;
     class function ScanForUnitPaths(const ABaseDir: string): TStringList;
+    class function ScanForIncludePaths(const ABaseDir: string): TStringList;
     class function ScanForUnitPathsFiltered(const ABaseDir: string; AConditionalPaths: TConditionalPathList; AActiveDefines: TStringList): TStringList;
     class function ScanForIncludePathsFiltered(const ABaseDir: string; AConditionalPaths: TConditionalPathList; AActiveDefines: TStringList): TStringList;
     class function DirectoryContainsIncludeFiles(const ADirectory: string): Boolean;
@@ -129,6 +130,32 @@ begin
     finally
       FindClose(SearchRec);
     end;
+  end;
+end;
+
+class function TUtils.ScanForIncludePaths(const ABaseDir: string): TStringList;
+var
+  UnitPaths: TStringList;
+  Dir: string;
+begin
+  Result := TStringList.Create;
+  Result.Duplicates := dupIgnore;
+  Result.Sorted := True;
+
+  // Check base directory for .inc files
+  if DirectoryContainsIncludeFiles(ABaseDir) then
+    Result.Add(ABaseDir);
+
+  // Check all subdirectories for .inc files
+  UnitPaths := ScanForUnitPaths(ABaseDir);
+  try
+    for Dir in UnitPaths do
+    begin
+      if DirectoryContainsIncludeFiles(Dir) then
+        Result.Add(Dir);
+    end;
+  finally
+    UnitPaths.Free;
   end;
 end;
 
