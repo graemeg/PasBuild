@@ -39,6 +39,7 @@ type
     { Process execution }
     class function ExecuteProcess(const ACommand: string; AShowOutput: Boolean): Integer;
     class function ExecuteProcessWithCapture(const ACommand: string; out AOutput: string): Integer;
+    class function ExecuteProcessWithLog(const ACommand: string; const ALogFile: string; AShowErrors: Boolean): Integer;
 
     { FPC detection }
     class function DetectFPCVersion: string;
@@ -51,6 +52,12 @@ type
     class procedure LogInfo(const AMessage: string);
     class procedure LogError(const AMessage: string);
     class procedure LogWarning(const AMessage: string);
+
+    { Build status tracking }
+    class function CreateStatusDirectory(const AGoalName: string): string;
+    class function CollectSourceFiles(const ABaseDir: string): TStringList;
+    class function CollectIncludeFiles(const ABaseDir: string): TStringList;
+    class procedure WriteListFile(const AFilePath: string; AList: TStringList);
   end;
 
 implementation
@@ -289,6 +296,82 @@ begin
   end;
 end;
 
+class function TUtils.ExecuteProcessWithLog(const ACommand: string; const ALogFile: string; AShowErrors: Boolean): Integer;
+var
+  AProcess: TProcess;
+  Buffer: array[0..4095] of Char;
+  BytesRead: Integer;
+  LogStream: TFileStream;
+  Line: string;
+  OutputLine: string;
+begin
+  LogStream := TFileStream.Create(ALogFile, fmCreate);
+  AProcess := TProcess.Create(nil);
+  try
+    {$IFDEF UNIX}
+    AProcess.Executable := '/bin/sh';
+    AProcess.Parameters.Add('-c');
+    AProcess.Parameters.Add(ACommand);
+    {$ELSE}
+    AProcess.Executable := 'cmd.exe';
+    AProcess.Parameters.Add('/c');
+    AProcess.Parameters.Add(ACommand);
+    {$ENDIF}
+    AProcess.Options := [poUsePipes, poStderrToOutPut];
+
+    try
+      AProcess.Execute;
+
+      // Read output and write to log file
+      OutputLine := '';
+      while AProcess.Running or (AProcess.Output.NumBytesAvailable > 0) do
+      begin
+        if AProcess.Output.NumBytesAvailable > 0 then
+        begin
+          BytesRead := AProcess.Output.Read(Buffer, SizeOf(Buffer) - 1);
+          if BytesRead > 0 then
+          begin
+            Buffer[BytesRead] := #0;
+            Line := StrPas(Buffer);
+
+            // Write to log file
+            LogStream.WriteBuffer(Buffer, BytesRead);
+
+            // Accumulate output for error detection
+            OutputLine := OutputLine + Line;
+
+            // Show errors on console if requested
+            if AShowErrors and (Pos('Error:', OutputLine) > 0) then
+            begin
+              // Extract and show error lines
+              while Pos(LineEnding, OutputLine) > 0 do
+              begin
+                Line := Copy(OutputLine, 1, Pos(LineEnding, OutputLine) - 1);
+                Delete(OutputLine, 1, Pos(LineEnding, OutputLine) + Length(LineEnding) - 1);
+
+                if (Pos('Error:', Line) > 0) or (Pos('Fatal:', Line) > 0) then
+                  LogError(Line);
+              end;
+            end;
+          end;
+        end;
+      end;
+
+      Result := AProcess.ExitStatus;
+    except
+      on E: Exception do
+      begin
+        LogError('Failed to execute: ' + ACommand);
+        LogError('Error: ' + E.Message);
+        Result := 1;
+      end;
+    end;
+  finally
+    AProcess.Free;
+    LogStream.Free;
+  end;
+end;
+
 class function TUtils.DetectFPCVersion: string;
 var
   Output: string;
@@ -501,6 +584,156 @@ begin
     end;
   finally
     DirList.Free;
+  end;
+end;
+
+class function TUtils.CreateStatusDirectory(const AGoalName: string): string;
+var
+  StatusBaseDir: string;
+begin
+  StatusBaseDir := NormalizePath('target' + DirectorySeparator + 'pasbuild-status');
+  Result := StatusBaseDir + DirectorySeparator + AGoalName;
+
+  if not ForceDirectories(Result) then
+    raise Exception.CreateFmt('Failed to create status directory: %s', [Result]);
+end;
+
+class function TUtils.CollectSourceFiles(const ABaseDir: string): TStringList;
+var
+  SearchRec: TSearchRec;
+  BasePath, FileName: string;
+  SubDirs: TStringList;
+  SubDir: string;
+begin
+  Result := TStringList.Create;
+  Result.Duplicates := dupIgnore;
+  Result.Sorted := True;
+
+  if not DirectoryExists(ABaseDir) then
+    Exit;
+
+  BasePath := IncludeTrailingPathDelimiter(ABaseDir);
+
+  // Find all source files in current directory
+  if FindFirst(BasePath + '*', faAnyFile, SearchRec) = 0 then
+  begin
+    try
+      repeat
+        if (SearchRec.Attr and faDirectory) = 0 then
+        begin
+          FileName := LowerCase(SearchRec.Name);
+          // Check for Pascal source file extensions
+          if AnsiEndsStr('.pas', FileName) or
+             AnsiEndsStr('.pp', FileName) or
+             AnsiEndsStr('.lpr', FileName) then
+          begin
+            Result.Add(BasePath + SearchRec.Name);
+          end;
+        end;
+      until FindNext(SearchRec) <> 0;
+    finally
+      FindClose(SearchRec);
+    end;
+  end;
+
+  // Recursively scan subdirectories
+  SubDirs := ScanForUnitPaths(ABaseDir);
+  try
+    for SubDir in SubDirs do
+    begin
+      if FindFirst(IncludeTrailingPathDelimiter(SubDir) + '*', faAnyFile, SearchRec) = 0 then
+      begin
+        try
+          repeat
+            if (SearchRec.Attr and faDirectory) = 0 then
+            begin
+              FileName := LowerCase(SearchRec.Name);
+              if AnsiEndsStr('.pas', FileName) or
+                 AnsiEndsStr('.pp', FileName) or
+                 AnsiEndsStr('.lpr', FileName) then
+              begin
+                Result.Add(IncludeTrailingPathDelimiter(SubDir) + SearchRec.Name);
+              end;
+            end;
+          until FindNext(SearchRec) <> 0;
+        finally
+          FindClose(SearchRec);
+        end;
+      end;
+    end;
+  finally
+    SubDirs.Free;
+  end;
+end;
+
+class function TUtils.CollectIncludeFiles(const ABaseDir: string): TStringList;
+var
+  SearchRec: TSearchRec;
+  BasePath, FileName: string;
+  SubDirs: TStringList;
+  SubDir: string;
+begin
+  Result := TStringList.Create;
+  Result.Duplicates := dupIgnore;
+  Result.Sorted := True;
+
+  if not DirectoryExists(ABaseDir) then
+    Exit;
+
+  BasePath := IncludeTrailingPathDelimiter(ABaseDir);
+
+  // Find all .inc files in current directory
+  if FindFirst(BasePath + '*.inc', faAnyFile, SearchRec) = 0 then
+  begin
+    try
+      repeat
+        if (SearchRec.Attr and faDirectory) = 0 then
+          Result.Add(BasePath + SearchRec.Name);
+      until FindNext(SearchRec) <> 0;
+    finally
+      FindClose(SearchRec);
+    end;
+  end;
+
+  // Recursively scan subdirectories
+  SubDirs := ScanForUnitPaths(ABaseDir);
+  try
+    for SubDir in SubDirs do
+    begin
+      if FindFirst(IncludeTrailingPathDelimiter(SubDir) + '*.inc', faAnyFile, SearchRec) = 0 then
+      begin
+        try
+          repeat
+            if (SearchRec.Attr and faDirectory) = 0 then
+              Result.Add(IncludeTrailingPathDelimiter(SubDir) + SearchRec.Name);
+          until FindNext(SearchRec) <> 0;
+        finally
+          FindClose(SearchRec);
+        end;
+      end;
+    end;
+  finally
+    SubDirs.Free;
+  end;
+end;
+
+class procedure TUtils.WriteListFile(const AFilePath: string; AList: TStringList);
+var
+  F: TextFile;
+  Item: string;
+begin
+  AssignFile(F, AFilePath);
+  try
+    Rewrite(F);
+    try
+      for Item in AList do
+        WriteLn(F, Item);
+    finally
+      CloseFile(F);
+    end;
+  except
+    on E: Exception do
+      LogWarning('Failed to write list file ' + AFilePath + ': ' + E.Message);
   end;
 end;
 

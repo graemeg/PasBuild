@@ -209,6 +209,8 @@ var
   Command: string;
   ActiveDefines: TStringList;
   Profile: TProfile;
+  StatusDir, LogFile: string;
+  SourceFiles, IncludeFiles: TStringList;
 begin
   Result := 0;
 
@@ -293,20 +295,63 @@ begin
     Exit;
   end;
 
+  // Create status directory and collect source information
+  try
+    StatusDir := TUtils.CreateStatusDirectory('compile');
+
+    // Collect and write source files list
+    SourceFiles := TUtils.CollectSourceFiles(TUtils.NormalizePath('src/main/pascal'));
+    try
+      TUtils.LogInfo('Found ' + IntToStr(SourceFiles.Count) + ' source file(s)');
+      TUtils.WriteListFile(StatusDir + DirectorySeparator + 'inputUnits.lst', SourceFiles);
+    finally
+      SourceFiles.Free;
+    end;
+
+    // Collect and write include files list
+    IncludeFiles := TUtils.CollectIncludeFiles(TUtils.NormalizePath('src/main/pascal'));
+    try
+      if IncludeFiles.Count > 0 then
+        TUtils.LogInfo('Found ' + IntToStr(IncludeFiles.Count) + ' include file(s)');
+      TUtils.WriteListFile(StatusDir + DirectorySeparator + 'inputIncludeFiles.lst', IncludeFiles);
+    finally
+      IncludeFiles.Free;
+    end;
+
+    LogFile := StatusDir + DirectorySeparator + 'fpc.log';
+  except
+    on E: Exception do
+    begin
+      TUtils.LogWarning('Failed to create status directory: ' + E.Message);
+      // Continue without status tracking
+      StatusDir := '';
+    end;
+  end;
+
   // Build compiler command
   Command := BuildCompilerCommand(MainSourcePath);
 
-  TUtils.LogInfo('Build command: ' + Command);
-  WriteLn;
-
-  // Execute FPC with real-time output
-  Result := TUtils.ExecuteProcess(Command, True);
-
-  WriteLn;
-  if Result = 0 then
-    TUtils.LogInfo('Build successful')
+  // Execute FPC with logging
+  if StatusDir <> '' then
+  begin
+    Result := TUtils.ExecuteProcessWithLog(Command, LogFile, True);
+    if Result = 0 then
+      TUtils.LogInfo('Build successful (see ' + LogFile + ' for details)')
+    else
+      TUtils.LogError('Build failed with exit code: ' + IntToStr(Result) + ' (see ' + LogFile + ' for details)');
+  end
   else
-    TUtils.LogError('Build failed with exit code: ' + IntToStr(Result));
+  begin
+    // Fallback to old behavior if status directory creation failed
+    TUtils.LogInfo('Build command: ' + Command);
+    WriteLn;
+    Result := TUtils.ExecuteProcess(Command, True);
+    WriteLn;
+    if Result = 0 then
+      TUtils.LogInfo('Build successful')
+    else
+      TUtils.LogError('Build failed with exit code: ' + IntToStr(Result));
+  end;
 end;
 
 end.
