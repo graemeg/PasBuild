@@ -68,8 +68,8 @@ function TTestCompileCommand.DetectTestFramework: TTestFramework;
 var
   TestSourcePath: string;
   SourceLines: TStringList;
-  Line: string;
-  LineUpper: string;
+  FullSource: string;
+  SourceUpper: string;
 begin
   Result := tfFPCUnit;  // Default fallback
 
@@ -81,34 +81,32 @@ begin
     Exit;
   end;
 
-  // Read test source file and scan for framework indicators
+  // Read entire test source file as one string for multi-line uses clause support
   SourceLines := TStringList.Create;
   try
     try
       SourceLines.LoadFromFile(TestSourcePath);
+      FullSource := SourceLines.Text;
+      SourceUpper := UpperCase(FullSource);
 
-      for Line in SourceLines do
+      // Check for FPCUnit indicator: 'fpcunit' anywhere in the file
+      // (typically in uses clause, but checking whole file is safer)
+      if Pos('FPCUNIT', SourceUpper) > 0 then
       begin
-        LineUpper := UpperCase(Trim(Line));
-
-        // Check for FPCUnit indicator: 'fpcunit' in uses clause
-        if (Pos('USES', LineUpper) > 0) and (Pos('FPCUNIT', LineUpper) > 0) then
-        begin
-          TUtils.LogInfo('Auto-detected test framework: FPCUnit');
-          Result := tfFPCUnit;
-          Exit;
-        end;
-
-        // Check for FPTest indicator: 'TestFramework' in uses clause
-        if (Pos('USES', LineUpper) > 0) and (Pos('TESTFRAMEWORK', LineUpper) > 0) then
-        begin
-          TUtils.LogInfo('Auto-detected test framework: FPTest');
-          Result := tfFPTest;
-          Exit;
-        end;
+        TUtils.LogInfo('Auto-detected test framework: FPCUnit');
+        Result := tfFPCUnit;
+        Exit;
       end;
 
-      // No framework detected in uses clause, default to FPCUnit
+      // Check for FPTest indicator: 'TestFramework' unit
+      if Pos('TESTFRAMEWORK', SourceUpper) > 0 then
+      begin
+        TUtils.LogInfo('Auto-detected test framework: FPTest');
+        Result := tfFPTest;
+        Exit;
+      end;
+
+      // No framework detected, default to FPCUnit
       TUtils.LogWarning('Could not auto-detect test framework, defaulting to FPCUnit');
 
     except
