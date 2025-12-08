@@ -123,7 +123,7 @@ begin
             '    <framework>auto</framework>' + LineEnding +
             '    <testSource>TestRunner.pas</testSource>' + LineEnding +
             '    <frameworkOptions>' + LineEnding +
-            '      <option>--all</option>' + LineEnding +
+            '      <option>--all --format=plain</option>' + LineEnding +
             '    </frameworkOptions>' + LineEnding +
             '  </test>' + LineEnding +
             '</project>' + LineEnding;
@@ -171,6 +171,7 @@ begin
             'begin' + LineEnding +
             '  Application := TTestRunner.Create(nil);' + LineEnding +
             '  try' + LineEnding +
+            '    RegisterTest(TSampleTest);' + LineEnding +
             '    Application.Initialize;' + LineEnding +
             '    Application.Run;' + LineEnding +
             '  finally' + LineEnding +
