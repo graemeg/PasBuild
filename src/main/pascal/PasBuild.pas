@@ -76,7 +76,7 @@ begin
   else
   begin
     try
-      Config := TConfigLoader.LoadProjectXML('project.xml');
+      Config := TConfigLoader.LoadProjectXML(Args.ProjectFile);
     except
     on E: EProjectConfigError do
     begin
@@ -86,7 +86,7 @@ begin
     end;
     on E: Exception do
     begin
-      TUtils.LogError('Failed to load project.xml: ' + E.Message);
+      TUtils.LogError('Failed to load ' + Args.ProjectFile + ': ' + E.Message);
       ExitCode := 1;
       Exit;
     end;

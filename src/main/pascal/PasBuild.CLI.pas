@@ -28,6 +28,7 @@ type
   TCommandLineArgs = record
     Goal: TBuildGoal;
     ProfileIds: TStringList;  // Changed from ProfileId to support multiple profiles
+    ProjectFile: string;  // Custom project file path (default: project.xml)
     ShowHelp: Boolean;
     ShowVersion: Boolean;
     Verbose: Boolean;
@@ -106,6 +107,7 @@ begin
   Result.ProfileIds := TStringList.Create;
   Result.ProfileIds.Delimiter := ',';
   Result.ProfileIds.StrictDelimiter := True;
+  Result.ProjectFile := 'project.xml';  // Default
   Result.ShowHelp := False;
   Result.ShowVersion := False;
   Result.Verbose := False;
@@ -166,6 +168,17 @@ begin
     begin
       Result.Verbose := True;
     end
+    // Project file flag
+    else if (Arg = '-f') or (Arg = '--file') then
+    begin
+      Inc(I);
+      if I > ParamCount then
+      begin
+        Result.ErrorMessage := 'Option ' + Arg + ' requires a file path';
+        Exit;
+      end;
+      Result.ProjectFile := ParamStr(I);
+    end
     else
     begin
       Result.ErrorMessage := 'Unknown option: ' + Arg;
@@ -192,6 +205,7 @@ begin
   WriteLn('Options:');
   WriteLn('  -p <profile[,profile...]>    Activate build profile(s)');
   WriteLn('  --profile <id>               Activate build profile (same as -p)');
+  WriteLn('  -f <file>, --file <file>     Use alternate project file (default: project.xml)');
   WriteLn('  -v, --verbose                Show full compiler output');
   WriteLn('  -h, --help                   Show this help message');
   WriteLn('  --version                    Show version information');
@@ -202,6 +216,7 @@ begin
   WriteLn('  pasbuild compile -p release           # Build with release profile');
   WriteLn('  pasbuild compile -p base,debug        # Build with base + debug profiles');
   WriteLn('  pasbuild compile -v                   # Build with verbose FPC output');
+  WriteLn('  pasbuild compile -f custom.xml        # Use custom project file');
   WriteLn('  pasbuild test                         # Run tests');
   WriteLn('  pasbuild package                      # Create release archive');
   WriteLn('  pasbuild init                         # Create new project');
