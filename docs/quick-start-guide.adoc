@@ -49,7 +49,7 @@ If FPC is not found:
 
 [source,shell]
 ----
-git clone https://github.com/yourusername/pasbuild.git
+git clone https://github.com/graemeg/pasbuild.git
 cd pasbuild
 ----
 
@@ -61,7 +61,8 @@ Follow the instructions in link:../BOOTSTRAP.txt[BOOTSTRAP.txt]:
 ----
 # Linux/macOS/FreeBSD
 mkdir -p target/units
-fpc -Mobjfpc -O1 -FEtarget -FUtarget/units -Fusrc/main/pascal src/main/pascal/PasBuild.pas
+echo '1.0.0' > target\version.inc
+fpc -Mobjfpc -O1 -FEtarget -FUtarget/units -Fitarget -Fusrc/main/pascal src/main/pascal/PasBuild.pas
 
 # Verify build
 ./target/PasBuild --version
@@ -1310,44 +1311,44 @@ PasBuild follows Maven's Standard Directory Layout:
 [source]
 ----
 project-root/
-├── project.xml              # Project configuration
-├── LICENSE                  # License file
-├── README.md               # Project documentation
-├── BOOTSTRAP.txt           # Bootstrap instructions (optional)
+├── project.xml                # Project configuration
+├── LICENSE                    # License file
+├── README.md                  # Project documentation
+├── BOOTSTRAP.txt              # Bootstrap instructions (optional)
 │
 ├── src/
 │   ├── main/
-│   │   ├── pascal/         # Application source files
+│   │   ├── pascal/            # Application source files
 │   │   │   ├── Main.pas
 │   │   │   ├── Unit1.pas
-│   │   │   └── subdir/     # Subdirectories auto-scanned
+│   │   │   └── subdir/        # Subdirectories auto-scanned
 │   │   │       └── Unit2.pas
-│   │   └── resources/      # Resource files (optional)
+│   │   └── resources/         # Resource files (optional)
 │   │       ├── config/
 │   │       │   └── app.conf
 │   │       └── images/
 │   │           └── logo.png
 │   └── test/
-│       ├── pascal/         # Test source files
+│       ├── pascal/            # Test source files
 │       │   ├── TestRunner.pas
-│       │   └── subdir/     # Test subdirectories auto-scanned
+│       │   └── subdir/        # Test subdirectories auto-scanned
 │       │       └── MyTests.pas
-│       └── resources/      # Test resource files (optional)
+│       └── resources/         # Test resource files (optional)
 │           └── test-data.json
 │
-└── target/                 # Build output (auto-created)
-    ├── myapp               # Executable
-    ├── TestRunner          # Test executable
-    ├── myapp-1.0.0.zip    # Package archive
-    ├── config/            # Copied from src/main/resources/
-    │   └── app.conf       # (filtered if enabled)
-    ├── images/            # Copied from src/main/resources/
+└── target/                    # Build output (auto-created)
+    ├── myapp                  # Executable
+    ├── TestRunner             # Test executable
+    ├── myapp-1.0.0.zip        # Package archive
+    ├── config/                # Copied from src/main/resources/
+    │   └── app.conf           # (filtered if enabled)
+    ├── images/                # Copied from src/main/resources/
     │   └── logo.png
-    ├── units/             # Compiled main units
+    ├── units/                 # Compiled main units
     │   ├── Unit1.ppu
     │   ├── Unit1.o
     │   └── ...
-    └── test-units/        # Compiled test units (separate)
+    └── test-units/            # Compiled test units (separate)
         ├── MyTests.ppu
         └── ...
 ----
