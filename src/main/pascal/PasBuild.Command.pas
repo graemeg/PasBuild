@@ -30,6 +30,7 @@ type
   protected
     FConfig: TProjectConfig;
     FProfileIds: TStringList;
+    FVerbose: Boolean;
     function GetName: string; virtual; abstract;
   public
     constructor Create(AConfig: TProjectConfig; AProfileIds: TStringList); virtual;
@@ -44,6 +45,7 @@ type
     property Name: string read GetName;
     property Config: TProjectConfig read FConfig;
     property ProfileIds: TStringList read FProfileIds;
+    property Verbose: Boolean read FVerbose write FVerbose;
   end;
 
   { Command executor - executes commands with dependency resolution }
@@ -77,6 +79,7 @@ begin
   FProfileIds := TStringList.Create;
   if Assigned(AProfileIds) then
     FProfileIds.AddStrings(AProfileIds);
+  FVerbose := False;
 end;
 
 destructor TBuildCommand.Destroy;

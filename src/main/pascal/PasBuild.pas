@@ -145,6 +145,7 @@ begin
       if Assigned(Command) then
       begin
         try
+          Command.Verbose := Args.Verbose;
           ExitCode := Executor.Execute(Command);
         finally
           Command.Free;

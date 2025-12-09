@@ -310,18 +310,10 @@ begin
   // Build compiler command for tests
   CompileCommand := BuildTestCompilerCommand(TestSourcePath);
 
-  // Execute FPC with logging
-  if StatusDir <> '' then
+  // Execute FPC (verbose mode shows full output, quiet mode logs to file)
+  if FVerbose then
   begin
-    Result := TUtils.ExecuteProcessWithLog(CompileCommand, LogFile, True);
-    if Result = 0 then
-      TUtils.LogInfo('Test compilation successful (see ' + LogFile + ' for details)')
-    else
-      TUtils.LogError('Test compilation failed with exit code: ' + IntToStr(Result) + ' (see ' + LogFile + ' for details)');
-  end
-  else
-  begin
-    // Fallback to old behavior if status directory creation failed
+    // Verbose mode: Show full FPC output to console
     TUtils.LogInfo('Build command: ' + CompileCommand);
     WriteLn;
     Result := TUtils.ExecuteProcess(CompileCommand, True);
@@ -330,6 +322,30 @@ begin
       TUtils.LogInfo('Test compilation successful')
     else
       TUtils.LogError('Test compilation failed with exit code: ' + IntToStr(Result));
+  end
+  else
+  begin
+    // Quiet mode: Clean console output, full output logged to file
+    if StatusDir <> '' then
+    begin
+      Result := TUtils.ExecuteProcessWithLog(CompileCommand, LogFile, True);
+      if Result = 0 then
+        TUtils.LogInfo('Test compilation successful (see ' + LogFile + ' for details)')
+      else
+        TUtils.LogError('Test compilation failed with exit code: ' + IntToStr(Result) + ' (see ' + LogFile + ' for details)');
+    end
+    else
+    begin
+      // Fallback if status directory creation failed
+      TUtils.LogInfo('Build command: ' + CompileCommand);
+      WriteLn;
+      Result := TUtils.ExecuteProcess(CompileCommand, True);
+      WriteLn;
+      if Result = 0 then
+        TUtils.LogInfo('Test compilation successful')
+      else
+        TUtils.LogError('Test compilation failed with exit code: ' + IntToStr(Result));
+    end;
   end;
 end;
 

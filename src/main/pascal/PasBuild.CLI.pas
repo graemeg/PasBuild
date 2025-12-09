@@ -30,6 +30,7 @@ type
     ProfileIds: TStringList;  // Changed from ProfileId to support multiple profiles
     ShowHelp: Boolean;
     ShowVersion: Boolean;
+    Verbose: Boolean;
     ErrorMessage: string;
   end;
 
@@ -71,7 +72,7 @@ begin
     Result := bgInit
   else if (GoalLower = '--help') or (GoalLower = '-h') then
     Result := bgHelp
-  else if (GoalLower = '--version') or (GoalLower = '-v') then
+  else if GoalLower = '--version' then
     Result := bgVersion
   else
     Result := bgUnknown;
@@ -104,6 +105,7 @@ begin
   Result.ProfileIds.StrictDelimiter := True;
   Result.ShowHelp := False;
   Result.ShowVersion := False;
+  Result.Verbose := False;
   Result.ErrorMessage := '';
 
   // No arguments provided
@@ -156,6 +158,11 @@ begin
       // Parse comma-separated profile IDs (e.g., -p debug,logging)
       Result.ProfileIds.DelimitedText := ParamStr(I);
     end
+    // Verbose flag
+    else if (Arg = '-v') or (Arg = '--verbose') then
+    begin
+      Result.Verbose := True;
+    end
     else
     begin
       Result.ErrorMessage := 'Unknown option: ' + Arg;
@@ -181,15 +188,16 @@ begin
   WriteLn('Options:');
   WriteLn('  -p <profile[,profile...]>    Activate build profile(s)');
   WriteLn('  --profile <id>               Activate build profile (same as -p)');
-  WriteLn('  --help, -h                   Show this help message');
-  WriteLn('  --version, -v                Show version information');
+  WriteLn('  -v, --verbose                Show full compiler output');
+  WriteLn('  -h, --help                   Show this help message');
+  WriteLn('  --version                    Show version information');
   WriteLn;
   WriteLn('Examples:');
   WriteLn('  pasbuild compile                      # Build with default settings');
   WriteLn('  pasbuild compile -p debug             # Build with debug profile');
   WriteLn('  pasbuild compile -p release           # Build with release profile');
   WriteLn('  pasbuild compile -p base,debug        # Build with base + debug profiles');
-  WriteLn('  pasbuild compile -p base,debug,log    # Build with multiple profiles');
+  WriteLn('  pasbuild compile -v                   # Build with verbose FPC output');
   WriteLn('  pasbuild test                         # Run tests');
   WriteLn('  pasbuild package                      # Create release archive');
   WriteLn('  pasbuild init                         # Create new project');
