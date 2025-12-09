@@ -25,6 +25,7 @@ uses
   PasBuild.Command.Compile,
   PasBuild.Command.Test,
   PasBuild.Command.Package,
+  PasBuild.Command.SourcePackage,
   PasBuild.Command.Init,
   PasBuild.Utils;
 
@@ -129,6 +130,9 @@ begin
 
         bgPackage:
           Command := TPackageCommand.Create(Config, Args.ProfileIds);
+
+        bgSourcePackage:
+          Command := TSourcePackageCommand.Create(Config, Args.ProfileIds);
 
         bgInit:
           Command := TInitCommand.Create(Config, Args.ProfileIds);

@@ -685,6 +685,73 @@ pasbuild package
 #   README.md
 ----
 
+=== source-package
+
+Creates a source code archive for distribution.
+
+[source,shell]
+----
+pasbuild source-package
+----
+
+**What it creates:**
+
+A ZIP archive at `target/<name>-<version>-src.zip` containing source code and documentation.
+
+**Default includes (automatic):**
+
+* `src/` directory (all source code)
+* `project.xml`
+* `LICENSE*` files (also checks `COPYING*`)
+* `README*` files
+* `BOOTSTRAP*` files
+* `INSTALL*` files
+
+**Optional includes (via configuration):**
+
+[source,xml]
+----
+<build>
+  <sourcePackage>
+    <include>docs</include>
+    <include>examples</include>
+    <include>scripts</include>
+  </sourcePackage>
+</build>
+----
+
+**Security:**
+
+All included paths must be:
+
+* Relative (no absolute paths)
+* Within project root (no `..` parent references)
+* Violations result in build failure with clear error
+
+**Example:**
+
+[source,shell]
+----
+pasbuild source-package
+
+# Creates: target/myapp-1.0.0-src.zip
+# Contains:
+#   myapp-1.0.0/src/main/pascal/...
+#   myapp-1.0.0/project.xml
+#   myapp-1.0.0/LICENSE
+#   myapp-1.0.0/README.md
+#   myapp-1.0.0/BOOTSTRAP.txt
+#   myapp-1.0.0/docs/...          (if configured)
+----
+
+**Use cases:**
+
+* Submitting to software repositories (Debian, FreeBSD ports)
+* Conference/journal paper submissions
+* Creating "official" release source archives
+* Users without Git access
+* Archival purposes
+
 === init
 
 Bootstraps a new project.
@@ -783,6 +850,13 @@ If `project.xml` already exists, returns error: `"Project already initialized"`
       <path condition="WINDOWS">platform/gdi</path>
       <path condition="DARWIN">platform/cocoa</path>
     </unitPaths>
+
+    <!-- Source package optional includes -->
+    <sourcePackage>
+      <include>docs</include>
+      <include>examples</include>
+      <include>scripts</include>
+    </sourcePackage>
   </build>
 
   <!-- Test Configuration -->
@@ -903,6 +977,7 @@ pasbuild compile -p <profile>     # Compile with profile
 pasbuild test-compile             # Compile tests
 pasbuild test                     # Run tests
 pasbuild package                  # Create release archive
+pasbuild source-package           # Create source archive
 pasbuild init                     # Bootstrap new project
 ----
 
@@ -912,8 +987,9 @@ pasbuild init                     # Bootstrap new project
 ----
 -p <profile[,profile...]>         # Activate build profile(s)
 --profile <profile-id>            # Activate build profile (long form)
+-v, --verbose                     # Show full compiler output
 -h, --help                        # Show help message
--v, --version                     # Show version information
+--version                         # Show version information
 ----
 
 === Examples
@@ -930,6 +1006,12 @@ pasbuild package
 
 # Build with multiple profiles
 pasbuild compile -p base,debug,logging
+
+# Verbose build (show full FPC output)
+pasbuild compile -v
+
+# Create source distribution
+pasbuild source-package
 
 # Get help
 pasbuild --help

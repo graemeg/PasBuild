@@ -31,6 +31,7 @@ type
     class procedure ParseConditionalPaths(AParent: TDOMNode; const ATagName: string; APaths: TConditionalPathList);
     class procedure ParseBuildSection(ABuildNode: TDOMNode; AConfig: TProjectConfig);
     class procedure ParseTestSection(ATestNode: TDOMNode; AConfig: TProjectConfig);
+    class procedure ParseSourcePackageSection(ASourcePackageNode: TDOMNode; AConfig: TProjectConfig);
     class procedure ParseProfile(AProfileNode: TDOMNode; AProfile: TProfile);
     class procedure ParseProfiles(AProfilesNode: TDOMNode; AConfig: TProjectConfig);
   public
@@ -226,6 +227,31 @@ begin
   end;
 end;
 
+class procedure TConfigLoader.ParseSourcePackageSection(ASourcePackageNode: TDOMNode; AConfig: TProjectConfig);
+var
+  IncludeNode: TDOMNode;
+  I: Integer;
+  IncludeDir: string;
+begin
+  if not Assigned(ASourcePackageNode) then
+    Exit; // Source package section is optional
+
+  // Parse <include> children
+  for I := 0 to ASourcePackageNode.ChildNodes.Count - 1 do
+  begin
+    IncludeNode := ASourcePackageNode.ChildNodes[I];
+    if (IncludeNode.NodeType = ELEMENT_NODE) and (IncludeNode.NodeName = 'include') then
+    begin
+      if Assigned(IncludeNode.FirstChild) then
+      begin
+        IncludeDir := Trim(IncludeNode.TextContent);
+        if IncludeDir <> '' then
+          AConfig.SourcePackageConfig.IncludeDirs.Add(IncludeDir);
+      end;
+    end;
+  end;
+end;
+
 class procedure TConfigLoader.ParseProfile(AProfileNode: TDOMNode; AProfile: TProfile);
 begin
   // Parse profile ID (required)
@@ -326,6 +352,9 @@ begin
       // Parse <test> section (optional)
       TestNode := RootNode.FindNode('test');
       ParseTestSection(TestNode, Result);
+
+      // Parse <sourcePackage> section (optional)
+      ParseSourcePackageSection(BuildNode.FindNode('sourcePackage'), Result);
 
       // Parse <profiles> section (optional)
       ProfilesNode := RootNode.FindNode('profiles');

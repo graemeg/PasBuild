@@ -17,6 +17,11 @@
     <defines>
       <define>UseCThreads</define>
     </defines>
+
+    <!-- Source package optional includes -->
+    <sourcePackage>
+      <include>docs</include>
+    </sourcePackage>
   </build>
 
   <!-- Build Profiles -->

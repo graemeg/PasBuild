@@ -22,7 +22,7 @@ const
 
 type
   { Valid build goals }
-  TBuildGoal = (bgUnknown, bgClean, bgCompile, bgTestCompile, bgTest, bgPackage, bgInit, bgHelp, bgVersion);
+  TBuildGoal = (bgUnknown, bgClean, bgCompile, bgTestCompile, bgTest, bgPackage, bgSourcePackage, bgInit, bgHelp, bgVersion);
 
   { Parsed command-line arguments }
   TCommandLineArgs = record
@@ -68,6 +68,8 @@ begin
     Result := bgTest
   else if GoalLower = 'package' then
     Result := bgPackage
+  else if GoalLower = 'source-package' then
+    Result := bgSourcePackage
   else if GoalLower = 'init' then
     Result := bgInit
   else if (GoalLower = '--help') or (GoalLower = '-h') then
@@ -86,6 +88,7 @@ begin
     bgTestCompile: Result := 'test-compile';
     bgTest: Result := 'test';
     bgPackage: Result := 'package';
+    bgSourcePackage: Result := 'source-package';
     bgInit: Result := 'init';
     bgHelp: Result := '--help';
     bgVersion: Result := '--version';
@@ -183,6 +186,7 @@ begin
   WriteLn('  test-compile       Compile tests (runs: compile -> test-compile)');
   WriteLn('  test               Run tests (runs: compile -> test-compile -> test)');
   WriteLn('  package            Create release archive (runs: clean -> compile -> package)');
+  WriteLn('  source-package     Create source archive with src/, docs, and configured files');
   WriteLn('  init               Create new project structure');
   WriteLn;
   WriteLn('Options:');

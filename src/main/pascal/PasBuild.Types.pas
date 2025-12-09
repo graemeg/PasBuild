@@ -29,6 +29,7 @@ type
   TProfile = class;
   TBuildConfig = class;
   TTestConfig = class;
+  TSourcePackageConfig = class;
   TProjectConfig = class;
   TConditionalPath = class;
 
@@ -111,6 +112,17 @@ type
     property FrameworkOptions: TStringList read FFrameworkOptions;
   end;
 
+  { TSourcePackageConfig - Source package configuration section }
+  TSourcePackageConfig = class
+  private
+    FIncludeDirs: TStringList;
+  public
+    constructor Create;
+    destructor Destroy; override;
+
+    property IncludeDirs: TStringList read FIncludeDirs;
+  end;
+
   { TProjectConfig - Complete project configuration }
   TProjectConfig = class
   private
@@ -122,6 +134,7 @@ type
     FRepoUrl: string;
     FBuildConfig: TBuildConfig;
     FTestConfig: TTestConfig;
+    FSourcePackageConfig: TSourcePackageConfig;
     FProfiles: TProfileList;
   public
     constructor Create;
@@ -135,6 +148,7 @@ type
     property RepoUrl: string read FRepoUrl write FRepoUrl;
     property BuildConfig: TBuildConfig read FBuildConfig;
     property TestConfig: TTestConfig read FTestConfig;
+    property SourcePackageConfig: TSourcePackageConfig read FSourcePackageConfig;
     property Profiles: TProfileList read FProfiles;
   end;
 
@@ -238,6 +252,21 @@ begin
   inherited Destroy;
 end;
 
+{ TSourcePackageConfig }
+
+constructor TSourcePackageConfig.Create;
+begin
+  inherited Create;
+  FIncludeDirs := TStringList.Create;
+  FIncludeDirs.Duplicates := dupIgnore;
+end;
+
+destructor TSourcePackageConfig.Destroy;
+begin
+  FIncludeDirs.Free;
+  inherited Destroy;
+end;
+
 { TProjectConfig }
 
 constructor TProjectConfig.Create;
@@ -245,6 +274,7 @@ begin
   inherited Create;
   FBuildConfig := TBuildConfig.Create;
   FTestConfig := TTestConfig.Create;
+  FSourcePackageConfig := TSourcePackageConfig.Create;
   FProfiles := TProfileList.Create;
   FProfiles.FreeObjects := True;
 
@@ -257,6 +287,7 @@ destructor TProjectConfig.Destroy;
 begin
   FBuildConfig.Free;
   FTestConfig.Free;
+  FSourcePackageConfig.Free;
   FProfiles.Free;
   inherited Destroy;
 end;
