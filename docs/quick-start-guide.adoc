@@ -587,6 +587,144 @@ By default, PasBuild auto-scans all subdirectories. For explicit control, use ma
 
 **Note:** Manual mode still respects conditional filtering for listed paths.
 
+== Working with Resources
+
+=== Resource Files
+
+PasBuild can automatically copy resource files (images, configuration templates, help files, etc.) from your source directory to the output directory during the build process.
+
+**Directory structure:**
+
+[source]
+----
+src/
+├── main/
+│   ├── pascal/          # Pascal source code
+│   └── resources/       # Resource files
+│       ├── config/
+│       │   └── app.conf
+│       ├── images/
+│       │   └── logo.png
+│       └── help/
+│           └── manual.html
+└── test/
+    ├── pascal/          # Test source code
+    └── resources/       # Test resource files
+        └── test-data.json
+----
+
+=== Configuring Resource Copying
+
+Add a `<resources>` section to your `project.xml`:
+
+[source,xml]
+----
+<build>
+  <mainSource>Main.pas</mainSource>
+  <executableName>myapp</executableName>
+
+  <!-- Resource configuration -->
+  <resources>
+    <directory>src/main/resources</directory>  <!-- optional, default shown -->
+    <filtering>false</filtering>               <!-- optional, default: false -->
+  </resources>
+</build>
+----
+
+**Configuration options:**
+
+* `<directory>` - Source directory for resources (default: `src/main/resources`)
+* `<filtering>` - Enable variable substitution in resource files (default: `false`)
+
+=== Variable Filtering
+
+When `<filtering>` is set to `true`, PasBuild will substitute project metadata variables in your resource files.
+
+**Supported variables:**
+
+* `${project.name}` - Project name from project.xml
+* `${project.version}` - Project version
+* `${project.author}` - Project author
+* `${project.license}` - Project license
+
+**Example resource file** (`src/main/resources/version.txt`):
+
+[source]
+----
+Application: ${project.name}
+Version: ${project.version}
+Author: ${project.author}
+License: ${project.license}
+----
+
+**With filtering enabled** and `<name>MyApp</name>`, `<version>1.0.0</version>` in project.xml:
+
+After processing, `target/version.txt` will contain:
+
+[source]
+----
+Application: MyApp
+Version: 1.0.0
+Author: Your Name
+License: BSD-3-Clause
+----
+
+**Use cases for filtering:**
+
+* Version manifests
+* Configuration templates with project metadata
+* About dialog content
+* Database migration scripts with version numbers
+* Help files with current version information
+
+=== Test Resources
+
+Test resources work the same way as main resources but are configured in the `<test>` section:
+
+[source,xml]
+----
+<test>
+  <testSource>TestRunner.pas</testSource>
+  <framework>auto</framework>
+
+  <!-- Test resource configuration -->
+  <resources>
+    <directory>src/test/resources</directory>
+    <filtering>true</filtering>
+  </resources>
+</test>
+----
+
+Test resources are copied to `target/` before test compilation, making them available to your test code.
+
+=== Build Lifecycle Integration
+
+Resource processing is automatically integrated into the build lifecycle:
+
+* **compile goal** → First runs `process-resources`, then compiles
+* **test-compile goal** → First runs `compile` and `process-test-resources`, then compiles tests
+
+You can also run resource processing independently:
+
+[source,shell]
+----
+pasbuild process-resources          # Copy main resources only
+pasbuild process-test-resources     # Copy test resources only
+----
+
+**Example output:**
+
+[source]
+----
+[INFO] Executing goal: process-resources
+[INFO] Processing resources from src/main/resources...
+[INFO]   Filtering enabled
+[INFO]   Filtered: version.txt
+[INFO]   Filtered: config/app.conf
+[INFO]   Copied: images/logo.png
+[INFO] Resources processed successfully
+----
+
 == Available Goals
 
 === clean
@@ -599,6 +737,24 @@ pasbuild clean
 ----
 
 Deletes the `target/` directory and all its contents.
+
+=== process-resources
+
+Copies resource files from `src/main/resources` to `target/`.
+
+[source,shell]
+----
+pasbuild process-resources
+----
+
+**What it does:**
+
+1. Checks if `src/main/resources` exists (skips if not found)
+2. Recursively copies all files preserving directory structure
+3. If filtering is enabled, substitutes project variables
+4. Reports files copied/filtered
+
+**Note:** This goal is automatically run by the `compile` goal.
 
 === compile
 
@@ -630,6 +786,24 @@ pasbuild compile -p release   # With release profile
 * `-d<define>` - Global and profile defines
 * Profile compiler options override defaults
 
+=== process-test-resources
+
+Copies test resource files from `src/test/resources` to `target/`.
+
+[source,shell]
+----
+pasbuild process-test-resources
+----
+
+**What it does:**
+
+1. Checks if `src/test/resources` exists (skips if not found)
+2. Recursively copies all files preserving directory structure
+3. If filtering is enabled, substitutes project variables
+4. Reports files copied/filtered
+
+**Note:** This goal is automatically run by the `test-compile` goal.
+
 === test-compile
 
 Compiles test code without running tests.
@@ -640,7 +814,7 @@ pasbuild test-compile
 pasbuild test-compile -p debug
 ----
 
-**Dependencies:** Automatically runs `compile` → `test-compile`
+**Dependencies:** Automatically runs `compile` → `process-test-resources` → `test-compile`
 
 **What it does:**
 
@@ -669,7 +843,7 @@ pasbuild test
 pasbuild test -p debug
 ----
 
-**Dependencies:** Automatically runs `compile` → `test-compile` → `test`
+**Dependencies:** Automatically runs `compile` → `process-test-resources` → `test-compile` → `test`
 
 **What it does:**
 
@@ -898,6 +1072,12 @@ If `project.xml` already exists, returns error: `"Project already initialized"`
       <path condition="DARWIN">platform/cocoa</path>
     </unitPaths>
 
+    <!-- Resources configuration -->
+    <resources>
+      <directory>src/main/resources</directory>
+      <filtering>true</filtering>  <!-- Enable variable substitution -->
+    </resources>
+
     <!-- Source package optional includes -->
     <sourcePackage>
       <include>docs</include>
@@ -919,6 +1099,12 @@ If `project.xml` already exists, returns error: `"Project already initialized"`
       <option>--all</option>           <!-- Run all tests -->
       <option>--format=plain</option>  <!-- Output format -->
     </frameworkOptions>
+
+    <!-- Test resources configuration -->
+    <resources>
+      <directory>src/test/resources</directory>
+      <filtering>true</filtering>
+    </resources>
   </test>
 
   <!-- Build Profiles -->
@@ -1019,10 +1205,12 @@ If `project.xml` already exists, returns error: `"Project already initialized"`
 [source,shell]
 ----
 pasbuild clean                    # Remove build artifacts
-pasbuild compile                  # Compile project
+pasbuild process-resources        # Copy resources to target
+pasbuild compile                  # Compile project (runs: process-resources → compile)
 pasbuild compile -p <profile>     # Compile with profile
-pasbuild test-compile             # Compile tests
-pasbuild test                     # Run tests
+pasbuild process-test-resources   # Copy test resources to target
+pasbuild test-compile             # Compile tests (runs: compile → process-test-resources → test-compile)
+pasbuild test                     # Run tests (runs: compile → process-test-resources → test-compile → test)
 pasbuild package                  # Create release archive
 pasbuild source-package           # Create source archive
 pasbuild init                     # Bootstrap new project
@@ -1083,21 +1271,32 @@ project-root/
 │
 ├── src/
 │   ├── main/
-│   │   └── pascal/         # Application source files
-│   │       ├── Main.pas
-│   │       ├── Unit1.pas
-│   │       └── subdir/     # Subdirectories auto-scanned
-│   │           └── Unit2.pas
+│   │   ├── pascal/         # Application source files
+│   │   │   ├── Main.pas
+│   │   │   ├── Unit1.pas
+│   │   │   └── subdir/     # Subdirectories auto-scanned
+│   │   │       └── Unit2.pas
+│   │   └── resources/      # Resource files (optional)
+│   │       ├── config/
+│   │       │   └── app.conf
+│   │       └── images/
+│   │           └── logo.png
 │   └── test/
-│       └── pascal/         # Test source files
-│           ├── TestRunner.pas
-│           └── subdir/     # Test subdirectories auto-scanned
-│               └── MyTests.pas
+│       ├── pascal/         # Test source files
+│       │   ├── TestRunner.pas
+│       │   └── subdir/     # Test subdirectories auto-scanned
+│       │       └── MyTests.pas
+│       └── resources/      # Test resource files (optional)
+│           └── test-data.json
 │
 └── target/                 # Build output (auto-created)
     ├── myapp               # Executable
     ├── TestRunner          # Test executable
     ├── myapp-1.0.0.zip    # Package archive
+    ├── config/            # Copied from src/main/resources/
+    │   └── app.conf       # (filtered if enabled)
+    ├── images/            # Copied from src/main/resources/
+    │   └── logo.png
     ├── units/             # Compiled main units
     │   ├── Unit1.ppu
     │   ├── Unit1.o
@@ -1111,9 +1310,12 @@ project-root/
 
 * Main source files go in `src/main/pascal/`
 * Test source files go in `src/test/pascal/`
+* Main resource files go in `src/main/resources/` (optional)
+* Test resource files go in `src/test/resources/` (optional)
 * Build output goes in `target/`
 * `target/` is auto-created and cleaned
 * Subdirectories are automatically scanned for units and include files
+* Resources are automatically copied to `target/` (with optional filtering)
 * Test units compiled separately to `target/test-units/` (Maven-style)
 
 == Troubleshooting
