@@ -449,6 +449,53 @@ In your Pascal code:
 
 == Advanced Features
 
+=== Using Alternate Project Files
+
+By default, PasBuild reads `project.xml` from the current directory. You can specify an alternate project file using the `-f` or `--file` option, similar to Maven's `-f` flag.
+
+**Basic usage:**
+
+[source,shell]
+----
+pasbuild compile -f custom.xml
+pasbuild compile --file myproject.xml
+----
+
+**Use cases:**
+
+* **Multiple build configurations**: Maintain separate project files for different deployment targets
+* **Testing configurations**: Test changes without modifying main project.xml
+* **Legacy support**: Support older project file versions
+* **Build system integration**: Use dynamically generated project files
+
+**Example: Multiple configurations**
+
+[source,shell]
+----
+# Development build with custom settings
+pasbuild compile -f project-dev.xml
+
+# Production build with optimizations
+pasbuild compile -f project-prod.xml
+
+# CI/CD build with specific options
+pasbuild compile -f project-ci.xml
+----
+
+**Example: Testing new features**
+
+[source,shell]
+----
+# Copy and modify for testing
+cp project.xml project-test.xml
+# Edit project-test.xml with experimental changes
+
+# Test without affecting main project
+pasbuild compile -f project-test.xml
+----
+
+**Note:** The file path can be relative or absolute. Error handling provides clear messages if the file is not found.
+
 === Platform-Specific Code with Conditional Paths
 
 For cross-platform projects with platform-specific directories, use conditional unit paths.
@@ -987,6 +1034,7 @@ pasbuild init                     # Bootstrap new project
 ----
 -p <profile[,profile...]>         # Activate build profile(s)
 --profile <profile-id>            # Activate build profile (long form)
+-f <file>, --file <file>          # Use alternate project file (default: project.xml)
 -v, --verbose                     # Show full compiler output
 -h, --help                        # Show help message
 --version                         # Show version information
@@ -1009,6 +1057,9 @@ pasbuild compile -p base,debug,logging
 
 # Verbose build (show full FPC output)
 pasbuild compile -v
+
+# Use alternate project file
+pasbuild compile -f custom.xml
 
 # Create source distribution
 pasbuild source-package
