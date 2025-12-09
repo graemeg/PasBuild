@@ -97,6 +97,9 @@ begin
     // Add unit search paths (-Fu)
     BasePath := TUtils.NormalizePath('src/main/pascal');
 
+    // Always add the base source directory first
+    Result := Result + ' -Fu' + BasePath;
+
     if Config.BuildConfig.ManualUnitPaths then
     begin
       // Manual mode: Only use paths explicitly listed in <unitPaths>
