@@ -408,7 +408,7 @@ begin
 
   // Validate semantic version
   if not ValidateSemanticVersion(AConfig.Version) then
-    raise EProjectConfigError.CreateFmt('Invalid version format: %s (expected: MAJOR.MINOR.PATCH)', [AConfig.Version]);
+    raise EProjectConfigError.CreateFmt('Invalid version format: %s (expected: MAJOR.MINOR.PATCH or MAJOR.MINOR.PATCH-PRERELEASE)', [AConfig.Version]);
 
   // Validate name contains only valid characters
   RegEx := TRegExpr.Create('^[a-zA-Z0-9_-]+$');
@@ -435,7 +435,9 @@ class function TConfigLoader.ValidateSemanticVersion(const AVersion: string): Bo
 var
   RegEx: TRegExpr;
 begin
-  RegEx := TRegExpr.Create('^\d+\.\d+\.\d+$');
+  // Support Semantic Versioning 2.0.0: MAJOR.MINOR.PATCH[-PRERELEASE]
+  // Examples: 1.0.0, 1.0.0-alpha, 1.0.0-beta.2, 1.0.0-rc.1, 1.0.0-SNAPSHOT
+  RegEx := TRegExpr.Create('^\d+\.\d+\.\d+(-[a-zA-Z0-9.-]+)?$');
   try
     Result := RegEx.Exec(AVersion);
   finally

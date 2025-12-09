@@ -910,6 +910,40 @@ end.
 
 **Note:** FPC does not support compiler defines with values (e.g., `-dVERSION='1.0.0'` is invalid in FPC). Include files are the standard approach for compile-time constants.
 
+== Semantic Versioning 2.0.0 Support
+
+**Status:** ✅ Implemented
+
+PasBuild supports full Semantic Versioning 2.0.0 including pre-release identifiers.
+
+**Valid version formats:**
+
+* **Release versions**: `MAJOR.MINOR.PATCH`
+  - Examples: `1.0.0`, `2.1.0`, `3.4.5`
+
+* **Pre-release versions**: `MAJOR.MINOR.PATCH-PRERELEASE`
+  - Examples: `1.0.0-alpha`, `1.0.0-beta.2`, `1.0.0-rc.1`, `2.0.0-SNAPSHOT`
+
+**Pre-release identifier:**
+
+* Can contain alphanumeric characters, dots, and hyphens: `[a-zA-Z0-9.-]+`
+* Regex validation: `^\d+\.\d+\.\d+(-[a-zA-Z0-9.-]+)?$`
+
+**Use cases:**
+
+* Beta/alpha releases
+* Release candidates
+* Development snapshots (e.g., `-SNAPSHOT` for Maven compatibility)
+* Nightly builds
+* Feature branch builds
+
+**Package naming:**
+
+Pre-release versions are included in package filenames:
+
+* `myapp-1.0.0-beta.zip`
+* `myapp-2.0.0-SNAPSHOT-src.zip`
+
 == Future Enhancements
 
 Currently all major features are implemented. Future enhancements will be driven by user feedback and community requests.

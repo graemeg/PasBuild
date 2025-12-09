@@ -259,6 +259,52 @@ PasBuild will:
 2. Generate `target/bootstrap_program.pas` with all units in uses clause
 3. Compile the bootstrap to verify all units compile successfully
 
+=== Version Numbering
+
+PasBuild supports Semantic Versioning 2.0.0 with optional pre-release identifiers.
+
+**Valid version formats:**
+
+* **Release versions**: `MAJOR.MINOR.PATCH`
+  - Examples: `1.0.0`, `2.1.0`, `3.4.5`
+
+* **Pre-release versions**: `MAJOR.MINOR.PATCH-PRERELEASE`
+  - Examples: `1.0.0-alpha`, `1.0.0-beta.2`, `1.0.0-rc.1`, `2.0.0-SNAPSHOT`
+
+**Pre-release identifier rules:**
+
+* Can contain alphanumeric characters, dots, and hyphens: `[a-zA-Z0-9.-]+`
+* Common conventions:
+  - `-alpha`, `-alpha.1`, `-alpha.2` - Alpha releases
+  - `-beta`, `-beta.1`, `-beta.2` - Beta releases
+  - `-rc.1`, `-rc.2` - Release candidates
+  - `-SNAPSHOT` - Development snapshots (Maven convention)
+  - `-dev`, `-nightly` - Development builds
+
+**Examples in project.xml:**
+
+[source,xml]
+----
+<!-- Stable release -->
+<version>1.0.0</version>
+
+<!-- Beta release -->
+<version>1.1.0-beta</version>
+
+<!-- Release candidate -->
+<version>2.0.0-rc.1</version>
+
+<!-- Development snapshot -->
+<version>3.0.0-SNAPSHOT</version>
+----
+
+**Package naming:**
+
+The version string is used in package filenames:
+
+* Release: `myapp-1.0.0.zip`, `myapp-1.0.0-src.zip`
+* Pre-release: `myapp-1.0.0-beta.zip`, `myapp-2.0.0-SNAPSHOT-src.zip`
+
 == Building Your Project
 
 === Basic Compilation
