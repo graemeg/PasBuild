@@ -29,6 +29,7 @@ type
   TProfile = class;
   TBuildConfig = class;
   TTestConfig = class;
+  TResourcesConfig = class;
   TSourcePackageConfig = class;
   TProjectConfig = class;
   TConditionalPath = class;
@@ -112,6 +113,18 @@ type
     property FrameworkOptions: TStringList read FFrameworkOptions;
   end;
 
+  { TResourcesConfig - Resources configuration section }
+  TResourcesConfig = class
+  private
+    FDirectory: string;
+    FFiltering: Boolean;
+  public
+    constructor Create;
+
+    property Directory: string read FDirectory write FDirectory;
+    property Filtering: Boolean read FFiltering write FFiltering;
+  end;
+
   { TSourcePackageConfig - Source package configuration section }
   TSourcePackageConfig = class
   private
@@ -134,6 +147,8 @@ type
     FRepoUrl: string;
     FBuildConfig: TBuildConfig;
     FTestConfig: TTestConfig;
+    FResourcesConfig: TResourcesConfig;
+    FTestResourcesConfig: TResourcesConfig;
     FSourcePackageConfig: TSourcePackageConfig;
     FProfiles: TProfileList;
   public
@@ -148,6 +163,8 @@ type
     property RepoUrl: string read FRepoUrl write FRepoUrl;
     property BuildConfig: TBuildConfig read FBuildConfig;
     property TestConfig: TTestConfig read FTestConfig;
+    property ResourcesConfig: TResourcesConfig read FResourcesConfig;
+    property TestResourcesConfig: TResourcesConfig read FTestResourcesConfig;
     property SourcePackageConfig: TSourcePackageConfig read FSourcePackageConfig;
     property Profiles: TProfileList read FProfiles;
   end;
@@ -252,6 +269,15 @@ begin
   inherited Destroy;
 end;
 
+{ TResourcesConfig }
+
+constructor TResourcesConfig.Create;
+begin
+  inherited Create;
+  FDirectory := 'src/main/resources';  // Default
+  FFiltering := False;  // Default: no filtering
+end;
+
 { TSourcePackageConfig }
 
 constructor TSourcePackageConfig.Create;
@@ -274,6 +300,9 @@ begin
   inherited Create;
   FBuildConfig := TBuildConfig.Create;
   FTestConfig := TTestConfig.Create;
+  FResourcesConfig := TResourcesConfig.Create;
+  FTestResourcesConfig := TResourcesConfig.Create;
+  FTestResourcesConfig.Directory := 'src/test/resources';  // Override default for test resources
   FSourcePackageConfig := TSourcePackageConfig.Create;
   FProfiles := TProfileList.Create;
   FProfiles.FreeObjects := True;
@@ -287,6 +316,8 @@ destructor TProjectConfig.Destroy;
 begin
   FBuildConfig.Free;
   FTestConfig.Free;
+  FResourcesConfig.Free;
+  FTestResourcesConfig.Free;
   FSourcePackageConfig.Free;
   FProfiles.Free;
   inherited Destroy;

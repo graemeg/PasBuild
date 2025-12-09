@@ -19,6 +19,7 @@ uses
   PasBuild.Types,
   PasBuild.Command,
   PasBuild.Command.Compile,
+  PasBuild.Command.ProcessTestResources,
   PasBuild.Utils;
 
 type
@@ -56,8 +57,9 @@ function TTestCompileCommand.GetDependencies: TBuildCommandList;
 begin
   Result := TBuildCommandList.Create(False);
   try
-    // test-compile depends on: compile
+    // test-compile depends on: compile, process-test-resources
     Result.Add(TCompileCommand.Create(Config, ProfileIds));
+    Result.Add(TProcessTestResourcesCommand.Create(Config, Config.TestResourcesConfig, Config.BuildConfig.OutputDirectory));
   except
     Result.Free;
     raise;

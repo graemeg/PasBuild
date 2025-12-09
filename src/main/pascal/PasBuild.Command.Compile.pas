@@ -29,9 +29,13 @@ type
     function BuildCompilerCommand(const ASourcePath: string): string;
   public
     function Execute: Integer; override;
+    function GetDependencies: TBuildCommandList; override;
   end;
 
 implementation
+
+uses
+  PasBuild.Command.ProcessResources;
 
 { TCompileCommand }
 
@@ -367,6 +371,18 @@ begin
       else
         TUtils.LogError('Build failed with exit code: ' + IntToStr(Result));
     end;
+  end;
+end;
+
+function TCompileCommand.GetDependencies: TBuildCommandList;
+begin
+  Result := TBuildCommandList.Create(False);
+  try
+    // compile depends on: process-resources
+    Result.Add(TProcessResourcesCommand.Create(Config, Config.ResourcesConfig, Config.BuildConfig.OutputDirectory));
+  except
+    Result.Free;
+    raise;
   end;
 end;
 

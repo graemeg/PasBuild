@@ -22,7 +22,7 @@ const
 
 type
   { Valid build goals }
-  TBuildGoal = (bgUnknown, bgClean, bgCompile, bgTestCompile, bgTest, bgPackage, bgSourcePackage, bgInit, bgHelp, bgVersion);
+  TBuildGoal = (bgUnknown, bgClean, bgProcessResources, bgCompile, bgProcessTestResources, bgTestCompile, bgTest, bgPackage, bgSourcePackage, bgInit, bgHelp, bgVersion);
 
   { Parsed command-line arguments }
   TCommandLineArgs = record
@@ -61,8 +61,12 @@ begin
 
   if GoalLower = 'clean' then
     Result := bgClean
+  else if GoalLower = 'process-resources' then
+    Result := bgProcessResources
   else if GoalLower = 'compile' then
     Result := bgCompile
+  else if GoalLower = 'process-test-resources' then
+    Result := bgProcessTestResources
   else if GoalLower = 'test-compile' then
     Result := bgTestCompile
   else if GoalLower = 'test' then
@@ -85,7 +89,9 @@ class function TArgumentParser.GoalToString(AGoal: TBuildGoal): string;
 begin
   case AGoal of
     bgClean: Result := 'clean';
+    bgProcessResources: Result := 'process-resources';
     bgCompile: Result := 'compile';
+    bgProcessTestResources: Result := 'process-test-resources';
     bgTestCompile: Result := 'test-compile';
     bgTest: Result := 'test';
     bgPackage: Result := 'package';
@@ -194,13 +200,15 @@ begin
   WriteLn('Usage: pasbuild <goal> [options]');
   WriteLn;
   WriteLn('Goals:');
-  WriteLn('  clean              Delete all build artifacts');
-  WriteLn('  compile            Build the executable');
-  WriteLn('  test-compile       Compile tests (runs: compile -> test-compile)');
-  WriteLn('  test               Run tests (runs: compile -> test-compile -> test)');
-  WriteLn('  package            Create release archive (runs: clean -> compile -> package)');
-  WriteLn('  source-package     Create source archive with src/, docs, and configured files');
-  WriteLn('  init               Create new project structure');
+  WriteLn('  clean                   Delete all build artifacts');
+  WriteLn('  process-resources       Copy resources to target directory');
+  WriteLn('  compile                 Build the executable (runs: process-resources -> compile)');
+  WriteLn('  process-test-resources  Copy test resources to target directory');
+  WriteLn('  test-compile            Compile tests (runs: compile -> process-test-resources -> test-compile)');
+  WriteLn('  test                    Run tests (runs: compile -> process-test-resources -> test-compile -> test)');
+  WriteLn('  package                 Create release archive (runs: clean -> compile -> package)');
+  WriteLn('  source-package          Create source archive with src/, docs, and configured files');
+  WriteLn('  init                    Create new project structure');
   WriteLn;
   WriteLn('Options:');
   WriteLn('  -p <profile[,profile...]>    Activate build profile(s)');

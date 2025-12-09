@@ -18,6 +18,12 @@
       <define>UseCThreads</define>
     </defines>
 
+    <!-- Resources configuration -->
+    <resources>
+      <directory>src/main/resources</directory>
+      <filtering>true</filtering>
+    </resources>
+
     <!-- Source package optional includes -->
     <sourcePackage>
       <include>docs</include>

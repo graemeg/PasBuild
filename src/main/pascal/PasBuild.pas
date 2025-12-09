@@ -22,7 +22,9 @@ uses
   PasBuild.CLI,
   PasBuild.Command,
   PasBuild.Command.Clean,
+  PasBuild.Command.ProcessResources,
   PasBuild.Command.Compile,
+  PasBuild.Command.ProcessTestResources,
   PasBuild.Command.Test,
   PasBuild.Command.Package,
   PasBuild.Command.SourcePackage,
@@ -119,8 +121,14 @@ begin
         bgClean:
           Command := TCleanCommand.Create(Config, Args.ProfileIds);
 
+        bgProcessResources:
+          Command := TProcessResourcesCommand.Create(Config, Config.ResourcesConfig, Config.BuildConfig.OutputDirectory);
+
         bgCompile:
           Command := TCompileCommand.Create(Config, Args.ProfileIds);
+
+        bgProcessTestResources:
+          Command := TProcessTestResourcesCommand.Create(Config, Config.TestResourcesConfig, Config.BuildConfig.OutputDirectory);
 
         bgTestCompile:
           Command := TTestCompileCommand.Create(Config, Args.ProfileIds);

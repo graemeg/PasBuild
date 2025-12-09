@@ -1,0 +1,4 @@
+Application: ${project.name}
+Version: ${project.version}
+Author: ${project.author}
+License: ${project.license}

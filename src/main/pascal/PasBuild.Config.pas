@@ -31,6 +31,7 @@ type
     class procedure ParseConditionalPaths(AParent: TDOMNode; const ATagName: string; APaths: TConditionalPathList);
     class procedure ParseBuildSection(ABuildNode: TDOMNode; AConfig: TProjectConfig);
     class procedure ParseTestSection(ATestNode: TDOMNode; AConfig: TProjectConfig);
+    class procedure ParseResourcesSection(AResourcesNode: TDOMNode; AResourcesConfig: TResourcesConfig);
     class procedure ParseSourcePackageSection(ASourcePackageNode: TDOMNode; AConfig: TProjectConfig);
     class procedure ParseProfile(AProfileNode: TDOMNode; AProfile: TProfile);
     class procedure ParseProfiles(AProfilesNode: TDOMNode; AConfig: TProjectConfig);
@@ -227,6 +228,21 @@ begin
   end;
 end;
 
+class procedure TConfigLoader.ParseResourcesSection(AResourcesNode: TDOMNode; AResourcesConfig: TResourcesConfig);
+var
+  FilteringStr: string;
+begin
+  if not Assigned(AResourcesNode) then
+    Exit; // Resources section is optional
+
+  // Parse directory (optional)
+  AResourcesConfig.Directory := GetNodeText(AResourcesNode, 'directory', AResourcesConfig.Directory);
+
+  // Parse filtering (optional)
+  FilteringStr := LowerCase(GetNodeText(AResourcesNode, 'filtering', 'false'));
+  AResourcesConfig.Filtering := (FilteringStr = 'true') or (FilteringStr = '1') or (FilteringStr = 'yes');
+end;
+
 class procedure TConfigLoader.ParseSourcePackageSection(ASourcePackageNode: TDOMNode; AConfig: TProjectConfig);
 var
   IncludeNode: TDOMNode;
@@ -352,6 +368,13 @@ begin
       // Parse <test> section (optional)
       TestNode := RootNode.FindNode('test');
       ParseTestSection(TestNode, Result);
+
+      // Parse <resources> section under <build> (optional)
+      ParseResourcesSection(BuildNode.FindNode('resources'), Result.ResourcesConfig);
+
+      // Parse <resources> section under <test> (optional)
+      if Assigned(TestNode) then
+        ParseResourcesSection(TestNode.FindNode('resources'), Result.TestResourcesConfig);
 
       // Parse <sourcePackage> section (optional)
       ParseSourcePackageSection(BuildNode.FindNode('sourcePackage'), Result);
