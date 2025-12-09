@@ -650,30 +650,143 @@ end.
 * Non-interactive mode (future): `pasbuild init --name Foo --version 1.0.0`
 
 
-== Future Enhancements
+== Implemented Features
 
-=== Test Phase [[future-test-phase]]
+The following features have been implemented and are available in PasBuild:
 
-**Goal:** `pasbuild test`
+=== Test Phase
 
-**Requirements:**
+**Status:** ✅ Implemented
 
-* Separate `src/test/pascal/` directory
-* FPCUnit framework integration
-* Test runner compilation:
-  - Add `-Fusrc/main/pascal` to test compilation
-  - Link against FPCUnit
-* Execute test runner, parse results
-* Fail build if tests fail
+**Goals:** `pasbuild test-compile`, `pasbuild test`
 
-**Configuration Addition:**
+**Features:**
+
+* Separate `src/test/pascal/` directory support
+* Auto-detection of test framework (FPCUnit or FPTest)
+* Test runner compilation with dependency on main compilation
+* Separate test units directory (`target/test-units/`)
+* Test execution with configurable framework options
+* Dependency chain: compile → test-compile → test
+
+**Configuration:**
 [source,xml]
 ----
 <test>
   <testSource>TestRunner.pas</testSource>
-  <framework>fpcunit</framework>
+  <framework>auto</framework>  <!-- auto, fpcunit, or fptest -->
+  <frameworkOptions>
+    <option>--all</option>
+    <option>--format=plain</option>
+  </frameworkOptions>
 </test>
 ----
+
+=== Source Distribution Packaging
+
+**Status:** ✅ Implemented
+
+**Goal:** `pasbuild source-package`
+
+**Features:**
+
+* Creates source archive: `target/<name>-<version>-src.zip`
+* Default includes: `src/`, `project.xml`, `LICENSE*`, `README*`, `BOOTSTRAP*`, `INSTALL*`
+* Optional includes via configuration
+* Security: validates paths are within project root
+* Archive structure with version prefix (Maven-style)
+
+**Configuration:**
+[source,xml]
+----
+<build>
+  <sourcePackage>
+    <include>docs</include>
+    <include>examples</include>
+    <include>scripts</include>
+  </sourcePackage>
+</build>
+----
+
+**Use Cases:**
+
+* Distribution to software repositories (Debian, FreeBSD ports)
+* Conference/journal paper submissions
+* Users without Git access
+* Official release archives
+
+=== Custom Compiler Options
+
+**Status:** ✅ Implemented
+
+**Features:**
+
+* Global compiler options in `<build><compilerOptions>`
+* Profile-specific compiler options in `<profile><compilerOptions>`
+* Additive application: hardcoded defaults → global → profile
+* Later options override earlier ones (FPC behavior)
+
+**Configuration:**
+[source,xml]
+----
+<build>
+  <compilerOptions>
+    <option>-vh</option>  <!-- Show hints globally -->
+  </compilerOptions>
+</build>
+
+<profiles>
+  <profile>
+    <id>release</id>
+    <compilerOptions>
+      <option>-O3</option>  <!-- Override default -O1 -->
+      <option>-CX</option>
+      <option>-XX</option>
+    </compilerOptions>
+  </profile>
+</profiles>
+----
+
+=== Multiple Profiles Activation
+
+**Status:** ✅ Implemented
+
+**Features:**
+
+* Activate multiple profiles via comma-separated list: `-p base,debug,logging`
+* Profiles applied in order (left to right)
+* Each profile's defines and options added sequentially
+* Composable build configurations
+
+=== Alternate Project Files
+
+**Status:** ✅ Implemented
+
+**Features:**
+
+* Specify alternate project file: `-f custom.xml` or `--file custom.xml`
+* Default: `project.xml`
+* Supports relative and absolute paths
+* Clear error messages for missing files
+
+**Use Cases:**
+
+* Multiple build configurations (dev/prod/ci)
+* Testing configurations without modifying main project.xml
+* Build system integration
+
+=== Verbose Output Control
+
+**Status:** ✅ Implemented
+
+**Features:**
+
+* `-v` or `--verbose` flag shows full FPC compiler output
+* Default mode: clean console with INFO/ERROR only, full log to `target/pasbuild-status/<goal>/fpc.log`
+* Build status tracking: Maven-style status directories
+* Input file tracking: `inputUnits.lst`, `inputIncludeFiles.lst`
+
+== Future Enhancements
 
 === Resource Copying
 
@@ -692,53 +805,17 @@ end.
 * Configuration templates
 * Translation files (`.po`, `.mo`)
 
-=== Source Distribution Packaging
-
-**Goal:** `pasbuild package-source`
-
-**Behavior:**
-
-* Creates source archive: `target/<name>-<version>-src.zip`
-* Includes:
-  - `src/` directory (all source code)
-  - `project.xml`
-  - `LICENSE`, `README.*` files
-  - `.gitignore`
-  - `BOOTSTRAP.txt` (if exists)
-* Excludes:
-  - `target/` directory
-  - `.git/` directory
-  - `*.zip` archives
-  - Editor files (`.vscode/`, `.idea/`, `*.swp`)
-  - Build artifacts (`*.o`, `*.ppu`)
-
-**Use Cases:**
-
-* Creating official release source archives
-* Distribution to users without Git access
-* Archival/preservation of specific releases
-* Compliance with open source license requirements
-
 **Rationale:**
 
-Similar to Maven Assembly Plugin's `src` descriptor. While most developers will use Git, source archives are useful for:
-- Corporate environments with firewall restrictions
-- Offline usage scenarios
-- Official release distributions (like Apache projects)
-- Immutable release preservation
-
-**Implementation Notes:**
-
-* Uses same `zipper` unit as package goal
-* Follows Maven convention: output to `target/`
-* No dependencies (can run standalone)
-* Cleaned by `pasbuild clean`
+Many applications need non-code resources bundled with the executable. This goal would automate copying resource files to the output directory and including them in release packages.
 
 === Version Injection
 
-**Compiler Define Injection:**
+**Goal:** Automatic version define
 
-Automatically add: `-dVERSION='1.0.0'`
+**Behavior:**
+
+Automatically add compiler define: `-dVERSION='1.0.0'` based on `<version>` from project.xml
 
 **Usage in Code:**
 [source,pascal]
@@ -751,109 +828,9 @@ begin
 end.
 ----
 
-=== Source Code Packaging
+**Rationale:**
 
-**Goal:** `pasbuild package-source`
-
-**Output:** `<name>-<version>-src.zip`
-
-**Contents:**
-
-* All files except:
-  - `target/` directory
-  - `.git/` directory
-  - Editor backup files (`*~`, `*.bak`)
-
-**Use Case:** Release source code without Git history
-
-=== Custom Compiler Options (Per-Profile)
-
-**Status:** Implemented in MVP (profiles already support this)
-
-**Configuration:**
-[source,xml]
-----
-<profiles>
-  <profile>
-    <id>release</id>
-    <defines>
-      <define>RELEASE</define>
-    </defines>
-    <compilerOptions>
-      <option>-O3</option>
-      <option>-CX</option>
-      <option>-XX</option>
-    </compilerOptions>
-  </profile>
-
-  <profile>
-    <id>debug</id>
-    <compilerOptions>
-      <option>-O1</option>
-      <option>-g</option>
-      <option>-gl</option>
-    </compilerOptions>
-  </profile>
-</profiles>
-----
-
-**Behavior:**
-
-* Profile compiler options **override** base optimization level
-* Options are appended to command after default flags
-* Multiple options can be specified
-* Useful for optimization levels, debugging symbols, smart linking
-
-**Example Generated Command (release profile):**
-[source,bash]
-----
-fpc -Mobjfpc -O1 ... -O3 -CX -XX src/main/pascal/Main.pas
-# Note: Later -O3 overrides earlier -O1
-----
-
-=== Global Compiler Options
-
-**Status:** Implemented
-
-Global compiler options can be specified in the `<build>` section and apply to all builds, extending the hardcoded defaults.
-
-**Configuration:**
-[source,xml]
-----
-<build>
-  <compilerOptions>
-    <option>-vh</option>  <!-- Show hints -->
-    <option>-vn</option>  <!-- Show notes -->
-  </compilerOptions>
-</build>
-----
-
-**Compiler Options Application Order:**
-
-1. Hardcoded defaults: `-Mobjfpc -O1`
-2. Global compiler options from `<build><compilerOptions>`
-3. Profile-specific options from `<profile><compilerOptions>`
-
-This additive approach allows global settings to extend defaults, with profiles able to further extend or override as needed.
-
-=== Multiple Profiles Activation
-
-**Status:** Implemented
-
-Multiple profiles can be activated simultaneously using comma-separated profile IDs.
-
-**Command:**
-[source,bash]
-----
-pasbuild compile -p base,debug,logging
-----
-
-**Semantics:**
-
-* Profiles are applied in the order specified (left to right)
-* Each profile's defines and compiler options are added sequentially
-* Later profiles can override settings from earlier profiles
-* Useful for composing build configurations from reusable profile components
+Eliminates manual version synchronization between project.xml and source code. Ensures version displayed by application always matches build configuration.
 
 
 == Implementation Phases
