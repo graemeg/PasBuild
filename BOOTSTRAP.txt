@@ -24,16 +24,31 @@ Bootstrap Steps
      mkdir target\units
 
 
-2. Compile PasBuild using FPC directly:
+2. Process resources (copy and filter version.inc):
 
    Linux/macOS/FreeBSD/Unix:
-     fpc -Mobjfpc -O1 -FEtarget -FUtarget/units -Fusrc/main/pascal src/main/pascal/PasBuild.pas
+     mkdir -p target
+     sed 's/\${project.version}/1.0.0/g' src/main/resources/version.inc > target/version.inc
+
+   Windows (PowerShell):
+     mkdir target
+     (Get-Content src\main\resources\version.inc) -replace '\$\{project\.version\}', '1.0.0' | Set-Content target\version.inc
+
+   Windows (Command Prompt - manual):
+     mkdir target
+     echo '1.0.0' > target\version.inc
+
+
+3. Compile PasBuild using FPC directly:
+
+   Linux/macOS/FreeBSD/Unix:
+     fpc -Mobjfpc -O1 -FEtarget -FUtarget/units -Fitarget -Fusrc/main/pascal src/main/pascal/PasBuild.pas
 
    Windows:
-     fpc -Mobjfpc -O1 -FEtarget -FUtarget\units -Fusrc\main\pascal src\main\pascal\PasBuild.pas
+     fpc -Mobjfpc -O1 -FEtarget -FUtarget\units -Fitarget -Fusrc\main\pascal src\main\pascal\PasBuild.pas
 
 
-3. Verify the build:
+4. Verify the build:
 
    Linux/macOS/FreeBSD/Unix:
      ./target/PasBuild --version
@@ -42,7 +57,7 @@ Bootstrap Steps
      target\PasBuild.exe --version
 
 
-4. Once bootstrapped, you can use PasBuild to build itself:
+5. Once bootstrapped, you can use PasBuild to build itself:
 
    Linux/macOS/FreeBSD/Unix:
      ./target/PasBuild compile
@@ -68,9 +83,11 @@ To clean and rebuild from scratch:
    Linux/macOS/FreeBSD/Unix:
      rm -rf target
      mkdir -p target/units
-     fpc -Mobjfpc -O1 -FEtarget -FUtarget/units -Fusrc/main/pascal src/main/pascal/PasBuild.pas
+     sed 's/\${project.version}/1.0.0/g' src/main/resources/version.inc > target/version.inc
+     fpc -Mobjfpc -O1 -FEtarget -FUtarget/units -Fitarget -Fusrc/main/pascal src/main/pascal/PasBuild.pas
 
    Windows:
      rmdir /s /q target
      mkdir target\units
-     fpc -Mobjfpc -O1 -FEtarget -FUtarget\units -Fusrc\main\pascal src\main\pascal\PasBuild.pas
+     echo '1.0.0' > target\version.inc
+     fpc -Mobjfpc -O1 -FEtarget -FUtarget\units -Fitarget -Fusrc\main\pascal src\main\pascal\PasBuild.pas

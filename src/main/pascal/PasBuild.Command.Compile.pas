@@ -136,6 +136,9 @@ begin
     end;
 
     // Add include search paths (-Fi)
+    // Always add output directory first (for filtered resource includes like version.inc)
+    Result := Result + ' -Fi' + OutputDir;
+
     // Check all unit paths (both base and subdirs) for *.inc files
     IncludePaths := TStringList.Create;
     try

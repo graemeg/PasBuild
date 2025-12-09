@@ -18,7 +18,7 @@ uses
   Classes, SysUtils;
 
 const
-  PASBUILD_VERSION = '1.0.0';
+  PASBUILD_VERSION = {$I version.inc};
 
 type
   { Valid build goals }

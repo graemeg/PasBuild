@@ -838,30 +838,81 @@ When `filtering=true`, the following variables are substituted in resource files
 * Database configuration files
 * Version manifests
 
-== Future Enhancements
+== Version Injection (Achieved via Resource Filtering)
 
-=== Version Injection
+Version injection is already possible using the resource copying feature with filtering enabled.
 
-**Goal:** Automatic version define
+**Implementation:**
 
-**Behavior:**
+Create `src/main/resources/version.inc`:
 
-Automatically add compiler define: `-dVERSION='1.0.0'` based on `<version>` from project.xml
+[source]
+----
+'${project.version}'
+----
+
+Enable filtering in `project.xml`:
+
+[source,xml]
+----
+<build>
+  <resources>
+    <directory>src/main/resources</directory>
+    <filtering>true</filtering>
+  </resources>
+</build>
+----
 
 **Usage in Code:**
+
 [source,pascal]
 ----
 const
-  APP_VERSION = {$I %VERSION%};
+  APP_VERSION = {$I version.inc};
 
 begin
   WriteLn('MyApp version: ', APP_VERSION);
 end.
 ----
 
-**Rationale:**
+**How it works:**
 
-Eliminates manual version synchronization between project.xml and source code. Ensures version displayed by application always matches build configuration.
+1. During `compile`, `process-resources` runs first
+2. `version.inc` is copied to `target/` with `${project.version}` replaced by actual version
+3. FPC automatically includes `target/` in include path
+4. Code includes the filtered version constant
+
+**For more metadata:**
+
+Create `src/main/resources/project.inc`:
+
+[source,pascal]
+----
+{ Auto-generated project metadata - DO NOT EDIT }
+const
+  PROJECT_NAME = '${project.name}';
+  PROJECT_VERSION = '${project.version}';
+  PROJECT_AUTHOR = '${project.author}';
+  PROJECT_LICENSE = '${project.license}';
+----
+
+Then in your code:
+
+[source,pascal]
+----
+{$I project.inc}
+
+begin
+  WriteLn(PROJECT_NAME, ' version ', PROJECT_VERSION);
+  WriteLn('By ', PROJECT_AUTHOR);
+end.
+----
+
+**Note:** FPC does not support compiler defines with values (e.g., `-dVERSION='1.0.0'` is invalid in FPC). Include files are the standard approach for compile-time constants.
+
+== Future Enhancements
+
+Currently all major features are implemented. Future enhancements will be driven by user feedback and community requests.
 
 
 == Implementation Phases
