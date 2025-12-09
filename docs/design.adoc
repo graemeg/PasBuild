@@ -786,28 +786,59 @@ The following features have been implemented and are available in PasBuild:
 * Build status tracking: Maven-style status directories
 * Input file tracking: `inputUnits.lst`, `inputIncludeFiles.lst`
 
-== Future Enhancements
-
 === Resource Copying
 
-**Goal:** `pasbuild resources`
+**Status:** ✅ Implemented
 
-**Behavior:**
+**Goals:** `pasbuild process-resources`, `pasbuild process-test-resources`
 
-* Copy `src/main/resources/**/*` → `target/`
-* Preserve directory structure
-* Include in package archive
+**Features:**
+
+* Copies resources from `src/main/resources/` → `target/`
+* Copies test resources from `src/test/resources/` → `target/`
+* Preserves directory structure during copy
+* Optional variable filtering for project metadata substitution
+* Integrated into build lifecycle:
+  - `compile` depends on `process-resources`
+  - `test-compile` depends on `process-test-resources`
+
+**Configuration:**
+[source,xml]
+----
+<build>
+  <resources>
+    <directory>src/main/resources</directory>  <!-- optional, default shown -->
+    <filtering>true</filtering>                <!-- optional, default: false -->
+  </resources>
+</build>
+
+<test>
+  <resources>
+    <directory>src/test/resources</directory>
+    <filtering>true</filtering>
+  </resources>
+</test>
+----
+
+**Variable Filtering:**
+
+When `filtering=true`, the following variables are substituted in resource files:
+
+* `${project.name}` → Project name
+* `${project.version}` → Project version
+* `${project.author}` → Project author
+* `${project.license}` → Project license
 
 **Use Cases:**
 
 * Help files (`.html`, `.chm`)
 * Icons, images
-* Configuration templates
+* Configuration templates with version/author info
 * Translation files (`.po`, `.mo`)
+* Database configuration files
+* Version manifests
 
-**Rationale:**
-
-Many applications need non-code resources bundled with the executable. This goal would automate copying resource files to the output directory and including them in release packages.
+== Future Enhancements
 
 === Version Injection
 
