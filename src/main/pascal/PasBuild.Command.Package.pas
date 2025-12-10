@@ -104,7 +104,7 @@ function TPackageCommand.CreateArchive(const AArchiveName: string): Integer;
 var
   Zip: TZipper;
   OutputDir, ExeName, ExePath: string;
-  LicenseFile, ReadmeFile: string;
+  LicenseFile, ReadmeFile, ManifestFile: string;
   FilesToAdd: TStringList;
   FileToAdd: string;
 begin
@@ -148,6 +148,17 @@ begin
       FilesToAdd.Add(ReadmeFile)
     else
       TUtils.LogInfo('README file not found, skipping');
+
+    // Include manifest file if it exists (Windows DPI-aware configuration)
+    // Manifest files are only used on Windows platforms
+    if ExtractFileExt(ExeName) = '.exe' then
+    begin
+      ManifestFile := ExeName + '.manifest';
+      if FileExists(ManifestFile) then
+        FilesToAdd.Add(ManifestFile)
+      else
+        TUtils.LogInfo('Manifest file not found, skipping');
+    end;
 
     // Create the ZIP archive
     Zip := TZipper.Create;
