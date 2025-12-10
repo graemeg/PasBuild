@@ -97,8 +97,9 @@ begin
     // Add unit search paths (-Fu)
     BasePath := TUtils.NormalizePath('src/main/pascal');
 
-    // Always add the base source directory first
-    Result := Result + ' -Fu' + BasePath;
+    if not Config.BuildConfig.ManualUnitPaths then
+      // Always add the base source directory first
+      Result := Result + ' -Fu' + BasePath;
 
     if Config.BuildConfig.ManualUnitPaths then
     begin
@@ -113,7 +114,7 @@ begin
         begin
           ConditionalPath := Config.BuildConfig.UnitPaths[I];
           if TUtils.IsConditionMet(ConditionalPath.Condition, ActiveDefines) then
-            UnitPaths.Add(BasePath + DirectorySeparator + TUtils.NormalizePath(ConditionalPath.Path));
+            UnitPaths.Add(TUtils.NormalizePath(ConditionalPath.Path));
         end;
 
         for UnitPath in UnitPaths do
@@ -161,7 +162,7 @@ begin
           ConditionalPath := Config.BuildConfig.UnitPaths[I];
           if TUtils.IsConditionMet(ConditionalPath.Condition, ActiveDefines) then
           begin
-            UnitPath := BasePath + DirectorySeparator + TUtils.NormalizePath(ConditionalPath.Path);
+            UnitPath := TUtils.NormalizePath(ConditionalPath.Path);
             if TUtils.DirectoryContainsIncludeFiles(UnitPath) then
               IncludePaths.Add(UnitPath);
           end;
