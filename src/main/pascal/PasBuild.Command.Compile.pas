@@ -172,11 +172,19 @@ begin
       begin
         // Auto-scan mode: Use full auto-scan with conditional filtering
         IncludePaths.Free;
-        IncludePaths := TUtils.ScanForIncludePathsFiltered(
-          BasePath,
-          Config.BuildConfig.IncludePaths,
-          ActiveDefines
-        );
+        // Use IncludePaths if specified, otherwise fall back to UnitPaths
+        if Config.BuildConfig.IncludePaths.Count > 0 then
+          IncludePaths := TUtils.ScanForIncludePathsFiltered(
+            BasePath,
+            Config.BuildConfig.IncludePaths,
+            ActiveDefines
+          )
+        else
+          IncludePaths := TUtils.ScanForIncludePathsFiltered(
+            BasePath,
+            Config.BuildConfig.UnitPaths,
+            ActiveDefines
+          );
       end;
 
       for IncludePath in IncludePaths do
