@@ -30,6 +30,16 @@
     </sourcePackage>
   </build>
 
+  <!-- Test Configuration -->
+  <test>
+    <testSource>TestRunner.pas</testSource>
+    <framework>fpcunit</framework>
+    <frameworkOptions>
+      <option>--all</option>
+      <option>--format=plain</option>
+    </frameworkOptions>
+  </test>
+
   <!-- Build Profiles -->
   <profiles>
     <profile>

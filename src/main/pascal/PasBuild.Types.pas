@@ -20,7 +20,7 @@ uses
 
 type
   { Project type enumeration }
-  TProjectType = (ptApplication, ptLibrary);
+  TProjectType = (ptApplication, ptLibrary, ptPom);
 
   { Test framework enumeration }
   TTestFramework = (tfAuto, tfFPCUnit, tfFPTest);
@@ -151,6 +151,8 @@ type
     FTestResourcesConfig: TResourcesConfig;
     FSourcePackageConfig: TSourcePackageConfig;
     FProfiles: TProfileList;
+    FModules: TStringList;                   // Child modules (for aggregator)
+    FModuleDependencies: TStringList;        // Module dependencies (for library/app)
   public
     constructor Create;
     destructor Destroy; override;
@@ -167,6 +169,8 @@ type
     property TestResourcesConfig: TResourcesConfig read FTestResourcesConfig;
     property SourcePackageConfig: TSourcePackageConfig read FSourcePackageConfig;
     property Profiles: TProfileList read FProfiles;
+    property Modules: TStringList read FModules;                           // Child modules list
+    property ModuleDependencies: TStringList read FModuleDependencies;    // Module dependencies
   end;
 
 implementation
@@ -307,6 +311,13 @@ begin
   FProfiles := TProfileList.Create;
   FProfiles.FreeObjects := True;
 
+  // Multi-module support
+  FModules := TStringList.Create;
+  FModules.Duplicates := dupIgnore;
+
+  FModuleDependencies := TStringList.Create;
+  FModuleDependencies.Duplicates := dupIgnore;
+
   // Set defaults
   FAuthor := 'Unknown';
   FLicense := 'Proprietary';
@@ -320,6 +331,8 @@ begin
   FTestResourcesConfig.Free;
   FSourcePackageConfig.Free;
   FProfiles.Free;
+  FModules.Free;
+  FModuleDependencies.Free;
   inherited Destroy;
 end;
 
