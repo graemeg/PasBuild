@@ -603,7 +603,35 @@ src/main/pascal/
 
 **Include files (*.inc):**
 
-PasBuild automatically detects directories containing `*.inc` files and adds them as include paths (`-Fi`). The same conditional filtering applies - if a platform-specific directory contains `.inc` files, it's only added as an include path when that platform's condition is met.
+PasBuild automatically detects directories containing `*.inc` files and adds them as include paths (`-Fi`). By default, include path filtering uses the same conditional rules as `<unitPaths>`. If a platform-specific directory contains `.inc` files, it's only added as an include path when that platform's condition is met.
+
+**Advanced: Separate include path conditions**
+
+In most projects, include files are located in the same directories as units, so they naturally share the same conditional filtering. However, if you need different conditional rules for include paths, you can specify them explicitly:
+
+[source,xml]
+----
+<build>
+  <unitPaths>
+    <path condition="UNIX">core/x11</path>
+    <path condition="WINDOWS">core/gdi</path>
+  </unitPaths>
+
+  <!-- Optional: Separate conditions for include files -->
+  <includePaths>
+    <path condition="UNIX">templates/unix</path>
+    <path condition="WINDOWS">templates/windows</path>
+  </includePaths>
+</build>
+----
+
+**How include path filtering works:**
+
+* **If `<includePaths>` is specified**: Uses those conditions for filtering `*.inc` files
+* **If `<includePaths>` is empty or not specified**: Falls back to `<unitPaths>` conditions (most common case)
+* **Auto-scan behavior**: All directories are scanned for `*.inc` files, then filtered based on the active conditions
+
+This fallback behavior ensures that projects without explicit `<includePaths>` automatically get correct platform-specific filtering for their include files.
 
 === Manual Unit Path Control
 
@@ -1112,12 +1140,18 @@ If `project.xml` already exists, returns error: `"Project already initialized"`
     </compilerOptions>
 
     <!-- Conditional unit paths (platform-specific directories) -->
-    <!-- Include paths (*.inc) are auto-detected with same filtering -->
     <unitPaths>
       <path condition="UNIX">platform/x11</path>
       <path condition="WINDOWS">platform/gdi</path>
       <path condition="DARWIN">platform/cocoa</path>
     </unitPaths>
+
+    <!-- Optional: Conditional include paths (*.inc files) -->
+    <!-- If not specified, falls back to unitPaths conditions -->
+    <!-- <includePaths>
+      <path condition="UNIX">includes/unix</path>
+      <path condition="WINDOWS">includes/windows</path>
+    </includePaths> -->
 
     <!-- Resources configuration -->
     <resources>
@@ -1216,6 +1250,13 @@ If `project.xml` already exists, returns error: `"Project already initialized"`
       <path condition="WINDOWS">corelib/gdi</path>
       <path condition="DARWIN">corelib/cocoa</path>
     </unitPaths>
+
+    <!-- Optional: Conditional include paths (*.inc files) -->
+    <!-- If not specified, falls back to unitPaths conditions -->
+    <!-- <includePaths>
+      <path condition="UNIX">includes/unix</path>
+      <path condition="WINDOWS">includes/windows</path>
+    </includePaths> -->
   </build>
 
   <!-- Build Profiles -->
