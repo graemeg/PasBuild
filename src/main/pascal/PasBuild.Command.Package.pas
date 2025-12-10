@@ -153,7 +153,7 @@ begin
     // Manifest files are only used on Windows platforms
     if ExtractFileExt(ExeName) = '.exe' then
     begin
-      ManifestFile := ExeName + '.manifest';
+      ManifestFile := ExePath + '.manifest';
       if FileExists(ManifestFile) then
         FilesToAdd.Add(ManifestFile)
       else
