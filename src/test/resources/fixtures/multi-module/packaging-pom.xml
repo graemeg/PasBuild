@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project>
+  <name>TestAggregator</name>
+  <version>1.0.0</version>
+
+  <build>
+    <packaging>pom</packaging>
+  </build>
+
+  <modules>
+    <module>module1</module>
+    <module>module2</module>
+  </modules>
+</project>

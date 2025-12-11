@@ -33,6 +33,7 @@ type
     class procedure ParseTestSection(ATestNode: TDOMNode; AConfig: TProjectConfig);
     class procedure ParseResourcesSection(AResourcesNode: TDOMNode; AResourcesConfig: TResourcesConfig);
     class procedure ParseSourcePackageSection(ASourcePackageNode: TDOMNode; AConfig: TProjectConfig);
+    class procedure ParseModules(AModulesNode: TDOMNode; AModuleList: TStringList);
     class procedure ParseProfile(AProfileNode: TDOMNode; AProfile: TProfile);
     class procedure ParseProfiles(AProfilesNode: TDOMNode; AConfig: TProjectConfig);
   public
@@ -155,18 +156,33 @@ end;
 class procedure TConfigLoader.ParseBuildSection(ABuildNode: TDOMNode; AConfig: TProjectConfig);
 var
   ProjectTypeStr: string;
+  PackagingStr: string;
 begin
   if not Assigned(ABuildNode) then
     raise EProjectConfigError.Create('Missing required <build> section');
 
-  // Parse project type (default: application)
-  ProjectTypeStr := LowerCase(GetNodeText(ABuildNode, 'projectType', 'application'));
+  // Parse packaging type (prefer <packaging>, fallback to <projectType> for backward compat)
+  PackagingStr := GetNodeText(ABuildNode, 'packaging', '');
+  if PackagingStr <> '' then
+  begin
+    // New <packaging> element
+    ProjectTypeStr := LowerCase(PackagingStr);
+  end
+  else
+  begin
+    // Backward compatibility: <projectType>
+    ProjectTypeStr := LowerCase(GetNodeText(ABuildNode, 'projectType', 'application'));
+  end;
+
+  // Parse and validate packaging type
   if ProjectTypeStr = 'library' then
     AConfig.BuildConfig.ProjectType := ptLibrary
   else if ProjectTypeStr = 'application' then
     AConfig.BuildConfig.ProjectType := ptApplication
+  else if ProjectTypeStr = 'pom' then
+    AConfig.BuildConfig.ProjectType := ptPom
   else
-    raise EProjectConfigError.CreateFmt('Invalid project type: %s (expected: application or library)', [ProjectTypeStr]);
+    raise EProjectConfigError.CreateFmt('Invalid packaging type: %s (expected: application, library, or pom)', [ProjectTypeStr]);
 
   // Parse build configuration
   AConfig.BuildConfig.MainSource := GetNodeText(ABuildNode, 'mainSource');
@@ -263,6 +279,31 @@ begin
         IncludeDir := Trim(IncludeNode.TextContent);
         if IncludeDir <> '' then
           AConfig.SourcePackageConfig.IncludeDirs.Add(IncludeDir);
+      end;
+    end;
+  end;
+end;
+
+class procedure TConfigLoader.ParseModules(AModulesNode: TDOMNode; AModuleList: TStringList);
+var
+  ModuleNode: TDOMNode;
+  ModulePath: string;
+  I: Integer;
+begin
+  if not Assigned(AModulesNode) then
+    Exit; // Modules are optional
+
+  // Iterate through <module> children
+  for I := 0 to AModulesNode.ChildNodes.Count - 1 do
+  begin
+    ModuleNode := AModulesNode.ChildNodes[I];
+    if (ModuleNode.NodeType = ELEMENT_NODE) and (ModuleNode.NodeName = 'module') then
+    begin
+      if Assigned(ModuleNode.FirstChild) then
+      begin
+        ModulePath := Trim(ModuleNode.TextContent);
+        if ModulePath <> '' then
+          AModuleList.Add(ModulePath);
       end;
     end;
   end;
@@ -382,6 +423,10 @@ begin
       // Parse <profiles> section (optional)
       ProfilesNode := RootNode.FindNode('profiles');
       ParseProfiles(ProfilesNode, Result);
+
+      // Parse <modules> section (optional)
+      // Can be used for aggregator child modules OR module dependencies
+      ParseModules(RootNode.FindNode('modules'), Result.Modules);
 
     finally
       Doc.Free;
