@@ -51,7 +51,7 @@ var
   UnitPath, IncludePath, Define, Option, ProfileId: string;
   Profile: TProfile;
   ConditionalPath: TConditionalPath;
-  BasePath: string;
+  BasePath, s: string;
   I: Integer;
 begin
   // Base command with default flags
@@ -131,6 +131,19 @@ begin
         Config.BuildConfig.UnitPaths,
         ActiveDefines
       );
+
+      // If manual paths where listed, add them too
+      for I := 0 to Config.BuildConfig.UnitPaths.Count - 1 do
+      begin
+        ConditionalPath := Config.BuildConfig.UnitPaths[I];
+        if TUtils.IsConditionMet(ConditionalPath.Condition, ActiveDefines) then
+        begin
+          s := TUtils.NormalizePath(ConditionalPath.Path);
+          writeln('[DEBUG] user defined UnitPath: ' + s);
+          UnitPaths.Add(s);
+        end;
+      end;
+
       try
         for UnitPath in UnitPaths do
           Result := Result + ' -Fu' + UnitPath;
