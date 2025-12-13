@@ -16,7 +16,7 @@ unit PasBuild.Types;
 interface
 
 uses
-  Classes, SysUtils, fgl;
+  Classes, SysUtils, fgl, contnrs;
 
 type
   { Project type enumeration }
@@ -33,6 +33,8 @@ type
   TSourcePackageConfig = class;
   TProjectConfig = class;
   TConditionalPath = class;
+  TModuleInfo = class;
+  TModuleRegistry = class;
 
   { TConditionalPath - Represents a path with an optional condition }
   TConditionalPath = class
@@ -171,6 +173,41 @@ type
     property Profiles: TProfileList read FProfiles;
     property Modules: TStringList read FModules;                           // Child modules list
     property ModuleDependencies: TStringList read FModuleDependencies;    // Module dependencies
+  end;
+
+  { TModuleInfo - Module metadata for build ordering }
+  TModuleInfo = class
+  private
+    FName: string;
+    FPath: string;
+    FConfig: TProjectConfig;
+    FDependencies: TStringList;
+    FUnitsDirectory: string;
+  public
+    constructor Create;
+    destructor Destroy; override;
+
+    property Name: string read FName write FName;
+    property Path: string read FPath write FPath;
+    property Config: TProjectConfig read FConfig;
+    property Dependencies: TStringList read FDependencies;
+    property UnitsDirectory: string read FUnitsDirectory write FUnitsDirectory;
+  end;
+
+  { TModuleRegistry - Registry for module resolution and lookup }
+  TModuleRegistry = class
+  private
+    FModules: TObjectList;
+    FModulesByName: TStringList;
+  public
+    constructor Create;
+    destructor Destroy; override;
+
+    procedure RegisterModule(AModule: TModuleInfo);
+    function FindModuleByName(const AName: string): TModuleInfo;
+    function FindModuleByPath(const APath: string): TModuleInfo;
+
+    property Modules: TObjectList read FModules;
   end;
 
 implementation
@@ -334,6 +371,79 @@ begin
   FModules.Free;
   FModuleDependencies.Free;
   inherited Destroy;
+end;
+
+{ TModuleInfo implementation }
+
+constructor TModuleInfo.Create;
+begin
+  inherited Create;
+  FDependencies := TStringList.Create;
+  FDependencies.Duplicates := dupIgnore;
+  FConfig := nil;
+end;
+
+destructor TModuleInfo.Destroy;
+begin
+  FDependencies.Free;
+  if Assigned(FConfig) then
+    FConfig.Free;
+  inherited Destroy;
+end;
+
+{ TModuleRegistry implementation }
+
+constructor TModuleRegistry.Create;
+begin
+  inherited Create;
+  FModules := TObjectList.Create(True);  { Owns modules }
+  FModulesByName := TStringList.Create;
+  FModulesByName.Duplicates := dupError;  { Raise error on duplicate }
+end;
+
+destructor TModuleRegistry.Destroy;
+begin
+  FModulesByName.Free;
+  FModules.Free;
+  inherited Destroy;
+end;
+
+procedure TModuleRegistry.RegisterModule(AModule: TModuleInfo);
+begin
+  if not Assigned(AModule) then
+    raise Exception.Create('Cannot register nil module');
+
+  if FModulesByName.IndexOf(AModule.Name) >= 0 then
+    raise Exception.CreateFmt('Duplicate module name: %s', [AModule.Name]);
+
+  FModules.Add(AModule);
+  FModulesByName.AddObject(AModule.Name, AModule);
+end;
+
+function TModuleRegistry.FindModuleByName(const AName: string): TModuleInfo;
+var
+  Index: Integer;
+begin
+  Index := FModulesByName.IndexOf(AName);
+  if Index >= 0 then
+    Result := TModuleInfo(FModulesByName.Objects[Index])
+  else
+    Result := nil;
+end;
+
+function TModuleRegistry.FindModuleByPath(const APath: string): TModuleInfo;
+var
+  I: Integer;
+begin
+  Result := nil;
+  for I := 0 to FModules.Count - 1 do
+  begin
+    if SameFileName(TModuleInfo(FModules[I]).Path, APath) then
+    begin
+      Result := TModuleInfo(FModules[I]);
+      Exit;
+    end;
+  end;
 end;
 
 end.

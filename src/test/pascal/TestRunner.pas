@@ -15,7 +15,8 @@ program TestRunner;
 uses
   Classes, SysUtils, fpcunit, testregistry, consoletestrunner,
   PasBuild.Test.Types.MultiModule,
-  PasBuild.Test.Config.MultiModule;
+  PasBuild.Test.Config.MultiModule,
+  PasBuild.Test.ModuleDiscovery;
 
 var
   Application: TTestRunner;

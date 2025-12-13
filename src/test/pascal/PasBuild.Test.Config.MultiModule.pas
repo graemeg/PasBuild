@@ -43,6 +43,20 @@ type
     procedure TestParseModulesMultiple;
   end;
 
+  { Test validation of packaging rules }
+  TTestValidatePackagingRules = class(TTestCase)
+  private
+    function GetFixturePath(const AFileName: string): string;
+  published
+    procedure TestValidatePomRequiresModules;
+    procedure TestValidatePomForbidsMainSource;
+    procedure TestValidateLibraryForbidsAggregatorModules;
+    procedure TestValidateApplicationForbidsAggregatorModules;
+    procedure TestValidatePomValid;
+    procedure TestValidateLibraryValid;
+    procedure TestValidateApplicationValid;
+  end;
+
 implementation
 
 { TTestParsePackaging }
@@ -180,8 +194,144 @@ begin
   end;
 end;
 
+{ TTestValidatePackagingRules }
+
+function TTestValidatePackagingRules.GetFixturePath(const AFileName: string): string;
+begin
+  Result := 'fixtures/multi-module/' + AFileName;
+end;
+
+procedure TTestValidatePackagingRules.TestValidatePomRequiresModules;
+var
+  Config: TProjectConfig;
+  ExceptionRaised: Boolean;
+begin
+  ExceptionRaised := False;
+  Config := nil;
+  try
+    Config := TConfigLoader.LoadProjectXML(GetFixturePath('validate-pom-no-modules.xml'));
+  except
+    on E: EProjectConfigError do
+    begin
+      ExceptionRaised := True;
+      AssertTrue('Error message should mention modules', Pos('modules', LowerCase(E.Message)) > 0);
+    end;
+  end;
+
+  AssertTrue('POM without modules should raise exception', ExceptionRaised);
+  if Assigned(Config) then
+    Config.Free;
+end;
+
+procedure TTestValidatePackagingRules.TestValidatePomForbidsMainSource;
+var
+  Config: TProjectConfig;
+  ExceptionRaised: Boolean;
+begin
+  ExceptionRaised := False;
+  Config := nil;
+  try
+    Config := TConfigLoader.LoadProjectXML(GetFixturePath('validate-pom-with-mainsource.xml'));
+  except
+    on E: EProjectConfigError do
+    begin
+      ExceptionRaised := True;
+      AssertTrue('Error message should mention mainSource', Pos('mainSource', E.Message) > 0);
+    end;
+  end;
+
+  AssertTrue('POM with mainSource should raise exception', ExceptionRaised);
+  if Assigned(Config) then
+    Config.Free;
+end;
+
+procedure TTestValidatePackagingRules.TestValidateLibraryForbidsAggregatorModules;
+var
+  Config: TProjectConfig;
+  ExceptionRaised: Boolean;
+begin
+  ExceptionRaised := False;
+  Config := nil;
+  try
+    Config := TConfigLoader.LoadProjectXML(GetFixturePath('validate-library-with-modules.xml'));
+  except
+    on E: EProjectConfigError do
+    begin
+      ExceptionRaised := True;
+      AssertTrue('Error message should mention aggregator', Pos('aggregator', LowerCase(E.Message)) > 0);
+    end;
+  end;
+
+  AssertTrue('Library with modules should raise exception', ExceptionRaised);
+  if Assigned(Config) then
+    Config.Free;
+end;
+
+procedure TTestValidatePackagingRules.TestValidateApplicationForbidsAggregatorModules;
+var
+  Config: TProjectConfig;
+  ExceptionRaised: Boolean;
+begin
+  ExceptionRaised := False;
+  Config := nil;
+  try
+    Config := TConfigLoader.LoadProjectXML(GetFixturePath('validate-application-with-modules.xml'));
+  except
+    on E: EProjectConfigError do
+    begin
+      ExceptionRaised := True;
+      AssertTrue('Error message should mention aggregator', Pos('aggregator', LowerCase(E.Message)) > 0);
+    end;
+  end;
+
+  AssertTrue('Application with modules should raise exception', ExceptionRaised);
+  if Assigned(Config) then
+    Config.Free;
+end;
+
+procedure TTestValidatePackagingRules.TestValidatePomValid;
+var
+  Config: TProjectConfig;
+begin
+  Config := TConfigLoader.LoadProjectXML(GetFixturePath('validate-pom-valid.xml'));
+  try
+    AssertEquals('Valid POM should load', Ord(ptPom), Ord(Config.BuildConfig.ProjectType));
+    AssertTrue('POM should have modules', Config.Modules.Count > 0);
+  finally
+    Config.Free;
+  end;
+end;
+
+procedure TTestValidatePackagingRules.TestValidateLibraryValid;
+var
+  Config: TProjectConfig;
+begin
+  Config := TConfigLoader.LoadProjectXML(GetFixturePath('validate-library-valid.xml'));
+  try
+    AssertEquals('Valid Library should load', Ord(ptLibrary), Ord(Config.BuildConfig.ProjectType));
+    AssertTrue('Library should not have modules', Config.Modules.Count = 0);
+  finally
+    Config.Free;
+  end;
+end;
+
+procedure TTestValidatePackagingRules.TestValidateApplicationValid;
+var
+  Config: TProjectConfig;
+begin
+  Config := TConfigLoader.LoadProjectXML(GetFixturePath('validate-application-valid.xml'));
+  try
+    AssertEquals('Valid Application should load', Ord(ptApplication), Ord(Config.BuildConfig.ProjectType));
+    AssertTrue('Application should not have modules', Config.Modules.Count = 0);
+    AssertTrue('Application should have mainSource', Config.BuildConfig.MainSource <> '');
+  finally
+    Config.Free;
+  end;
+end;
+
 initialization
   RegisterTest(TTestParsePackaging);
   RegisterTest(TTestParseModules);
+  RegisterTest(TTestValidatePackagingRules);
 
 end.

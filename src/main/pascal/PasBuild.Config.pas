@@ -36,6 +36,7 @@ type
     class procedure ParseModules(AModulesNode: TDOMNode; AModuleList: TStringList);
     class procedure ParseProfile(AProfileNode: TDOMNode; AProfile: TProfile);
     class procedure ParseProfiles(AProfilesNode: TDOMNode; AConfig: TProjectConfig);
+    class procedure ValidatePackagingRules(AConfig: TProjectConfig);
   public
     class function LoadProjectXML(const AFilePath: string): TProjectConfig;
     class function ValidateConfig(AConfig: TProjectConfig): Boolean;
@@ -428,6 +429,9 @@ begin
       // Can be used for aggregator child modules OR module dependencies
       ParseModules(RootNode.FindNode('modules'), Result.Modules);
 
+      // Validate packaging rules (multi-module constraints)
+      ValidatePackagingRules(Result);
+
     finally
       Doc.Free;
     end;
@@ -487,6 +491,39 @@ begin
     Result := RegEx.Exec(AVersion);
   finally
     RegEx.Free;
+  end;
+end;
+
+class procedure TConfigLoader.ValidatePackagingRules(AConfig: TProjectConfig);
+begin
+  if not Assigned(AConfig) then
+    raise EProjectConfigError.Create('Config object is nil');
+
+  case AConfig.BuildConfig.ProjectType of
+    ptPom:
+      begin
+        // Rule: Aggregator must have modules
+        if AConfig.Modules.Count = 0 then
+          raise EProjectConfigError.Create('POM aggregator requires <modules> list (at least one child module)');
+
+        // Rule: Aggregator forbids MainSource
+        if AConfig.BuildConfig.MainSource <> '' then
+          raise EProjectConfigError.Create('POM aggregator cannot have <mainSource> (aggregators do not compile)');
+      end;
+
+    ptLibrary:
+      begin
+        // Rule: Library forbids aggregator modules
+        if AConfig.Modules.Count > 0 then
+          raise EProjectConfigError.Create('Library cannot be an aggregator (cannot have child <modules>)');
+      end;
+
+    ptApplication:
+      begin
+        // Rule: Application forbids aggregator modules
+        if AConfig.Modules.Count > 0 then
+          raise EProjectConfigError.Create('Application cannot be an aggregator (cannot have child <modules>)');
+      end;
   end;
 end;
 
