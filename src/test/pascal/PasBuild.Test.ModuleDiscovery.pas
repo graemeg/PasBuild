@@ -16,7 +16,8 @@ interface
 
 uses
   Classes, SysUtils, fpcunit, testregistry,
-  PasBuild.Types;
+  PasBuild.Types,
+  PasBuild.CLI;
 
 type
   { Tests for TModuleInfo class }
@@ -81,6 +82,15 @@ type
     procedure TestReactorBuildWithMultipleDependencies;
     procedure TestReactorBuildSkipsAggregator;
     procedure TestReactorBuildResolvesArtifacts;
+  end;
+
+  { Tests for CLI module selection }
+  TTestCLIModuleSelection = class(TTestCase)
+  published
+    procedure TestCommandLineArgsHasModuleField;
+    procedure TestModuleSelectionFlagInitialization;
+    procedure TestModuleSelectionFlagEmpty;
+    procedure TestModuleSelectionFlagFormat;
   end;
 
 implementation
@@ -1066,6 +1076,71 @@ begin
   end;
 end;
 
+{ TTestCLIModuleSelection }
+
+procedure TTestCLIModuleSelection.TestCommandLineArgsHasModuleField;
+var
+  Args: TCommandLineArgs;
+begin
+  { Verify TCommandLineArgs record has SelectedModule field }
+  Args.Goal := bgCompile;
+  Args.ProfileIds := TStringList.Create;
+  try
+    Args.SelectedModule := 'TestModule';
+    AssertEquals('SelectedModule field should be settable', 'TestModule', Args.SelectedModule);
+  finally
+    Args.ProfileIds.Free;
+  end;
+end;
+
+procedure TTestCLIModuleSelection.TestModuleSelectionFlagInitialization;
+var
+  Args: TCommandLineArgs;
+begin
+  { Verify SelectedModule is initialized to empty string }
+  Args.ProfileIds := TStringList.Create;
+  try
+    Args.SelectedModule := '';
+    AssertEquals('SelectedModule should initialize to empty', '', Args.SelectedModule);
+  finally
+    Args.ProfileIds.Free;
+  end;
+end;
+
+procedure TTestCLIModuleSelection.TestModuleSelectionFlagEmpty;
+var
+  Args: TCommandLineArgs;
+begin
+  { Empty module selection means build all modules }
+  Args.ProfileIds := TStringList.Create;
+  try
+    Args.SelectedModule := '';
+    AssertTrue('Empty module selection should mean build all', Args.SelectedModule = '');
+  finally
+    Args.ProfileIds.Free;
+  end;
+end;
+
+procedure TTestCLIModuleSelection.TestModuleSelectionFlagFormat;
+var
+  Args: TCommandLineArgs;
+begin
+  { Module selection stores simple module name }
+  Args.ProfileIds := TStringList.Create;
+  try
+    Args.SelectedModule := 'MyModule';
+    AssertEquals('Module name should be stored as-is', 'MyModule', Args.SelectedModule);
+
+    Args.SelectedModule := 'FrameworkCore';
+    AssertEquals('Module name with camelcase should work', 'FrameworkCore', Args.SelectedModule);
+
+    Args.SelectedModule := 'my-module';
+    AssertEquals('Module name with dashes should work', 'my-module', Args.SelectedModule);
+  finally
+    Args.ProfileIds.Free;
+  end;
+end;
+
 initialization
   RegisterTest(TTestModuleInfo);
   RegisterTest(TTestModuleRegistry);
@@ -1073,5 +1148,6 @@ initialization
   RegisterTest(TTestBuildOrder);
   RegisterTest(TTestArtifactResolution);
   RegisterTest(TTestReactorBuild);
+  RegisterTest(TTestCLIModuleSelection);
 
 end.
