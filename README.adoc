@@ -41,6 +41,9 @@ allowing you to override only what you need to change.
 * ✅ Cross-platform path handling (Maven convention)
 * ✅ Self-hosting (PasBuild can build itself)
 * ✅ Zero memory leaks (verified with -gh)
+* ✅ Multi-module projects with dependency resolution
+* ✅ Topological build ordering with cycle detection
+* ✅ Module selection flag (-m) for selective builds
 
 **Platform Support:**
 

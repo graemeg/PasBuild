@@ -1,0 +1,404 @@
+= PasBuild Multi-Module Tutorial
+:toc: left
+:toclevels: 3
+:sectnums:
+
+This tutorial demonstrates how to create and build multi-module Free Pascal projects using PasBuild.
+
+== Overview
+
+PasBuild supports Maven-style multi-module projects with:
+
+* Aggregator projects (packaging=pom) that coordinate multiple modules
+* Library modules that provide reusable components
+* Application modules that depend on libraries
+* Automatic dependency resolution between modules
+* Topological build ordering with cycle detection
+
+== Project Structure
+
+A typical multi-module project looks like:
+
+[source]
+----
+my-framework/                      # Aggregator (packaging=pom)
+├── project.xml                    # Aggregator config
+├── core/                          # Library module
+│   ├── project.xml
+│   └── src/main/pascal/
+│       ├── Core.Utils.pas
+│       └── Core.Logger.pas
+├── ui/                            # Library module (depends on core)
+│   ├── project.xml
+│   └── src/main/pascal/
+│       ├── UI.Widgets.pas
+│       └── UI.Forms.pas
+└── demo/                          # Application module (depends on ui)
+    ├── project.xml
+    └── src/main/pascal/
+        └── Demo.Main.pas
+----
+
+== Step 1: Create the Aggregator
+
+Create the root `project.xml` with packaging type "pom":
+
+[source,xml]
+----
+<?xml version="1.0" encoding="UTF-8"?>
+<project>
+  <name>my-framework</name>
+  <version>1.0.0</version>
+  <author>Your Name</author>
+  <license>BSD-3-Clause</license>
+
+  <build>
+    <!-- packaging=pom means this is an aggregator -->
+    <packaging>pom</packaging>
+  </build>
+
+  <!-- List child modules -->
+  <modules>
+    <module>core</module>
+    <module>ui</module>
+    <module>demo</module>
+  </modules>
+</project>
+----
+
+Key points:
+- `packaging=pom` marks this as an aggregator
+- Aggregators cannot have `mainSource` (they don't compile to anything)
+- The `<modules>` list contains paths to child module directories
+
+== Step 2: Create Library Modules
+
+Create each library module with `packaging=library`:
+
+=== core/project.xml
+
+[source,xml]
+----
+<?xml version="1.0" encoding="UTF-8"?>
+<project>
+  <name>core</name>
+  <version>1.0.0</version>
+  <author>Your Name</author>
+  <license>BSD-3-Clause</license>
+
+  <build>
+    <packaging>library</packaging>
+    <!-- Library has optional mainSource -->
+  </build>
+</project>
+----
+
+=== ui/project.xml
+
+[source,xml]
+----
+<?xml version="1.0" encoding="UTF-8"?>
+<project>
+  <name>ui</name>
+  <version>1.0.0</version>
+  <author>Your Name</author>
+  <license>BSD-3-Clause</license>
+
+  <build>
+    <packaging>library</packaging>
+  </build>
+
+  <!-- UI depends on core library -->
+  <modules>
+    <module>../core</module>
+  </modules>
+</project>
+----
+
+Key points:
+- Libraries use `packaging=library`
+- Specify dependencies in `<modules>` section (relative paths)
+- Libraries produce compiled units in `target/units/`
+
+== Step 3: Create Application Modules
+
+Create application modules with `packaging=application` (default):
+
+=== demo/project.xml
+
+[source,xml]
+----
+<?xml version="1.0" encoding="UTF-8"?>
+<project>
+  <name>demo</name>
+  <version>1.0.0</version>
+  <author>Your Name</author>
+  <license>BSD-3-Clause</license>
+
+  <build>
+    <mainSource>Demo.Main.pas</mainSource>
+    <executableName>demo</executableName>
+  </build>
+
+  <!-- Demo depends on UI (which transitively depends on core) -->
+  <modules>
+    <module>../ui</module>
+  </modules>
+</project>
+----
+
+Key points:
+- Applications use `packaging=application` (default)
+- Applications require `mainSource`
+- Dependencies are automatically resolved (UI → core)
+
+== Building Multi-Module Projects
+
+=== Build All Modules
+
+Build the entire project (all modules in dependency order):
+
+[source,bash]
+----
+cd my-framework
+pasbuild compile
+----
+
+Output shows build progress:
+[source]
+----
+[INFO] Building 3 modules in dependency order
+[INFO] Building module 1/3: core
+[INFO] Building module 2/3: ui
+[INFO] Building module 3/3: demo
+[INFO] Reactor build complete: 3/3 modules built
+----
+
+=== Build Specific Module
+
+Build only a specific module (and its dependencies):
+
+[source,bash]
+----
+pasbuild compile -m demo
+----
+
+This builds core and ui first, then demo.
+
+=== Skip Aggregator
+
+Aggregators are automatically skipped - they don't compile to anything:
+
+[source,bash]
+----
+pasbuild compile
+----
+
+Only core, ui, and demo are built (not the aggregator itself).
+
+== Dependency Resolution
+
+PasBuild automatically resolves and validates dependencies:
+
+=== Valid Dependency Chain
+
+[source]
+----
+demo (application)
+  └── ui (library)
+      └── core (library)
+----
+
+Build order: core → ui → demo ✓
+
+=== Dependency on Library
+
+Libraries automatically produce compiled units in `target/units/`:
+
+- `core/target/units/` contains core unit files
+- UI's compiler gets `-Fucore/target/units` automatically
+- Demo's compiler gets `-Fuui/target/units` and `-Fucore/target/units`
+
+=== Error: Circular Dependency
+
+If you create a cycle, PasBuild detects it:
+
+[source,text]
+----
+Fatal: Cyclic dependency detected: a
+----
+
+Build is aborted before any compilation.
+
+=== Error: Invalid Dependency
+
+Depending on an aggregator (pom) is forbidden:
+
+[source,text]
+----
+Error: Module "app" cannot depend on aggregator "aggregator" (packaging=pom)
+----
+
+Only libraries and applications can be compiled and depended upon.
+
+== Project Paths
+
+Paths in `<modules>` are relative to the module's directory:
+
+[source,xml]
+----
+<!-- In my-framework/project.xml -->
+<modules>
+  <module>core</module>        <!-- Relative to my-framework -->
+  <module>ui</module>
+</modules>
+
+<!-- In my-framework/ui/project.xml -->
+<modules>
+  <module>../core</module>     <!-- Relative to ui -->
+</modules>
+----
+
+Paths are validated to prevent escaping the project tree (security).
+
+== Testing Multi-Module Projects
+
+Run tests across all modules:
+
+[source,bash]
+----
+pasbuild test
+----
+
+This runs: clean → compile → process-test-resources → test-compile → test
+
+Each module's tests are compiled and run in dependency order.
+
+Test a specific module:
+
+[source,bash]
+----
+pasbuild test -m core
+----
+
+== Packaging Multi-Module Projects
+
+Create a release archive:
+
+[source,bash]
+----
+pasbuild package
+----
+
+Creates `my-framework-1.0.0.zip` containing:
+- All compiled executables from application modules
+- All compiled units from library modules
+- Source files
+- Documentation
+
+== CLI Reference
+
+=== Module Selection
+
+[source,bash]
+----
+pasbuild <goal> -m <module-name>
+pasbuild <goal> --module <module-name>
+----
+
+Examples:
+
+[source,bash]
+----
+pasbuild compile -m core              # Build only core
+pasbuild test -m demo                 # Test demo module
+pasbuild package -m ui                # Package UI library
+----
+
+=== Combined with Other Flags
+
+[source,bash]
+----
+pasbuild compile -p debug -m demo     # Debug profile for demo
+pasbuild compile -v -m core           # Verbose output for core
+pasbuild test -m ui -f custom.xml     # Use custom project file
+----
+
+== Advanced Topics
+
+=== Module Naming Conventions
+
+Module names can include:
+- Lowercase letters: `core`, `ui`
+- Numbers: `lib1`, `module2`
+- Hyphens: `core-utils`, `ui-widgets`
+- Camel case: `CoreUtils`, `UIWidgets`
+
+Choose a consistent naming convention for your project.
+
+=== Build Profiles with Multi-Module
+
+Apply profiles to multi-module builds:
+
+[source,bash]
+----
+pasbuild compile -p debug             # All modules use debug profile
+pasbuild compile -p release -m demo   # Demo uses release profile
+----
+
+Each module's build inherits the active profiles.
+
+=== Multi-Level Dependencies
+
+Transitive dependencies are automatically resolved:
+
+[source]
+----
+demo → ui → core
+       ↓
+    core (same)
+----
+
+Demo's compiler gets paths for both ui and core automatically.
+
+== Troubleshooting
+
+=== Module Not Found
+
+[source,text]
+----
+Fatal: Module "unknown" referenced by "demo" not found
+----
+
+Check the module name in `<modules>` matches the module's `<name>` in its project.xml.
+
+=== Path Outside Project Tree
+
+[source,text]
+----
+Fatal: Module path outside project tree: ../../other
+----
+
+Module paths must stay within the aggregator's root directory.
+
+=== Circular Dependency
+
+[source,text]
+----
+Fatal: Cyclic dependency detected: a
+----
+
+Check that dependencies don't create cycles. Graph your modules and verify no cycles exist.
+
+=== Missing project.xml
+
+[source,text]
+----
+Fatal: Module project.xml not found: path/to/module/project.xml
+----
+
+Ensure each module directory contains a valid project.xml file.
+
+== Complete Example
+
+For a complete working example, see the design document at `docs/multi-module-design.adoc`.

@@ -954,6 +954,133 @@ Currently all major features are implemented. Future enhancements will be driven
 See `implementation-progress.adoc` for detailed task breakdown and current status.
 
 
+== Multi-Module Projects
+
+PasBuild supports Maven-style multi-module projects with aggregators, libraries, and applications.
+
+=== Packaging Types
+
+Three packaging types organize multi-module projects:
+
+[cols="1,2,3"]
+|===
+|Type |Purpose |Example
+
+|`pom` (aggregator)
+|Coordinates multiple modules
+|Root project with `<modules>` list
+
+|`library`
+|Provides reusable components
+|Framework, utilities, UI toolkit
+
+|`application`
+|Final executable
+|Demo, tool, end-user application
+|===
+
+=== Project Structure
+
+[source]
+----
+my-framework/                      # Aggregator (packaging=pom)
+├── project.xml
+├── core/                          # Library (packaging=library)
+│   ├── project.xml
+│   └── src/main/pascal/
+├── ui/                            # Library (depends on core)
+│   ├── project.xml
+│   └── src/main/pascal/
+└── demo/                          # Application (depends on ui)
+    ├── project.xml
+    └── src/main/pascal/
+----
+
+=== Module Declaration
+
+Aggregators list child modules:
+
+[source,xml]
+----
+<project>
+  <build>
+    <packaging>pom</packaging>
+  </build>
+  <modules>
+    <module>core</module>
+    <module>ui</module>
+    <module>demo</module>
+  </modules>
+</project>
+----
+
+Modules declare dependencies:
+
+[source,xml]
+----
+<project>
+  <!-- UI depends on core -->
+  <modules>
+    <module>../core</module>
+  </modules>
+</project>
+----
+
+=== Dependency Resolution
+
+PasBuild automatically:
+
+1. Discovers all modules from aggregator
+2. Resolves dependencies between modules
+3. Detects circular dependencies
+4. Computes topological build order
+5. Adds resolved module paths to `-Fu` flags
+
+=== Build Order Calculation
+
+Uses depth-first topological sort to determine order:
+
+[source]
+----
+demo (application)
+  └── ui (library)
+      └── core (library)
+
+Build order: core → ui → demo
+----
+
+Cycle detection prevents:
+
+[source]
+----
+A → B → A (cycle detected, build fails)
+----
+
+=== Validation Rules
+
+All configurations are validated:
+
+* Aggregators (pom) MUST have `<modules>`, forbid `<mainSource>`
+* Libraries can optionally have `<mainSource>`
+* Applications MUST have `<mainSource>`
+* Only libraries and applications produce artifacts
+* Module dependencies cannot reference aggregators
+* Paths must remain within project tree (security)
+
+=== CLI Support
+
+Build specific modules:
+
+[source,bash]
+----
+pasbuild compile -m demo              # Build demo and dependencies
+pasbuild test -m core                 # Test core only
+pasbuild package -m ui -p release     # Package with profile
+----
+
+For details and examples, see `multi-module-tutorial.adoc`.
+
+
 == Appendix: Technology Choices
 
 === Programming Language
