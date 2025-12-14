@@ -152,6 +152,13 @@ begin
       end;
     end;
 
+    // Add resolved module dependency paths
+    for I := 0 to Config.BuildConfig.ResolvedModulePaths.Count - 1 do
+    begin
+      UnitPath := TUtils.NormalizePath(Config.BuildConfig.ResolvedModulePaths[I]);
+      Result := Result + ' -Fu' + UnitPath;
+    end;
+
     // Add include search paths (-Fi)
     // Always add output directory first (for filtered resource includes like version.inc)
     Result := Result + ' -Fi' + OutputDir;

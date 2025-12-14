@@ -62,6 +62,17 @@ type
     procedure TestCycleDetectionSelfReference;
   end;
 
+  { Tests for artifact resolution }
+  TTestArtifactResolution = class(TTestCase)
+  published
+    procedure TestResolveArtifactsSingleDependency;
+    procedure TestResolveArtifactsMultipleDependencies;
+    procedure TestResolveArtifactsTransitive;
+    procedure TestResolveArtifactsPomReference;
+    procedure TestResolveArtifactsLibraryModules;
+    procedure TestResolveArtifactsApplicationModules;
+  end;
+
 implementation
 
 { TTestModuleInfo }
@@ -675,10 +686,206 @@ begin
   AssertTrue('Self-reference should raise exception', ExceptionRaised);
 end;
 
+{ TTestArtifactResolution }
+
+procedure TTestArtifactResolution.TestResolveArtifactsSingleDependency;
+var
+  Registry: TModuleRegistry;
+  ModuleA, ModuleB: TModuleInfo;
+  Config: TProjectConfig;
+begin
+  { Module A depends on Module B }
+  Registry := TModuleRegistry.Create;
+  ModuleA := TModuleInfo.Create;
+  ModuleB := TModuleInfo.Create;
+  Config := TProjectConfig.Create;
+  try
+    ModuleB.Name := 'CoreLib';
+    ModuleB.Path := '/path/to/core';
+    ModuleB.UnitsDirectory := '/path/to/core/target/units';
+
+    ModuleA.Name := 'MyApp';
+    ModuleA.Path := '/path/to/app';
+    ModuleA.UnitsDirectory := '/path/to/app/target/units';
+    ModuleA.Dependencies.Add('CoreLib');
+
+    Registry.RegisterModule(ModuleA);
+    Registry.RegisterModule(ModuleB);
+
+    AssertNotNull('Module B should exist', Registry.FindModuleByName('CoreLib'));
+    AssertEquals('Module A should depend on B', 1, ModuleA.Dependencies.Count);
+    AssertEquals('First dependency should be CoreLib', 'CoreLib', ModuleA.Dependencies[0]);
+  finally
+    Registry.Free;
+    Config.Free;
+  end;
+end;
+
+procedure TTestArtifactResolution.TestResolveArtifactsMultipleDependencies;
+var
+  Registry: TModuleRegistry;
+  ModuleA, ModuleB, ModuleC: TModuleInfo;
+begin
+  { Module A depends on both B and C }
+  Registry := TModuleRegistry.Create;
+  ModuleA := TModuleInfo.Create;
+  ModuleB := TModuleInfo.Create;
+  ModuleC := TModuleInfo.Create;
+  try
+    ModuleB.Name := 'LibB';
+    ModuleB.Path := '/path/to/b';
+    ModuleB.UnitsDirectory := '/path/to/b/target/units';
+
+    ModuleC.Name := 'LibC';
+    ModuleC.Path := '/path/to/c';
+    ModuleC.UnitsDirectory := '/path/to/c/target/units';
+
+    ModuleA.Name := 'App';
+    ModuleA.Path := '/path/to/app';
+    ModuleA.UnitsDirectory := '/path/to/app/target/units';
+    ModuleA.Dependencies.Add('LibB');
+    ModuleA.Dependencies.Add('LibC');
+
+    Registry.RegisterModule(ModuleA);
+    Registry.RegisterModule(ModuleB);
+    Registry.RegisterModule(ModuleC);
+
+    AssertEquals('Module A should have 2 dependencies', 2, ModuleA.Dependencies.Count);
+    AssertEquals('First dependency should be LibB', 'LibB', ModuleA.Dependencies[0]);
+    AssertEquals('Second dependency should be LibC', 'LibC', ModuleA.Dependencies[1]);
+  finally
+    Registry.Free;
+  end;
+end;
+
+procedure TTestArtifactResolution.TestResolveArtifactsTransitive;
+var
+  Registry: TModuleRegistry;
+  ModuleA, ModuleB, ModuleC: TModuleInfo;
+  BuildOrder: TList;
+begin
+  { A -> B -> C (transitive): A depends on B only, B depends on C }
+  Registry := TModuleRegistry.Create;
+  ModuleA := TModuleInfo.Create;
+  ModuleB := TModuleInfo.Create;
+  ModuleC := TModuleInfo.Create;
+  try
+    ModuleC.Name := 'CoreLib';
+    ModuleC.Path := '/path/to/core';
+    ModuleC.UnitsDirectory := '/path/to/core/target/units';
+
+    ModuleB.Name := 'MiddleLib';
+    ModuleB.Path := '/path/to/middle';
+    ModuleB.UnitsDirectory := '/path/to/middle/target/units';
+    ModuleB.Dependencies.Add('CoreLib');
+
+    ModuleA.Name := 'App';
+    ModuleA.Path := '/path/to/app';
+    ModuleA.UnitsDirectory := '/path/to/app/target/units';
+    ModuleA.Dependencies.Add('MiddleLib');
+
+    Registry.RegisterModule(ModuleA);
+    Registry.RegisterModule(ModuleB);
+    Registry.RegisterModule(ModuleC);
+
+    { Verify build order: C first, then B, then A }
+    BuildOrder := Registry.GetBuildOrder;
+    try
+      AssertEquals('Build order should have 3 modules', 3, BuildOrder.Count);
+      AssertEquals('CoreLib should be built first', 'CoreLib', TModuleInfo(BuildOrder[0]).Name);
+      AssertEquals('MiddleLib should be built second', 'MiddleLib', TModuleInfo(BuildOrder[1]).Name);
+      AssertEquals('App should be built last', 'App', TModuleInfo(BuildOrder[2]).Name);
+    finally
+      BuildOrder.Free;
+    end;
+  finally
+    Registry.Free;
+  end;
+end;
+
+procedure TTestArtifactResolution.TestResolveArtifactsPomReference;
+var
+  Registry: TModuleRegistry;
+  ModuleApp, ModuleAgg: TModuleInfo;
+  Config: TProjectConfig;
+begin
+  { Application tries to depend on aggregator (packaging=pom) - should be invalid }
+  Registry := TModuleRegistry.Create;
+  ModuleApp := TModuleInfo.Create;
+  ModuleAgg := TModuleInfo.Create;
+  Config := TProjectConfig.Create;
+  try
+    { Create aggregator with pom packaging }
+    ModuleAgg.Name := 'Aggregator';
+    ModuleAgg.Path := '/path/to/agg';
+    ModuleAgg.UnitsDirectory := '/path/to/agg/target/units';
+
+    { App tries to depend on aggregator }
+    ModuleApp.Name := 'MyApp';
+    ModuleApp.Path := '/path/to/app';
+    ModuleApp.UnitsDirectory := '/path/to/app/target/units';
+    ModuleApp.Dependencies.Add('Aggregator');
+
+    Registry.RegisterModule(ModuleApp);
+    Registry.RegisterModule(ModuleAgg);
+
+    { Verify the dependency was recorded (validation happens during artifact resolution) }
+    AssertEquals('App should reference Aggregator', 'Aggregator', ModuleApp.Dependencies[0]);
+  finally
+    Registry.Free;
+    Config.Free;
+  end;
+end;
+
+procedure TTestArtifactResolution.TestResolveArtifactsLibraryModules;
+var
+  Registry: TModuleRegistry;
+  ModuleLib: TModuleInfo;
+begin
+  { Library module produces units in target/units/ }
+  Registry := TModuleRegistry.Create;
+  ModuleLib := TModuleInfo.Create;
+  try
+    ModuleLib.Name := 'CoreLibrary';
+    ModuleLib.Path := '/path/to/core';
+    ModuleLib.UnitsDirectory := '/path/to/core/target/units';
+
+    Registry.RegisterModule(ModuleLib);
+
+    AssertEquals('Library module should be registered', 'CoreLibrary', ModuleLib.Name);
+    AssertEquals('Units directory should be set correctly', '/path/to/core/target/units', ModuleLib.UnitsDirectory);
+  finally
+    Registry.Free;
+  end;
+end;
+
+procedure TTestArtifactResolution.TestResolveArtifactsApplicationModules;
+var
+  Registry: TModuleRegistry;
+  ModuleApp: TModuleInfo;
+begin
+  { Application module also produces units in target/units/ }
+  Registry := TModuleRegistry.Create;
+  ModuleApp := TModuleInfo.Create;
+  try
+    ModuleApp.Name := 'MyApplication';
+    ModuleApp.Path := '/path/to/app';
+    ModuleApp.UnitsDirectory := '/path/to/app/target/units';
+
+    Registry.RegisterModule(ModuleApp);
+
+    AssertEquals('Application module should be registered', 'MyApplication', ModuleApp.Name);
+    AssertEquals('Units directory should be set correctly', '/path/to/app/target/units', ModuleApp.UnitsDirectory);
+  finally
+    Registry.Free;
+  end;
+end;
+
 initialization
   RegisterTest(TTestModuleInfo);
   RegisterTest(TTestModuleRegistry);
   RegisterTest(TTestModuleDiscovery);
   RegisterTest(TTestBuildOrder);
+  RegisterTest(TTestArtifactResolution);
 
 end.

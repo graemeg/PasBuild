@@ -85,6 +85,7 @@ type
     FUnitPaths: TConditionalPathList;
     FIncludePaths: TConditionalPathList;
     FManualUnitPaths: Boolean;
+    FResolvedModulePaths: TStringList;  // Artifact paths from module dependencies
   public
     constructor Create;
     destructor Destroy; override;
@@ -98,6 +99,7 @@ type
     property UnitPaths: TConditionalPathList read FUnitPaths;
     property IncludePaths: TConditionalPathList read FIncludePaths;
     property ManualUnitPaths: Boolean read FManualUnitPaths write FManualUnitPaths;
+    property ResolvedModulePaths: TStringList read FResolvedModulePaths;
   end;
 
   { TTestConfig - Test configuration section }
@@ -207,6 +209,7 @@ type
     function FindModuleByName(const AName: string): TModuleInfo;
     function FindModuleByPath(const APath: string): TModuleInfo;
     function GetBuildOrder: TList;
+    procedure ResolveArtifacts(AModule: TModuleInfo);
 
     property Modules: TObjectList read FModules;
   end;
@@ -277,6 +280,9 @@ begin
   FIncludePaths := TConditionalPathList.Create;
   FIncludePaths.FreeObjects := True;
 
+  FResolvedModulePaths := TStringList.Create;
+  FResolvedModulePaths.Duplicates := dupIgnore;
+
   // Set defaults
   FProjectType := ptApplication;  // Application by default
   FOutputDirectory := 'target';
@@ -289,6 +295,7 @@ begin
   FCompilerOptions.Free;
   FUnitPaths.Free;
   FIncludePaths.Free;
+  FResolvedModulePaths.Free;
   inherited Destroy;
 end;
 
@@ -520,6 +527,40 @@ begin
   finally
     RecStack.Free;
     Visited.Free;
+  end;
+end;
+
+procedure TModuleRegistry.ResolveArtifacts(AModule: TModuleInfo);
+var
+  I: Integer;
+  DepName: string;
+  DepModule: TModuleInfo;
+  UnitsPath: string;
+begin
+  { Iterate through module's dependencies and add their units directories }
+  for I := 0 to AModule.Dependencies.Count - 1 do
+  begin
+    DepName := AModule.Dependencies[I];
+    DepModule := FindModuleByName(DepName);
+
+    if DepModule = nil then
+      raise Exception.CreateFmt('Module "%s" referenced by "%s" not found',
+        [DepName, AModule.Name]);
+
+    { Only library and application modules produce artifacts }
+    if DepModule.Config <> nil then
+    begin
+      if DepModule.Config.BuildConfig.ProjectType in [ptLibrary, ptApplication] then
+      begin
+        UnitsPath := DepModule.UnitsDirectory;
+        if AModule.Config <> nil then
+          AModule.Config.BuildConfig.ResolvedModulePaths.Add(UnitsPath);
+      end
+      else if DepModule.Config.BuildConfig.ProjectType = ptPom then
+        raise Exception.CreateFmt(
+          'Module "%s" cannot depend on aggregator "%s" (packaging=pom)',
+          [AModule.Name, DepName]);
+    end;
   end;
 end;
 
