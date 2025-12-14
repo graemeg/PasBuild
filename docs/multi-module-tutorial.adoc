@@ -315,13 +315,61 @@ pasbuild test -m demo                 # Test demo module
 pasbuild package -m ui                # Package UI library
 ----
 
+=== Verbose Dependency Graph Display
+
+Display the module dependency graph with the `-v` (verbose) flag:
+
+[source,bash]
+----
+pasbuild compile -v
+----
+
+Output shows each module and its dependencies:
+
+[source]
+----
+[INFO] Building 3 modules in dependency order
+[INFO] Dependency Graph:
+[INFO]
+[INFO] core (no dependencies)
+[INFO] ui (depends on: core)
+[INFO]   └─ core
+[INFO] demo (depends on: ui)
+[INFO]   └─ ui
+[INFO]
+[INFO] Building module 1/3: core
+[INFO] Building module 2/3: ui
+[INFO] Building module 3/3: demo
+----
+
+The verbose flag helps you:
+- Visualize module relationships
+- Verify correct dependency setup
+- Understand the build order
+- Debug complex dependency chains
+
 === Combined with Other Flags
 
 [source,bash]
 ----
-pasbuild compile -p debug -m demo     # Debug profile for demo
-pasbuild compile -v -m core           # Verbose output for core
+pasbuild compile -v -m demo           # Verbose output for demo build
+pasbuild compile -p debug -m core     # Debug profile for core
+pasbuild compile -v -p release        # Verbose with release profile
 pasbuild test -m ui -f custom.xml     # Use custom project file
+----
+
+Examples combining multiple flags:
+
+[source,bash]
+----
+# View dependency graph before building specific module
+pasbuild compile -v -m demo
+
+# Build with debug profile and verbose output
+pasbuild compile -p debug -v
+
+# Run tests with verbose graph and custom project file
+pasbuild test -v -f myproject.xml
 ----
 
 == Advanced Topics

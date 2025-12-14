@@ -1078,6 +1078,27 @@ pasbuild test -m core                 # Test core only
 pasbuild package -m ui -p release     # Package with profile
 ----
 
+Display dependency graph in verbose mode:
+
+[source,bash]
+----
+pasbuild compile -v                   # Show dependency graph
+pasbuild compile -v -m demo           # Show graph and build demo
+----
+
+Example output:
+
+[source]
+----
+[INFO] Dependency Graph:
+[INFO]
+[INFO] core (no dependencies)
+[INFO] ui (depends on: core)
+[INFO]   └─ core
+[INFO] demo (depends on: ui)
+[INFO]   └─ ui
+----
+
 For details and examples, see `multi-module-tutorial.adoc`.
 
 
