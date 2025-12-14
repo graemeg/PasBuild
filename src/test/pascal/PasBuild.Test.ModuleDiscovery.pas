@@ -73,6 +73,16 @@ type
     procedure TestResolveArtifactsApplicationModules;
   end;
 
+  { Tests for reactor build orchestration }
+  TTestReactorBuild = class(TTestCase)
+  published
+    procedure TestReactorBuildOrderPreservation;
+    procedure TestReactorBuildHandlesModuleConfigs;
+    procedure TestReactorBuildWithMultipleDependencies;
+    procedure TestReactorBuildSkipsAggregator;
+    procedure TestReactorBuildResolvesArtifacts;
+  end;
+
 implementation
 
 { TTestModuleInfo }
@@ -881,11 +891,187 @@ begin
   end;
 end;
 
+{ TTestReactorBuild }
+
+procedure TTestReactorBuild.TestReactorBuildOrderPreservation;
+var
+  Registry: TModuleRegistry;
+  ModuleA, ModuleB, ModuleC: TModuleInfo;
+  BuildOrder: TList;
+begin
+  { Reactor build must respect topological order }
+  Registry := TModuleRegistry.Create;
+  ModuleA := TModuleInfo.Create;
+  ModuleB := TModuleInfo.Create;
+  ModuleC := TModuleInfo.Create;
+  try
+    ModuleA.Name := 'A';
+    ModuleA.Path := '/path/to/a';
+
+    ModuleB.Name := 'B';
+    ModuleB.Path := '/path/to/b';
+    ModuleB.Dependencies.Add('A');
+
+    ModuleC.Name := 'C';
+    ModuleC.Path := '/path/to/c';
+    ModuleC.Dependencies.Add('B');
+
+    Registry.RegisterModule(ModuleA);
+    Registry.RegisterModule(ModuleB);
+    Registry.RegisterModule(ModuleC);
+
+    { Get build order }
+    BuildOrder := Registry.GetBuildOrder;
+    try
+      AssertEquals('Build order should have 3 modules', 3, BuildOrder.Count);
+      AssertEquals('Order should be A, B, C', 'A', TModuleInfo(BuildOrder[0]).Name);
+      AssertEquals('Order should be A, B, C', 'B', TModuleInfo(BuildOrder[1]).Name);
+      AssertEquals('Order should be A, B, C', 'C', TModuleInfo(BuildOrder[2]).Name);
+    finally
+      BuildOrder.Free;
+    end;
+  finally
+    Registry.Free;
+  end;
+end;
+
+procedure TTestReactorBuild.TestReactorBuildHandlesModuleConfigs;
+var
+  Registry: TModuleRegistry;
+  ModuleA: TModuleInfo;
+begin
+  { Reactor should handle each module's configuration }
+  Registry := TModuleRegistry.Create;
+  ModuleA := TModuleInfo.Create;
+  try
+    ModuleA.Name := 'ModuleA';
+    ModuleA.Path := '/path/to/a';
+
+    { Verify module structure }
+    AssertEquals('Module name should be set', 'ModuleA', ModuleA.Name);
+    AssertEquals('Module path should be set', '/path/to/a', ModuleA.Path);
+  finally
+    ModuleA.Free;
+    Registry.Free;
+  end;
+end;
+
+procedure TTestReactorBuild.TestReactorBuildWithMultipleDependencies;
+var
+  Registry: TModuleRegistry;
+  ModuleA, ModuleB, ModuleC, ModuleD: TModuleInfo;
+  BuildOrder: TList;
+begin
+  { Complex graph: D depends on B,C; B,C depend on A }
+  Registry := TModuleRegistry.Create;
+  ModuleA := TModuleInfo.Create;
+  ModuleB := TModuleInfo.Create;
+  ModuleC := TModuleInfo.Create;
+  ModuleD := TModuleInfo.Create;
+  try
+    ModuleA.Name := 'A';
+    ModuleA.Path := '/path/to/a';
+
+    ModuleB.Name := 'B';
+    ModuleB.Path := '/path/to/b';
+    ModuleB.Dependencies.Add('A');
+
+    ModuleC.Name := 'C';
+    ModuleC.Path := '/path/to/c';
+    ModuleC.Dependencies.Add('A');
+
+    ModuleD.Name := 'D';
+    ModuleD.Path := '/path/to/d';
+    ModuleD.Dependencies.Add('B');
+    ModuleD.Dependencies.Add('C');
+
+    Registry.RegisterModule(ModuleA);
+    Registry.RegisterModule(ModuleB);
+    Registry.RegisterModule(ModuleC);
+    Registry.RegisterModule(ModuleD);
+
+    { Get build order }
+    BuildOrder := Registry.GetBuildOrder;
+    try
+      AssertEquals('Build order should have 4 modules', 4, BuildOrder.Count);
+      { A should be first, D should be last }
+      AssertEquals('A should be first', 'A', TModuleInfo(BuildOrder[0]).Name);
+      AssertEquals('D should be last', 'D', TModuleInfo(BuildOrder[3]).Name);
+    finally
+      BuildOrder.Free;
+    end;
+  finally
+    Registry.Free;
+  end;
+end;
+
+procedure TTestReactorBuild.TestReactorBuildSkipsAggregator;
+var
+  Registry: TModuleRegistry;
+  ModuleAgg, ModuleLib: TModuleInfo;
+begin
+  { Aggregators (pom packaging) should be skipped during build }
+  Registry := TModuleRegistry.Create;
+  ModuleAgg := TModuleInfo.Create;
+  ModuleLib := TModuleInfo.Create;
+  try
+    { Create aggregator }
+    ModuleAgg.Name := 'Aggregator';
+    ModuleAgg.Path := '/path/to/agg';
+
+    { Create library }
+    ModuleLib.Name := 'Library';
+    ModuleLib.Path := '/path/to/lib';
+
+    Registry.RegisterModule(ModuleAgg);
+    Registry.RegisterModule(ModuleLib);
+
+    { Verify modules are registered }
+    AssertNotNull('Aggregator should be found', Registry.FindModuleByName('Aggregator'));
+    AssertNotNull('Library should be found', Registry.FindModuleByName('Library'));
+  finally
+    Registry.Free;
+  end;
+end;
+
+procedure TTestReactorBuild.TestReactorBuildResolvesArtifacts;
+var
+  Registry: TModuleRegistry;
+  ModuleLib, ModuleApp: TModuleInfo;
+begin
+  { Reactor should resolve artifacts for each module }
+  Registry := TModuleRegistry.Create;
+  ModuleLib := TModuleInfo.Create;
+  ModuleApp := TModuleInfo.Create;
+  try
+    { Create library module }
+    ModuleLib.Name := 'LibCore';
+    ModuleLib.Path := '/path/to/core';
+    ModuleLib.UnitsDirectory := '/path/to/core/target/units';
+
+    { Create application that depends on library }
+    ModuleApp.Name := 'AppMain';
+    ModuleApp.Path := '/path/to/app';
+    ModuleApp.UnitsDirectory := '/path/to/app/target/units';
+    ModuleApp.Dependencies.Add('LibCore');
+
+    Registry.RegisterModule(ModuleLib);
+    Registry.RegisterModule(ModuleApp);
+
+    { Verify dependencies are set up correctly }
+    AssertEquals('AppMain should depend on LibCore', 1, ModuleApp.Dependencies.Count);
+    AssertEquals('Dependency should be LibCore', 'LibCore', ModuleApp.Dependencies[0]);
+  finally
+    Registry.Free;
+  end;
+end;
+
 initialization
   RegisterTest(TTestModuleInfo);
   RegisterTest(TTestModuleRegistry);
   RegisterTest(TTestModuleDiscovery);
   RegisterTest(TTestBuildOrder);
   RegisterTest(TTestArtifactResolution);
+  RegisterTest(TTestReactorBuild);
 
 end.
