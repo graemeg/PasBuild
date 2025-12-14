@@ -543,6 +543,42 @@ pasbuild compile -f project-test.xml
 
 **Note:** The file path can be relative or absolute. Error handling provides clear messages if the file is not found.
 
+=== Multi-Module Projects
+
+For large projects with multiple components, PasBuild supports Maven-style multi-module projects with:
+
+* **Aggregator projects** - Coordinate multiple child modules
+* **Library modules** - Reusable frameworks and utilities
+* **Application modules** - Executable projects depending on libraries
+* **Automatic dependency resolution** - Compile in correct order with no manual configuration
+* **Module selection** - Build specific modules using `-m` flag
+
+**Example multi-module structure:**
+
+[source]
+----
+my-framework/                      # Aggregator (packaging=pom)
+├── project.xml
+├── core/                          # Library module
+│   └── project.xml
+├── ui/                            # Library depending on core
+│   └── project.xml
+└── demo/                          # Application depending on ui
+    └── project.xml
+----
+
+**Basic usage:**
+
+[source,shell]
+----
+cd my-framework
+pasbuild compile              # Build all modules in dependency order
+pasbuild compile -m demo      # Build only demo (and its dependencies)
+pasbuild compile -v           # Show dependency graph
+----
+
+**For detailed multi-module documentation**, see link:multi-module-tutorial.adoc[Multi-Module Tutorial].
+
 === Platform-Specific Code with Conditional Paths
 
 For cross-platform projects with platform-specific directories, use conditional unit paths.
