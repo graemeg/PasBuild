@@ -28,6 +28,7 @@ type
     FGoalName: string;
     FModulesBuilt: Integer;
     FModulesFailed: Integer;
+    procedure DisplayDependencyGraph;
   protected
     function GetName: string; override;
   public
@@ -69,6 +70,36 @@ begin
   Result := 'reactor-' + FGoalName;
 end;
 
+procedure TReactorCommand.DisplayDependencyGraph;
+var
+  I: Integer;
+  Module: TModuleInfo;
+  J: Integer;
+begin
+  TUtils.LogInfo('Dependency Graph:');
+  TUtils.LogInfo('');
+
+  for I := 0 to FRegistry.Modules.Count - 1 do
+  begin
+    Module := TModuleInfo(FRegistry.Modules[I]);
+
+    if Module.Dependencies.Count = 0 then
+      TUtils.LogInfo(Module.Name + ' (no dependencies)')
+    else
+    begin
+      TUtils.LogInfo(Module.Name + ' (depends on: ' + Module.Dependencies.CommaText + ')');
+
+      { Show dependency tree with indentation }
+      for J := 0 to Module.Dependencies.Count - 1 do
+      begin
+        TUtils.LogInfo('  └─ ' + Module.Dependencies[J]);
+      end;
+    end;
+  end;
+
+  TUtils.LogInfo('');
+end;
+
 function TReactorCommand.Execute: Integer;
 var
   BuildOrder: TList;
@@ -92,6 +123,10 @@ begin
     end;
 
     TUtils.LogInfo('Building ' + IntToStr(ModuleCount) + ' modules in dependency order');
+
+    { Display dependency graph in verbose mode }
+    if FVerbose then
+      DisplayDependencyGraph;
 
     { Build each module in order }
     for I := 0 to BuildOrder.Count - 1 do
