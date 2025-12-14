@@ -206,6 +206,7 @@ type
     procedure RegisterModule(AModule: TModuleInfo);
     function FindModuleByName(const AName: string): TModuleInfo;
     function FindModuleByPath(const APath: string): TModuleInfo;
+    function GetBuildOrder: TList;
 
     property Modules: TObjectList read FModules;
   end;
@@ -443,6 +444,82 @@ begin
       Result := TModuleInfo(FModules[I]);
       Exit;
     end;
+  end;
+end;
+
+function TModuleRegistry.GetBuildOrder: TList;
+var
+  Visited, RecStack: TStringList;
+
+  procedure Visit(const ModuleName: string);
+  var
+    Module: TModuleInfo;
+    I: Integer;
+    DepName: string;
+    DepModule: TModuleInfo;
+    StackIndex: Integer;
+  begin
+    Module := FindModuleByName(ModuleName);
+    if Module = nil then
+      raise Exception.CreateFmt('Module not found: %s', [ModuleName]);
+
+    { Check if already visited }
+    if Visited.IndexOf(ModuleName) >= 0 then
+      Exit;
+
+    { Check for cycle (module in recursion stack) }
+    StackIndex := RecStack.IndexOf(ModuleName);
+    if StackIndex >= 0 then
+    begin
+      { Cyclic dependency detected }
+      raise Exception.CreateFmt('Cyclic dependency detected: %s', [ModuleName]);
+    end;
+
+    { Add to recursion stack }
+    RecStack.Add(ModuleName);
+
+    { Visit all dependencies first (depth-first) }
+    for I := 0 to Module.Dependencies.Count - 1 do
+    begin
+      DepName := Module.Dependencies[I];
+      DepModule := FindModuleByName(DepName);
+      if DepModule = nil then
+        raise Exception.CreateFmt('Dependency not found: %s (required by %s)', [DepName, ModuleName]);
+
+      Visit(DepName);
+    end;
+
+    { Remove from recursion stack }
+    StackIndex := RecStack.IndexOf(ModuleName);
+    if StackIndex >= 0 then
+      RecStack.Delete(StackIndex);
+
+    { Mark as visited and add to build order }
+    Visited.Add(ModuleName);
+    Result.Add(Module);
+  end;
+
+var
+  I: Integer;
+  Module: TModuleInfo;
+begin
+  Result := TList.Create;
+  Visited := TStringList.Create;
+  RecStack := TStringList.Create;
+  try
+    Visited.Duplicates := dupIgnore;
+    RecStack.Duplicates := dupIgnore;
+
+    { Visit all modules to build topological order }
+    for I := 0 to FModules.Count - 1 do
+    begin
+      Module := TModuleInfo(FModules[I]);
+      if Visited.IndexOf(Module.Name) < 0 then
+        Visit(Module.Name);
+    end;
+  finally
+    RecStack.Free;
+    Visited.Free;
   end;
 end;
 

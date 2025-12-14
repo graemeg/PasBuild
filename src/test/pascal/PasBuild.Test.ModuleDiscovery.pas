@@ -50,6 +50,18 @@ type
     procedure TestDiscoverDuplicateNames;
   end;
 
+  { Tests for build order calculation }
+  TTestBuildOrder = class(TTestCase)
+  published
+    procedure TestBuildOrderLinear;
+    procedure TestBuildOrderDiamond;
+    procedure TestBuildOrderMultipleRoots;
+    procedure TestBuildOrderComplexGraph;
+    procedure TestCycleDetectionSimple;
+    procedure TestCycleDetectionComplex;
+    procedure TestCycleDetectionSelfReference;
+  end;
+
 implementation
 
 { TTestModuleInfo }
@@ -370,9 +382,303 @@ begin
   AssertTrue('Duplicate names should raise exception', ExceptionRaised);
 end;
 
+{ TTestBuildOrder }
+
+procedure TTestBuildOrder.TestBuildOrderLinear;
+var
+  Registry: TModuleRegistry;
+  ModuleA, ModuleB, ModuleC: TModuleInfo;
+  BuildOrder: TList;
+begin
+  { Linear dependency: C -> B -> A (build order: A, B, C) }
+  Registry := TModuleRegistry.Create;
+  ModuleA := TModuleInfo.Create;
+  ModuleB := TModuleInfo.Create;
+  ModuleC := TModuleInfo.Create;
+  try
+    ModuleA.Name := 'ModuleA';
+    ModuleA.Path := '/path/to/a';
+
+    ModuleB.Name := 'ModuleB';
+    ModuleB.Path := '/path/to/b';
+    ModuleB.Dependencies.Add('ModuleA');
+
+    ModuleC.Name := 'ModuleC';
+    ModuleC.Path := '/path/to/c';
+    ModuleC.Dependencies.Add('ModuleB');
+
+    Registry.RegisterModule(ModuleA);
+    Registry.RegisterModule(ModuleB);
+    Registry.RegisterModule(ModuleC);
+
+    BuildOrder := Registry.GetBuildOrder;
+    try
+      AssertEquals('Build order should have 3 modules', 3, BuildOrder.Count);
+      AssertEquals('First should be ModuleA', 'ModuleA', TModuleInfo(BuildOrder[0]).Name);
+      AssertEquals('Second should be ModuleB', 'ModuleB', TModuleInfo(BuildOrder[1]).Name);
+      AssertEquals('Third should be ModuleC', 'ModuleC', TModuleInfo(BuildOrder[2]).Name);
+    finally
+      BuildOrder.Free;
+    end;
+  finally
+    Registry.Free;
+  end;
+end;
+
+procedure TTestBuildOrder.TestBuildOrderDiamond;
+var
+  Registry: TModuleRegistry;
+  ModuleA, ModuleB, ModuleC, ModuleD: TModuleInfo;
+  BuildOrder: TList;
+begin
+  { Diamond: D depends on B,C; B,C depend on A }
+  Registry := TModuleRegistry.Create;
+  ModuleA := TModuleInfo.Create;
+  ModuleB := TModuleInfo.Create;
+  ModuleC := TModuleInfo.Create;
+  ModuleD := TModuleInfo.Create;
+  try
+    ModuleA.Name := 'A';
+    ModuleA.Path := '/path/to/a';
+
+    ModuleB.Name := 'B';
+    ModuleB.Path := '/path/to/b';
+    ModuleB.Dependencies.Add('A');
+
+    ModuleC.Name := 'C';
+    ModuleC.Path := '/path/to/c';
+    ModuleC.Dependencies.Add('A');
+
+    ModuleD.Name := 'D';
+    ModuleD.Path := '/path/to/d';
+    ModuleD.Dependencies.Add('B');
+    ModuleD.Dependencies.Add('C');
+
+    Registry.RegisterModule(ModuleA);
+    Registry.RegisterModule(ModuleB);
+    Registry.RegisterModule(ModuleC);
+    Registry.RegisterModule(ModuleD);
+
+    BuildOrder := Registry.GetBuildOrder;
+    try
+      AssertEquals('Build order should have 4 modules', 4, BuildOrder.Count);
+      { A should be first }
+      AssertEquals('First should be A', 'A', TModuleInfo(BuildOrder[0]).Name);
+      { D should be last }
+      AssertEquals('Last should be D', 'D', TModuleInfo(BuildOrder[3]).Name);
+      { B and C should be in middle (order may vary) }
+      AssertTrue('Middle should contain B and C',
+        ((TModuleInfo(BuildOrder[1]).Name = 'B') or (TModuleInfo(BuildOrder[1]).Name = 'C')) and
+        ((TModuleInfo(BuildOrder[2]).Name = 'B') or (TModuleInfo(BuildOrder[2]).Name = 'C')));
+    finally
+      BuildOrder.Free;
+    end;
+  finally
+    Registry.Free;
+  end;
+end;
+
+procedure TTestBuildOrder.TestBuildOrderMultipleRoots;
+var
+  Registry: TModuleRegistry;
+  ModuleA, ModuleB, ModuleC: TModuleInfo;
+  BuildOrder: TList;
+begin
+  { A,B both depend on C }
+  Registry := TModuleRegistry.Create;
+  ModuleA := TModuleInfo.Create;
+  ModuleB := TModuleInfo.Create;
+  ModuleC := TModuleInfo.Create;
+  try
+    ModuleA.Name := 'A';
+    ModuleA.Path := '/path/to/a';
+    ModuleA.Dependencies.Add('C');
+
+    ModuleB.Name := 'B';
+    ModuleB.Path := '/path/to/b';
+    ModuleB.Dependencies.Add('C');
+
+    ModuleC.Name := 'C';
+    ModuleC.Path := '/path/to/c';
+
+    Registry.RegisterModule(ModuleA);
+    Registry.RegisterModule(ModuleB);
+    Registry.RegisterModule(ModuleC);
+
+    BuildOrder := Registry.GetBuildOrder;
+    try
+      AssertEquals('Build order should have 3 modules', 3, BuildOrder.Count);
+      { C should be first }
+      AssertEquals('First should be C', 'C', TModuleInfo(BuildOrder[0]).Name);
+    finally
+      BuildOrder.Free;
+    end;
+  finally
+    Registry.Free;
+  end;
+end;
+
+procedure TTestBuildOrder.TestBuildOrderComplexGraph;
+var
+  Registry: TModuleRegistry;
+  Modules: array[1..5] of TModuleInfo;
+  I: Integer;
+  BuildOrder: TList;
+begin
+  { Complex graph: 1 -> 2,3; 2 -> 4; 3 -> 4; 4 -> 5 }
+  Registry := TModuleRegistry.Create;
+  for I := 1 to 5 do
+  begin
+    Modules[I] := TModuleInfo.Create;
+    Modules[I].Name := 'Mod' + IntToStr(I);
+    Modules[I].Path := '/path/to/mod' + IntToStr(I);
+  end;
+
+  try
+    Modules[2].Dependencies.Add('Mod1');
+    Modules[3].Dependencies.Add('Mod1');
+    Modules[4].Dependencies.Add('Mod2');
+    Modules[4].Dependencies.Add('Mod3');
+    Modules[5].Dependencies.Add('Mod4');
+
+    for I := 1 to 5 do
+      Registry.RegisterModule(Modules[I]);
+
+    BuildOrder := Registry.GetBuildOrder;
+    try
+      AssertEquals('Build order should have 5 modules', 5, BuildOrder.Count);
+      { Mod1 should be first, Mod5 should be last }
+      AssertEquals('First should be Mod1', 'Mod1', TModuleInfo(BuildOrder[0]).Name);
+      AssertEquals('Last should be Mod5', 'Mod5', TModuleInfo(BuildOrder[4]).Name);
+    finally
+      BuildOrder.Free;
+    end;
+  finally
+    Registry.Free;
+  end;
+end;
+
+procedure TTestBuildOrder.TestCycleDetectionSimple;
+var
+  Registry: TModuleRegistry;
+  ModuleA, ModuleB: TModuleInfo;
+  ExceptionRaised: Boolean;
+begin
+  { Simple cycle: A -> B -> A }
+  Registry := TModuleRegistry.Create;
+  ModuleA := TModuleInfo.Create;
+  ModuleB := TModuleInfo.Create;
+  ExceptionRaised := False;
+  try
+    ModuleA.Name := 'A';
+    ModuleA.Path := '/path/to/a';
+    ModuleA.Dependencies.Add('B');
+
+    ModuleB.Name := 'B';
+    ModuleB.Path := '/path/to/b';
+    ModuleB.Dependencies.Add('A');
+
+    Registry.RegisterModule(ModuleA);
+    Registry.RegisterModule(ModuleB);
+
+    try
+      Registry.GetBuildOrder;
+    except
+      on E: Exception do
+      begin
+        ExceptionRaised := True;
+        AssertTrue('Error should mention cyclic', Pos('cyclic', LowerCase(E.Message)) > 0);
+      end;
+    end;
+  finally
+    Registry.Free;
+  end;
+
+  AssertTrue('Cyclic dependency should raise exception', ExceptionRaised);
+end;
+
+procedure TTestBuildOrder.TestCycleDetectionComplex;
+var
+  Registry: TModuleRegistry;
+  ModuleA, ModuleB, ModuleC: TModuleInfo;
+  ExceptionRaised: Boolean;
+begin
+  { Complex cycle: A -> B -> C -> A }
+  Registry := TModuleRegistry.Create;
+  ModuleA := TModuleInfo.Create;
+  ModuleB := TModuleInfo.Create;
+  ModuleC := TModuleInfo.Create;
+  ExceptionRaised := False;
+  try
+    ModuleA.Name := 'A';
+    ModuleA.Path := '/path/to/a';
+    ModuleA.Dependencies.Add('B');
+
+    ModuleB.Name := 'B';
+    ModuleB.Path := '/path/to/b';
+    ModuleB.Dependencies.Add('C');
+
+    ModuleC.Name := 'C';
+    ModuleC.Path := '/path/to/c';
+    ModuleC.Dependencies.Add('A');
+
+    Registry.RegisterModule(ModuleA);
+    Registry.RegisterModule(ModuleB);
+    Registry.RegisterModule(ModuleC);
+
+    try
+      Registry.GetBuildOrder;
+    except
+      on E: Exception do
+      begin
+        ExceptionRaised := True;
+        AssertTrue('Error should mention cyclic', Pos('cyclic', LowerCase(E.Message)) > 0);
+      end;
+    end;
+  finally
+    Registry.Free;
+  end;
+
+  AssertTrue('Cyclic dependency should raise exception', ExceptionRaised);
+end;
+
+procedure TTestBuildOrder.TestCycleDetectionSelfReference;
+var
+  Registry: TModuleRegistry;
+  ModuleA: TModuleInfo;
+  ExceptionRaised: Boolean;
+begin
+  { Self reference: A -> A }
+  Registry := TModuleRegistry.Create;
+  ModuleA := TModuleInfo.Create;
+  ExceptionRaised := False;
+  try
+    ModuleA.Name := 'A';
+    ModuleA.Path := '/path/to/a';
+    ModuleA.Dependencies.Add('A');
+
+    Registry.RegisterModule(ModuleA);
+
+    try
+      Registry.GetBuildOrder;
+    except
+      on E: Exception do
+      begin
+        ExceptionRaised := True;
+        AssertTrue('Error should mention cyclic', Pos('cyclic', LowerCase(E.Message)) > 0);
+      end;
+    end;
+  finally
+    Registry.Free;
+  end;
+
+  AssertTrue('Self-reference should raise exception', ExceptionRaised);
+end;
+
 initialization
   RegisterTest(TTestModuleInfo);
   RegisterTest(TTestModuleRegistry);
   RegisterTest(TTestModuleDiscovery);
+  RegisterTest(TTestBuildOrder);
 
 end.
