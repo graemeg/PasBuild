@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project>
+  <name>myapp</name>
+  <version>1.0.0</version>
+  <author>Graeme Geldenhuys</author>
+  <license>BSD-3-Clause</license>
+
+  <build>
+    <projectType>application</projectType>
+    <mainSource>Main.pas</mainSource>
+    <executableName>myapp</executableName>
+    <outputDirectory>target</outputDirectory>
+  </build>
+
+  <test>
+    <framework>auto</framework>
+    <testSource>TestRunner.pas</testSource>
+    <frameworkOptions>
+      <option>--all --format=plain</option>
+    </frameworkOptions>
+  </test>
+</project>

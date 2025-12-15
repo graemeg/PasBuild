@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project>
+  <name>simple-math</name>
+  <version>1.0.0</version>
+  <author>PasBuild Team</author>
+  <license>MIT</license>
+
+  <build>
+    <!-- Aggregator (pom) coordinates the multi-module build -->
+    <packaging>pom</packaging>
+  </build>
+
+  <!-- List child modules in build order -->
+  <modules>
+    <module>math-core</module>
+    <module>math-utils</module>
+    <module>calculator</module>
+  </modules>
+</project>
