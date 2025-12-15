@@ -193,7 +193,11 @@ begin
             ModuleCommand := TTestCommand.Create(ModuleConfig, FProfileIds);
 
           'package':
-            ModuleCommand := TPackageCommand.Create(ModuleConfig, FProfileIds);
+          begin
+            { For aggregated packaging, only compile modules.
+              Package aggregation happens at aggregator level via TAggregatedPackageCommand. }
+            ModuleCommand := TCompileCommand.Create(ModuleConfig, FProfileIds);
+          end;
 
           else
           begin

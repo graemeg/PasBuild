@@ -28,6 +28,8 @@ uses
   PasBuild.Command.Test,
   PasBuild.Command.Package,
   PasBuild.Command.SourcePackage,
+  PasBuild.Command.AggregatedPackage,
+  PasBuild.Command.AggregatedSourcePackage,
   PasBuild.Command.Init,
   PasBuild.Command.Reactor,
   PasBuild.ModuleDiscovery,
@@ -148,7 +150,10 @@ begin
               Command := TReactorCommand.Create(Config, Args.ProfileIds, Registry, 'test');
 
             bgPackage:
-              Command := TReactorCommand.Create(Config, Args.ProfileIds, Registry, 'package');
+              Command := TAggregatedPackageCommand.Create(Config, Args.ProfileIds, Registry);
+
+            bgSourcePackage:
+              Command := TAggregatedSourcePackageCommand.Create(Config, Args.ProfileIds, Registry);
 
             else
               // For other goals, use single-module behavior
