@@ -191,7 +191,7 @@ type
 
     property Name: string read FName write FName;
     property Path: string read FPath write FPath;
-    property Config: TProjectConfig read FConfig;
+    property Config: TProjectConfig read FConfig write FConfig;
     property Dependencies: TStringList read FDependencies;
     property UnitsDirectory: string read FUnitsDirectory write FUnitsDirectory;
   end;
@@ -201,6 +201,7 @@ type
   private
     FModules: TObjectList;
     FModulesByName: TStringList;
+    procedure ResolveArtifactsRecursive(AModule: TModuleInfo; AOriginalModule: TModuleInfo; VisitedModules: TStringList);
   public
     constructor Create;
     destructor Destroy; override;
@@ -532,15 +533,35 @@ end;
 
 procedure TModuleRegistry.ResolveArtifacts(AModule: TModuleInfo);
 var
+  VisitedModules: TStringList;
+begin
+  { Use a set to track visited modules and avoid infinite loops in case of cycles }
+  VisitedModules := TStringList.Create;
+  try
+    ResolveArtifactsRecursive(AModule, AModule, VisitedModules);
+  finally
+    VisitedModules.Free;
+  end;
+end;
+
+procedure TModuleRegistry.ResolveArtifactsRecursive(AModule: TModuleInfo; AOriginalModule: TModuleInfo; VisitedModules: TStringList);
+var
   I: Integer;
   DepName: string;
   DepModule: TModuleInfo;
   UnitsPath: string;
 begin
-  { Iterate through module's dependencies and add their units directories }
+  { Iterate through module's dependencies and add their units directories (including transitive) }
   for I := 0 to AModule.Dependencies.Count - 1 do
   begin
     DepName := AModule.Dependencies[I];
+
+    { Skip if already visited (prevents infinite recursion) }
+    if VisitedModules.IndexOf(DepName) >= 0 then
+      Continue;
+
+    VisitedModules.Add(DepName);
+
     DepModule := FindModuleByName(DepName);
 
     if DepModule = nil then
@@ -553,14 +574,18 @@ begin
       if DepModule.Config.BuildConfig.ProjectType in [ptLibrary, ptApplication] then
       begin
         UnitsPath := DepModule.UnitsDirectory;
-        if AModule.Config <> nil then
-          AModule.Config.BuildConfig.ResolvedModulePaths.Add(UnitsPath);
+        { Add to the original module's resolved paths, not the current dependency's paths }
+        if AOriginalModule.Config <> nil then
+          AOriginalModule.Config.BuildConfig.ResolvedModulePaths.Add(UnitsPath);
       end
       else if DepModule.Config.BuildConfig.ProjectType = ptPom then
         raise Exception.CreateFmt(
           'Module "%s" cannot depend on aggregator "%s" (packaging=pom)',
           [AModule.Name, DepName]);
     end;
+
+    { Recursively resolve transitive dependencies }
+    ResolveArtifactsRecursive(DepModule, AOriginalModule, VisitedModules);
   end;
 end;
 

@@ -18,6 +18,10 @@ uses
   Classes, SysUtils,
   PasBuild.Types,
   PasBuild.Command,
+  PasBuild.Command.Clean,
+  PasBuild.Command.Compile,
+  PasBuild.Command.Test,
+  PasBuild.Command.Package,
   PasBuild.Utils;
 
 type
@@ -106,6 +110,11 @@ var
   I: Integer;
   Module: TModuleInfo;
   ModuleCount: Integer;
+  ModuleConfig: TProjectConfig;
+  ModuleCommand: TBuildCommand;
+  ModuleExecutor: TCommandExecutor;
+  CurrentDir: string;
+  OriginalDir: string;
 begin
   Result := 0;
   FModulesBuilt := 0;
@@ -128,6 +137,9 @@ begin
     if FVerbose then
       DisplayDependencyGraph;
 
+    { Save current directory for restoration }
+    OriginalDir := GetCurrentDir;
+
     { Build each module in order }
     for I := 0 to BuildOrder.Count - 1 do
     begin
@@ -140,16 +152,91 @@ begin
         Continue;
       end;
 
+      if Module.Config = nil then
+      begin
+        TUtils.LogError('Module config not loaded: ' + Module.Name);
+        Inc(FModulesFailed);
+        Result := 1;
+        Continue;
+      end;
+
       { Log module being built }
       TUtils.LogInfo('Building module ' + IntToStr(I + 1) + '/' + IntToStr(ModuleCount) + ': ' + Module.Name);
 
       { Resolve artifacts for this module (add dependency paths) }
-      if Module.Config <> nil then
-        FRegistry.ResolveArtifacts(Module);
+      FRegistry.ResolveArtifacts(Module);
 
-      { In a full implementation, would execute the goal here }
-      { For now, just count successful builds }
-      Inc(FModulesBuilt);
+      { Change to module directory }
+      CurrentDir := Module.Path;
+      try
+        ChDir(CurrentDir);
+      except
+        TUtils.LogError('Failed to change to module directory: ' + CurrentDir);
+        Inc(FModulesFailed);
+        Result := 1;
+        Continue;
+      end;
+
+      { Create appropriate command for this module based on goal }
+      ModuleConfig := Module.Config;
+      ModuleCommand := nil;
+      ModuleExecutor := TCommandExecutor.Create;
+      try
+        case FGoalName of
+          'clean':
+            ModuleCommand := TCleanCommand.Create(ModuleConfig, FProfileIds);
+
+          'compile':
+            ModuleCommand := TCompileCommand.Create(ModuleConfig, FProfileIds);
+
+          'test':
+            ModuleCommand := TTestCommand.Create(ModuleConfig, FProfileIds);
+
+          'package':
+            ModuleCommand := TPackageCommand.Create(ModuleConfig, FProfileIds);
+
+          else
+          begin
+            TUtils.LogError('Unsupported goal in reactor: ' + FGoalName);
+            Inc(FModulesFailed);
+            Result := 1;
+            Continue;
+          end;
+        end;
+
+        { Execute module's command }
+        if Assigned(ModuleCommand) then
+        begin
+          try
+            ModuleCommand.Verbose := FVerbose;
+            if ModuleExecutor.Execute(ModuleCommand) = 0 then
+            begin
+              Inc(FModulesBuilt);
+              TUtils.LogInfo('Module build successful: ' + Module.Name);
+            end
+            else
+            begin
+              Inc(FModulesFailed);
+              Result := 1;
+              TUtils.LogError('Module build failed: ' + Module.Name);
+              { Stop reactor build on first failure (fail-fast) }
+              Break;
+            end;
+          finally
+            ModuleCommand.Free;
+          end;
+        end;
+
+      finally
+        ModuleExecutor.Free;
+      end;
+    end;
+
+    { Restore original directory }
+    try
+      ChDir(OriginalDir);
+    except
+      { Ignore errors restoring directory }
     end;
 
     { Summary }

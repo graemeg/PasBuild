@@ -113,7 +113,7 @@ begin
         ModuleInfo := TModuleInfo.Create;
         ModuleInfo.Name := ModuleConfig.Name;
         ModuleInfo.Path := AbsoluteModulePath;
-        ModuleInfo.FConfig := ModuleConfig;  { Assign config (owned by ModuleInfo) }
+        ModuleInfo.Config := ModuleConfig;  { Assign config (owned by ModuleInfo) }
         ModuleInfo.UnitsDirectory := IncludeTrailingPathDelimiter(AbsoluteModulePath) + 'target' + PathDelim + 'units';
 
         { Register in registry }

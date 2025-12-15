@@ -29,6 +29,8 @@ uses
   PasBuild.Command.Package,
   PasBuild.Command.SourcePackage,
   PasBuild.Command.Init,
+  PasBuild.Command.Reactor,
+  PasBuild.ModuleDiscovery,
   PasBuild.Utils;
 
 var
@@ -36,6 +38,8 @@ var
   Config: TProjectConfig;
   Executor: TCommandExecutor;
   Command: TBuildCommand;
+  Registry: TModuleRegistry;
+  AggregatorDir: string;
 
 begin
   WriteLn('[INFO] PasBuild ', PASBUILD_VERSION);
@@ -113,43 +117,96 @@ begin
 
     // Create command executor
     Executor := TCommandExecutor.Create;
+    Registry := nil;
     try
       Command := nil;
 
-      // Create appropriate command based on goal
-      case Args.Goal of
-        bgClean:
-          Command := TCleanCommand.Create(Config, Args.ProfileIds);
+      // Check if this is a multi-module aggregator project (packaging=pom)
+      // If so, discover modules and create reactor command
+      if (Args.Goal <> bgInit) and (Config.BuildConfig.ProjectType = ptPom) then
+      begin
+        try
+          // Discover all modules in this aggregator project
+          // Resolve to absolute path in case relative path was provided
+          AggregatorDir := ExpandFileName(Args.ProjectFile);
+          if not FileExists(AggregatorDir) then
+          begin
+            // Maybe just the directory was passed, try appending project.xml
+            AggregatorDir := ExpandFileName(IncludeTrailingPathDelimiter(Args.ProjectFile) + 'project.xml');
+          end;
+          Registry := TModuleDiscoverer.DiscoverModules(AggregatorDir);
 
-        bgProcessResources:
-          Command := TProcessResourcesCommand.Create(Config, Config.ResourcesConfig, Config.BuildConfig.OutputDirectory);
+          // Create reactor command to build all modules
+          case Args.Goal of
+            bgClean:
+              Command := TReactorCommand.Create(Config, Args.ProfileIds, Registry, 'clean');
 
-        bgCompile:
-          Command := TCompileCommand.Create(Config, Args.ProfileIds);
+            bgCompile:
+              Command := TReactorCommand.Create(Config, Args.ProfileIds, Registry, 'compile');
 
-        bgProcessTestResources:
-          Command := TProcessTestResourcesCommand.Create(Config, Config.TestResourcesConfig, Config.BuildConfig.OutputDirectory);
+            bgTest:
+              Command := TReactorCommand.Create(Config, Args.ProfileIds, Registry, 'test');
 
-        bgTestCompile:
-          Command := TTestCompileCommand.Create(Config, Args.ProfileIds);
+            bgPackage:
+              Command := TReactorCommand.Create(Config, Args.ProfileIds, Registry, 'package');
 
-        bgTest:
-          Command := TTestCommand.Create(Config, Args.ProfileIds);
-
-        bgPackage:
-          Command := TPackageCommand.Create(Config, Args.ProfileIds);
-
-        bgSourcePackage:
-          Command := TSourcePackageCommand.Create(Config, Args.ProfileIds);
-
-        bgInit:
-          Command := TInitCommand.Create(Config, Args.ProfileIds);
-
-        else
+            else
+              // For other goals, use single-module behavior
+              Command := nil;
+          end;
+        except
+        on E: EProjectConfigError do
         begin
-          TUtils.LogError('Unknown goal');
+          TUtils.LogError('Multi-module project discovery failed: ' + E.Message);
           ExitCode := 1;
           Exit;
+        end;
+        on E: Exception do
+        begin
+          TUtils.LogError('Error discovering modules: ' + E.Message);
+          ExitCode := 1;
+          Exit;
+        end;
+        end;
+      end;
+
+      // If not multi-module or unsupported multi-module goal, use single-module commands
+      if Command = nil then
+      begin
+        case Args.Goal of
+          bgClean:
+            Command := TCleanCommand.Create(Config, Args.ProfileIds);
+
+          bgProcessResources:
+            Command := TProcessResourcesCommand.Create(Config, Config.ResourcesConfig, Config.BuildConfig.OutputDirectory);
+
+          bgCompile:
+            Command := TCompileCommand.Create(Config, Args.ProfileIds);
+
+          bgProcessTestResources:
+            Command := TProcessTestResourcesCommand.Create(Config, Config.TestResourcesConfig, Config.BuildConfig.OutputDirectory);
+
+          bgTestCompile:
+            Command := TTestCompileCommand.Create(Config, Args.ProfileIds);
+
+          bgTest:
+            Command := TTestCommand.Create(Config, Args.ProfileIds);
+
+          bgPackage:
+            Command := TPackageCommand.Create(Config, Args.ProfileIds);
+
+          bgSourcePackage:
+            Command := TSourcePackageCommand.Create(Config, Args.ProfileIds);
+
+          bgInit:
+            Command := TInitCommand.Create(Config, Args.ProfileIds);
+
+          else
+          begin
+            TUtils.LogError('Unknown goal');
+            ExitCode := 1;
+            Exit;
+          end;
         end;
       end;
 
@@ -165,6 +222,8 @@ begin
       end;
 
     finally
+      if Registry <> nil then
+        Registry.Free;
       Executor.Free;
     end;
 

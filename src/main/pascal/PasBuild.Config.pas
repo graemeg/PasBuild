@@ -425,9 +425,13 @@ begin
       ProfilesNode := RootNode.FindNode('profiles');
       ParseProfiles(ProfilesNode, Result);
 
-      // Parse <modules> section (optional)
-      // Can be used for aggregator child modules OR module dependencies
+      // Parse <modules> section (optional, aggregators only)
+      // Lists child modules for reactor builds
       ParseModules(RootNode.FindNode('modules'), Result.Modules);
+
+      // Parse <moduleDependencies> section (optional, libraries and applications only)
+      // Lists module dependencies for linking
+      ParseModules(RootNode.FindNode('moduleDependencies'), Result.ModuleDependencies);
 
       // Validate packaging rules (multi-module constraints)
       ValidatePackagingRules(Result);
@@ -502,27 +506,35 @@ begin
   case AConfig.BuildConfig.ProjectType of
     ptPom:
       begin
-        // Rule: Aggregator must have modules
+        // Rule: Aggregator must have child modules
         if AConfig.Modules.Count = 0 then
           raise EProjectConfigError.Create('POM aggregator requires <modules> list (at least one child module)');
 
         // Rule: Aggregator forbids MainSource
         if AConfig.BuildConfig.MainSource <> '' then
           raise EProjectConfigError.Create('POM aggregator cannot have <mainSource> (aggregators do not compile)');
+
+        // Rule: Aggregator forbids module dependencies (conceptually different from child modules)
+        if AConfig.ModuleDependencies.Count > 0 then
+          raise EProjectConfigError.Create('POM aggregator cannot have <moduleDependencies> (only child modules via <modules>)');
       end;
 
     ptLibrary:
       begin
-        // Rule: Library forbids aggregator modules
+        // Rule: Library forbids child modules (cannot be an aggregator)
         if AConfig.Modules.Count > 0 then
-          raise EProjectConfigError.Create('Library cannot be an aggregator (cannot have child <modules>)');
+          raise EProjectConfigError.Create('Library module cannot have child <modules> (use <moduleDependencies> for dependencies)');
+
+        // Module dependencies are allowed for libraries (optional)
       end;
 
     ptApplication:
       begin
-        // Rule: Application forbids aggregator modules
+        // Rule: Application forbids child modules (cannot be an aggregator)
         if AConfig.Modules.Count > 0 then
-          raise EProjectConfigError.Create('Application cannot be an aggregator (cannot have child <modules>)');
+          raise EProjectConfigError.Create('Application module cannot have child <modules> (use <moduleDependencies> for dependencies)');
+
+        // Module dependencies are allowed for applications (optional)
       end;
   end;
 end;
