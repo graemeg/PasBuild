@@ -1,0 +1,1982 @@
+= Multi-Module Build Support Design Specification
+:toc: left
+:toclevels: 4
+:sectnums:
+:source-highlighter: rouge
+:icons: font
+
+== Overview
+
+This specification defines multi-module (aggregator) project support for PasBuild, enabling management of related projects within a single build tree. This feature addresses scenarios where a framework library and dependent applications need coordinated builds without separate repositories or manual build orchestration.
+
+=== Motivation
+
+Current PasBuild architecture supports only single-project builds. Developers working with related projects face these limitations:
+
+* **Manual build ordering**: Framework must be built before dependent applications
+* **Brittle path references**: Applications must hardcode relative paths to framework artifacts
+* **No dependency validation**: No verification that referenced projects exist or are built
+* **Separate repositories**: Forces artificial project separation for buildable units
+* **Poor discoverability**: No standard way to document project relationships
+
+Multi-module support solves these problems while maintaining PasBuild's simplicity philosophy.
+
+=== Use Cases
+
+Primary scenarios for multi-module builds:
+
+1. **Framework + Examples**: GUI toolkit library with demonstration applications
+2. **Application + Plugins**: Core application with separately-built extension modules
+3. **Shared Library + Consumers**: Common utilities used by multiple executables
+4. **Test Fixtures**: Reusable test utilities shared across test suites
+5. **Documentation Generators**: Custom tools that process framework sources
+
+=== Design Principles
+
+* **Simplicity First**: Multi-module is opt-in, not mandatory
+* **No External Dependencies**: Module references only within project tree
+* **No Version Resolution**: All modules use parent version
+* **Path-Based Linking**: Use Free Pascal's `-Fu` mechanism, not artifact repositories
+* **Fail Fast**: Invalid module references fail at parse time, not compile time
+* **Maven Compatibility**: Follow Maven multi-module patterns where applicable
+
+
+== Current State Analysis
+
+=== Existing Architecture
+
+PasBuild's current architecture has these characteristics:
+
+**Single Project Model:**
+
+[source,pascal]
+----
+TProjectConfig = class
+  FName: string;
+  FVersion: string;
+  FBuildConfig: TBuildConfig;
+  // No concept of sub-projects or modules
+end;
+----
+
+**Build Command Pattern:**
+
+[source,pascal]
+----
+TBuildCommand = class
+  function GetDependencies: TBuildCommandList; virtual; abstract;
+  function Execute: Integer; virtual; abstract;
+end;
+
+TCommandExecutor = class
+  procedure ExecuteWithDependencies(Command: TBuildCommand);
+  // Topological sort for goal dependencies, not projects
+end;
+----
+
+**Path Management:**
+
+Unit paths are managed via `TConditionalPathList` with automatic scanning:
+
+[source,pascal]
+----
+TBuildConfig = class
+  FUnitPaths: TConditionalPathList;       // -Fu paths
+  FManualUnitPaths: Boolean;              // Auto-scan control
+end;
+----
+
+=== Strengths for Multi-Module Extension
+
+1. **Command Pattern**: Extensible for module-level orchestration
+2. **Dependency Resolution**: Already has topological sort for build goals
+3. **Path Abstraction**: `TConditionalPathList` can adapt to module contexts
+4. **Separation of Concerns**: Well-factored configuration classes
+5. **Unit Linking Precedent**: Test builds demonstrate `-Fu` linking to compiled units
+
+=== Architectural Gaps
+
+1. **No project reference model**: Need to declare module dependencies
+2. **No module discovery**: Need to scan for sub-projects
+3. **No artifact resolution**: Need to locate compiled units from other modules
+4. **No build order calculation**: Need to extend dependency resolver for modules
+5. **Hardcoded paths**: `src/main/pascal` assumed, needs relativization
+6. **Single output directory**: `target/` needs module-specific subdirectories
+7. **No packaging type**: All projects build executables
+
+
+== Requirements
+
+=== Functional Requirements
+
+**FR1: Aggregator Projects**
+
+Aggregator project declares child modules without producing artifacts itself.
+
+**FR2: Module Discovery**
+
+Build system discovers all modules by reading aggregator's module list.
+
+**FR3: Module References**
+
+Child modules declare dependencies on sibling modules.
+
+**FR4: Build Order Calculation**
+
+Build system calculates correct module build order from dependency graph.
+
+**FR5: Artifact Resolution**
+
+Build system locates compiled units from referenced modules and adds to `-Fu` paths.
+
+**FR6: Packaging Types**
+
+Projects declare packaging type: `pom` (aggregator), `library` (units only), or `application` (executable).
+
+**FR7: Reactor Build**
+
+Single command builds all modules in dependency order.
+
+**FR8: Selective Building**
+
+Ability to build specific module and its dependencies only.
+
+**FR9: Path Relativization**
+
+Module paths resolved relative to module's directory, not workspace root.
+
+**FR10: Error Validation**
+
+* Cyclic module dependencies detected and reported
+* Missing module references fail at parse time
+* Duplicate module names detected
+
+=== Non-Functional Requirements
+
+**NFR1: Backward Compatibility**
+
+Single-project builds continue working without modification.
+
+**NFR2: Configuration Simplicity**
+
+Module declarations use simple XML syntax without complex coordinates.
+
+**NFR3: No External Dependencies**
+
+Module resolution only within project tree, no external artifact fetching.
+
+**NFR4: Performance**
+
+Module discovery and dependency calculation complete in under 100ms for typical projects.
+
+**NFR5: Clear Error Messages**
+
+Module-related errors specify module name, file path, and resolution steps.
+
+=== Non-Requirements (Out of Scope)
+
+* **Version ranges**: All modules use parent version
+* **Transitive dependencies**: Only direct module references supported
+* **External artifacts**: No Maven repository integration
+* **Dynamic module discovery**: Modules must be explicitly listed
+* **Incremental builds**: Full rebuild of changed modules and dependents
+
+
+== Proposed Solution
+
+=== Packaging Types
+
+Projects declare packaging type in `<build><packaging>` element.
+
+**Terminology Note:** This design uses Maven's term "packaging" for consistency with Maven conventions. However, PasBuild currently uses `<projectType>` (with values `application` and `library`). Implementation should consider:
+
+* Supporting both `<packaging>` and `<projectType>` for backward compatibility
+* `<packaging>` as preferred term for new configurations
+* Value mapping: `application` ↔ `application`, `library` ↔ `library`, `pom` (new)
+
+For this design specification, we use `<packaging>` throughout.
+
+==== Packaging: pom
+
+**Purpose:** Aggregator project that builds child modules
+
+**Characteristics:**
+
+* No source code (`src/main/pascal/` not required)
+* No compiled output (no `target/` created)
+* `<modules>` element required
+* Cannot have module dependencies
+* Must be root of multi-module tree
+
+**Configuration:**
+
+[source,xml]
+----
+<build>
+  <packaging>pom</packaging>
+</build>
+
+<modules>
+  <module>common</module>
+  <module>gui-framework</module>
+  <module>examples/basic</module>
+</modules>
+----
+
+**Default:** If `<packaging>` not specified, defaults to `application`
+
+==== Packaging: library
+
+**Purpose:** Reusable code that produces compiled units but no executable
+
+**Characteristics:**
+
+* Source code in `src/main/pascal/` (standard location)
+* Compiled units output to `target/units/` (standard location)
+* No executable produced (bootstrap program auto-generated for compilation only)
+* `<mainSource>` is **optional** - not required for library projects
+* Can have module dependencies
+* Can be referenced by other modules
+
+**Use Cases:**
+
+* Framework libraries
+* Shared utilities
+* Plugin APIs
+
+**Configuration:**
+
+[source,xml]
+----
+<build>
+  <packaging>library</packaging>
+  <!-- No mainSource needed - bootstrap auto-generated -->
+</build>
+----
+
+**Bootstrap Program Generation:**
+
+PasBuild automatically generates `target/bootstrap_program.pas` for library projects. This bootstrap program:
+
+* Discovers all units in configured unit paths
+* Creates a minimal program with a uses clause containing all discovered units
+* Compiles all units without requiring manual maintenance
+* Respects conditional path filtering for platform-specific code
+
+**Manual mainSource Override:**
+
+If you need to customize the bootstrap behavior, you can optionally specify a mainSource:
+
+[source,xml]
+----
+<build>
+  <packaging>library</packaging>
+  <mainSource>CustomBootstrap.pas</mainSource>  <!-- Optional override -->
+</build>
+----
+
+This disables auto-generation and uses your custom program file instead.
+
+==== Packaging: application
+
+**Purpose:** Executable program
+
+**Characteristics:**
+
+* Source code in `src/main/pascal/` (standard location)
+* Compiled units output to `target/units/`
+* Executable output to `target/<name>`
+* Can have module dependencies
+* Cannot be referenced by other modules (no library exports)
+
+**Default:** This is the default if `<packaging>` not specified
+
+**Configuration:**
+
+[source,xml]
+----
+<build>
+  <packaging>application</packaging>
+  <mainSource>MyApp.pas</mainSource>
+</build>
+----
+
+=== XML Schema
+
+==== Aggregator Project (Parent POM)
+
+[source,xml]
+----
+<?xml version="1.0" encoding="UTF-8"?>
+<project>
+  <name>MyFramework</name>
+  <version>2.0.0</version>
+  <author>Framework Team</author>
+  <license>BSD-3-Clause</license>
+
+  <build>
+    <packaging>pom</packaging>
+  </build>
+
+  <!-- Child modules -->
+  <modules>
+    <module>framework-core</module>
+    <module>framework-gui</module>
+    <module>examples/basic-demo</module>
+    <module>examples/advanced-demo</module>
+  </modules>
+</project>
+----
+
+**Module Path Resolution:**
+
+* Paths are relative to aggregator's directory
+* Paths can include subdirectories (e.g., `examples/basic-demo`)
+* Each module directory must contain `project.xml`
+
+==== Library Module
+
+[source,xml]
+----
+<?xml version="1.0" encoding="UTF-8"?>
+<project>
+  <name>FrameworkCore</name>
+  <version>2.0.0</version>
+
+  <build>
+    <packaging>library</packaging>
+    <!-- mainSource not needed - bootstrap auto-generated -->
+  </build>
+
+  <!-- No module dependencies - this is a leaf -->
+</project>
+----
+
+**Note:** Library projects do not require `<mainSource>`. PasBuild automatically generates a bootstrap program that discovers and compiles all units in the configured unit paths.
+
+==== Application Module with Dependencies
+
+[source,xml]
+----
+<?xml version="1.0" encoding="UTF-8"?>
+<project>
+  <name>BasicDemo</name>
+  <version>2.0.0</version>
+
+  <build>
+    <packaging>application</packaging>
+    <mainSource>BasicDemo.lpr</mainSource>
+    <executableName>basicdemo</executableName>
+
+    <!-- Manual unit paths mode for module dependencies -->
+    <manualUnitPaths>true</manualUnitPaths>
+
+    <!-- Standard source scanning -->
+    <unitPaths>
+      <path>src/main/pascal</path>
+    </unitPaths>
+  </build>
+
+  <!-- Module dependencies -->
+  <modules>
+    <module>../../framework-core</module>
+    <module>../../framework-gui</module>
+  </modules>
+</project>
+----
+
+**Module Dependency Resolution:**
+
+* Paths are relative to current module's directory
+* Referenced module's `target/units/` added to `-Fu` paths
+* Build system ensures dependencies built first
+
+=== Data Structure Changes
+
+==== TProjectConfig Extensions
+
+[source,pascal]
+----
+type
+  TPackagingType = (ptApplication, ptLibrary, ptPom);
+
+  TProjectConfig = class
+  private
+    // Existing fields...
+    FName: string;
+    FVersion: string;
+    FBuildConfig: TBuildConfig;
+
+    // New fields for multi-module support
+    FPackaging: TPackagingType;              // NEW: packaging type
+    FModules: TStringList;                   // NEW: child modules (for pom)
+    FModuleDependencies: TStringList;        // NEW: module refs (for library/app)
+    FProjectDirectory: string;               // NEW: absolute path to project.xml dir
+    FParentDirectory: string;                // NEW: parent project directory (if child)
+    FIsChildModule: Boolean;                 // NEW: true if part of multi-module
+  public
+    constructor Create;
+    destructor Destroy; override;
+
+    property Packaging: TPackagingType read FPackaging write FPackaging;
+    property Modules: TStringList read FModules;
+    property ModuleDependencies: TStringList read FModuleDependencies;
+    property ProjectDirectory: string read FProjectDirectory;
+    property IsChildModule: Boolean read FIsChildModule write FIsChildModule;
+  end;
+----
+
+==== TBuildConfig Extensions
+
+[source,pascal]
+----
+type
+  TBuildConfig = class
+  private
+    // Existing fields...
+    FPackaging: TPackagingType;              // NEW: extracted from project
+
+    // New field for resolved module paths
+    FResolvedModulePaths: TStringList;       // NEW: -Fu paths from modules
+  public
+    property Packaging: TPackagingType read FPackaging write FPackaging;
+    property ResolvedModulePaths: TStringList read FResolvedModulePaths;
+  end;
+----
+
+==== New Classes
+
+[source,pascal]
+----
+type
+  { Module metadata for build ordering }
+  TModuleInfo = class
+  private
+    FName: string;                           // Module name from <name>
+    FPath: string;                           // Absolute path to module directory
+    FConfig: TProjectConfig;                 // Loaded configuration
+    FDependencies: TStringList;              // Resolved dependency module names
+    FUnitsDirectory: string;                 // target/units/ absolute path
+  public
+    constructor Create;
+    destructor Destroy; override;
+
+    property Name: string read FName write FName;
+    property Path: string read FPath write FPath;
+    property Config: TProjectConfig read FConfig;
+    property Dependencies: TStringList read FDependencies;
+    property UnitsDirectory: string read FUnitsDirectory write FUnitsDirectory;
+  end;
+
+  { Module registry for resolution }
+  TModuleRegistry = class
+  private
+    FModules: TObjectList;                   // List of TModuleInfo
+    FModulesByName: TFPHashList;             // Fast name -> TModuleInfo lookup
+  public
+    constructor Create;
+    destructor Destroy; override;
+
+    procedure RegisterModule(Info: TModuleInfo);
+    function FindModule(const Name: string): TModuleInfo;
+    function GetBuildOrder: TList;           // Topological sort
+
+    property Modules: TObjectList read FModules;
+  end;
+
+  { Multi-module build orchestrator }
+  TReactorCommand = class(TBuildCommand)
+  private
+    FRegistry: TModuleRegistry;
+    FGoalName: string;                       // Goal to execute (e.g., 'compile')
+  public
+    constructor Create(Registry: TModuleRegistry; const Goal: string);
+    function Execute: Integer; override;
+  end;
+----
+
+=== Module Discovery Algorithm
+
+==== Discovery Process
+
+[source]
+----
+Input: Path to aggregator project.xml
+Output: TModuleRegistry with all modules registered
+
+Algorithm:
+1. Load aggregator project.xml
+2. Validate packaging = pom
+3. For each <module> path in <modules>:
+   a. Resolve absolute path: aggregator_dir + module_path
+   b. Validate project.xml exists at path
+   c. Load module's project.xml
+   d. Create TModuleInfo with:
+      - name from <name>
+      - path = absolute module directory
+      - config = loaded TProjectConfig
+   e. Register in TModuleRegistry
+4. For each registered module:
+   a. Process module's <modules> section (dependencies)
+   b. For each dependency path:
+      - Resolve absolute path relative to module's directory
+      - Find module in registry by path
+      - Add module name to TModuleInfo.Dependencies
+5. Validate no cycles in dependency graph
+6. Return populated registry
+----
+
+==== Path Resolution
+
+[source,pascal]
+----
+function ResolveModulePath(const BaseDir, RelativePath: string): string;
+begin
+  // Normalize path separators
+  Result := StringReplace(RelativePath, '/', PathDelim, [rfReplaceAll]);
+
+  // Expand to absolute path
+  Result := ExpandFileName(IncludeTrailingPathDelimiter(BaseDir) + Result);
+
+  // Validate path is within project tree (security check)
+  if not IsSubPath(Result, ProjectRoot) then
+    raise Exception.Create('Module path outside project tree: ' + RelativePath);
+end;
+
+function FindModuleByPath(Registry: TModuleRegistry; const Path: string): TModuleInfo;
+var
+  I: Integer;
+begin
+  for I := 0 to Registry.Modules.Count - 1 do
+  begin
+    if SameFileName(TModuleInfo(Registry.Modules[I]).Path, Path) then
+      Exit(TModuleInfo(Registry.Modules[I]));
+  end;
+  Result := nil;
+end;
+----
+
+=== Build Order Calculation
+
+==== Topological Sort
+
+[source,pascal]
+----
+function TModuleRegistry.GetBuildOrder: TList;
+var
+  Visited: TStringList;
+  Stack: TList;
+
+  procedure Visit(Module: TModuleInfo);
+  var
+    I: Integer;
+    DepName: string;
+    DepModule: TModuleInfo;
+  begin
+    // Cycle detection
+    if Visited.IndexOf(Module.Name) <> -1 then
+    begin
+      if Stack.IndexOf(Module) <> -1 then
+        raise ECyclicDependency.Create('Cyclic dependency detected: ' + Module.Name);
+      Exit; // Already processed
+    end;
+
+    Visited.Add(Module.Name);
+    Stack.Add(Module);
+
+    // Visit dependencies first (depth-first)
+    for I := 0 to Module.Dependencies.Count - 1 do
+    begin
+      DepName := Module.Dependencies[I];
+      DepModule := FindModule(DepName);
+      if DepModule = nil then
+        raise EModuleNotFound.Create('Module not found: ' + DepName);
+      Visit(DepModule);
+    end;
+
+    Stack.Remove(Module);
+    Result.Add(Module); // Add after dependencies
+  end;
+
+var
+  I: Integer;
+begin
+  Result := TList.Create;
+  Visited := TStringList.Create;
+  Stack := TList.Create;
+  try
+    // Visit all modules
+    for I := 0 to FModules.Count - 1 do
+      Visit(TModuleInfo(FModules[I]));
+  finally
+    Stack.Free;
+    Visited.Free;
+  end;
+end;
+----
+
+==== Build Order Example
+
+Given this dependency graph:
+
+[source]
+----
+framework-core (no dependencies)
+framework-gui (depends on: framework-core)
+basic-demo (depends on: framework-core, framework-gui)
+advanced-demo (depends on: framework-gui)
+----
+
+Build order would be:
+
+[source]
+----
+1. framework-core
+2. framework-gui (after framework-core)
+3. basic-demo (after framework-core, framework-gui)
+4. advanced-demo (after framework-gui)
+----
+
+Or alternatively (both valid):
+
+[source]
+----
+1. framework-core
+2. framework-gui
+3. advanced-demo
+4. basic-demo
+----
+
+=== Artifact Resolution
+
+==== Resolution Strategy
+
+Each module with packaging `library` or `application` produces compiled units in `target/units/`.
+
+When a module declares dependencies, build system:
+
+1. Resolves dependency module name to `TModuleInfo`
+2. Constructs absolute path to dependency's `target/units/`
+3. Adds path to module's `-Fu` compiler arguments
+
+==== Implementation
+
+[source,pascal]
+----
+procedure ResolveModuleDependencies(Module: TModuleInfo; Registry: TModuleRegistry);
+var
+  I: Integer;
+  DepName: string;
+  DepModule: TModuleInfo;
+  UnitsPath: string;
+begin
+  for I := 0 to Module.Dependencies.Count - 1 do
+  begin
+    DepName := Module.Dependencies[I];
+    DepModule := Registry.FindModule(DepName);
+
+    if DepModule = nil then
+      raise EModuleNotFound.CreateFmt('Module "%s" referenced by "%s" not found',
+        [DepName, Module.Name]);
+
+    // Library and application modules produce units
+    if DepModule.Config.Packaging in [ptLibrary, ptApplication] then
+    begin
+      UnitsPath := IncludeTrailingPathDelimiter(DepModule.Path) + 'target/units';
+      Module.Config.BuildConfig.ResolvedModulePaths.Add(UnitsPath);
+    end
+    else if DepModule.Config.Packaging = ptPom then
+      raise EInvalidDependency.CreateFmt(
+        'Module "%s" cannot depend on aggregator "%s"', [Module.Name, DepName]);
+  end;
+end;
+----
+
+==== Compiler Invocation
+
+Resolved module paths added to `-Fu` arguments:
+
+[source,bash]
+----
+# Building basic-demo with dependencies on framework-core and framework-gui
+fpc -Mobjfpc -O1 \
+    src/main/pascal/BasicDemo.lpr \
+    -FEtarget \
+    -FUtarget/units \
+    -Fusrc/main/pascal \
+    -Fu../../framework-core/target/units \    # Resolved from module dependency
+    -Fu../../framework-gui/target/units \     # Resolved from module dependency
+    -obasicdemo
+----
+
+=== Output Directory Structure
+
+==== Single-Project Build (Current)
+
+[source]
+----
+MyProject/
+├── project.xml
+├── src/main/pascal/
+└── target/
+    ├── units/           # Compiled units
+    └── myproject        # Executable
+----
+
+==== Multi-Module Build
+
+[source]
+----
+MyFramework/
+├── project.xml                     # Aggregator (packaging=pom)
+├── framework-core/
+│   ├── project.xml                 # Library module
+│   ├── src/main/pascal/
+│   └── target/
+│       └── units/                  # framework-core compiled units
+├── framework-gui/
+│   ├── project.xml                 # Library module
+│   ├── src/main/pascal/
+│   └── target/
+│       └── units/                  # framework-gui compiled units
+└── examples/
+    ├── basic-demo/
+    │   ├── project.xml             # Application module
+    │   ├── src/main/pascal/
+    │   └── target/
+    │       ├── units/              # basic-demo compiled units
+    │       └── basicdemo           # Executable
+    └── advanced-demo/
+        ├── project.xml
+        ├── src/main/pascal/
+        └── target/
+            ├── units/
+            └── advanceddemo
+----
+
+**Key Points:**
+
+* Each module has isolated `target/` directory
+* No shared `target/` at aggregator level
+* Module paths to dependency artifacts are explicit
+* Clean separation prevents unit name collisions
+
+=== Command-Line Interface
+
+==== Reactor Build (All Modules)
+
+[source,bash]
+----
+cd MyFramework/    # Aggregator directory
+pasbuild compile   # Builds all modules in dependency order
+----
+
+**Behavior:**
+
+1. Detect aggregator project (packaging=pom)
+2. Discover all modules
+3. Calculate build order
+4. For each module in order:
+   - Change to module directory
+   - Execute `compile` goal
+   - Propagate failure if any module fails
+
+==== Single Module Build
+
+[source,bash]
+----
+cd MyFramework/examples/basic-demo/   # Specific module
+pasbuild compile                       # Builds only this module + dependencies
+----
+
+**Behavior:**
+
+1. Detect child module (search for parent aggregator)
+2. Load aggregator and discover all modules
+3. Build only:
+   - Current module
+   - Transitive dependencies of current module
+4. Skip unrelated modules
+
+==== Alternate: Module Selection
+
+[source,bash]
+----
+cd MyFramework/                        # Aggregator directory
+pasbuild compile -m basic-demo         # Build specific module
+----
+
+**Behavior:**
+
+* `-m <module-name>` flag selects single module
+* Builds selected module and its dependencies
+* Module name matches `<name>` from project.xml, not directory
+
+==== Other Goals
+
+All existing goals work in multi-module context:
+
+[source,bash]
+----
+pasbuild clean          # Clean all modules
+pasbuild test           # Test all modules
+pasbuild package        # Package all modules
+----
+
+=== Error Handling
+
+==== Cyclic Dependencies
+
+[source]
+----
+ERROR: Cyclic dependency detected in module graph:
+  framework-gui -> framework-core -> framework-gui
+
+Module dependency chain:
+  1. framework-gui (/path/to/framework-gui/project.xml)
+  2. framework-core (/path/to/framework-core/project.xml)
+  3. framework-gui (cycle detected)
+
+Resolution: Remove circular dependency between modules.
+----
+
+==== Missing Module
+
+[source]
+----
+ERROR: Module not found: framework-utils
+  Referenced by: basic-demo (/path/to/examples/basic-demo/project.xml)
+
+Searched locations:
+  - /path/to/MyFramework/framework-utils/project.xml (not found)
+  - Registered modules: framework-core, framework-gui, basic-demo
+
+Resolution: Ensure module exists and is listed in aggregator's <modules>.
+----
+
+==== Invalid Packaging Reference
+
+[source]
+----
+ERROR: Invalid module dependency
+  Module: basic-demo (packaging=application)
+  Referenced: MyFramework (packaging=pom)
+
+Aggregator projects (packaging=pom) cannot be referenced as dependencies.
+Only library and application modules produce artifacts that can be linked.
+
+Resolution: Remove reference to aggregator project.
+----
+
+==== Module Build Failure
+
+[source]
+----
+ERROR: Module build failed: framework-core
+  Goal: compile
+  Exit code: 1
+
+Module build log: /path/to/framework-core/target/pasbuild-status/compile/fpc.log
+
+Stopping reactor build. Subsequent modules not built:
+  - framework-gui (depends on framework-core)
+  - basic-demo (depends on framework-core, framework-gui)
+  - advanced-demo (depends on framework-gui)
+
+Resolution: Fix compilation errors in framework-core, then retry build.
+----
+
+
+== Migration Strategy
+
+=== Phase 1: Single-Project Workaround (Immediate)
+
+For projects needing multi-module capability today, use manual `-Fu` references.
+
+**Example: GUI Toolkit + Demo**
+
+[source]
+----
+gui-toolkit/
+├── framework/
+│   ├── project.xml
+│   └── src/main/pascal/
+└── examples/
+    └── demo/
+        ├── project.xml
+        └── src/main/pascal/
+----
+
+**framework/project.xml:**
+
+[source,xml]
+----
+<project>
+  <name>GUIToolkit</name>
+  <version>1.0.0</version>
+  <build>
+    <mainSource>Toolkit.pas</mainSource>
+  </build>
+</project>
+----
+
+**examples/demo/project.xml:**
+
+[source,xml]
+----
+<project>
+  <name>ToolkitDemo</name>
+  <version>1.0.0</version>
+  <build>
+    <mainSource>Demo.lpr</mainSource>
+    <manualUnitPaths>true</manualUnitPaths>
+    <unitPaths>
+      <path>src/main/pascal</path>
+      <path>../../framework/target/units</path>  <!-- Manual reference -->
+    </unitPaths>
+  </build>
+</project>
+----
+
+**Build Process:**
+
+[source,bash]
+----
+# Manual build ordering required
+cd framework
+pasbuild compile
+
+cd ../examples/demo
+pasbuild compile
+----
+
+**Limitations:**
+
+* No automatic build ordering
+* No validation of framework built
+* Brittle relative paths
+* No reactor build
+
+=== Phase 2: Multi-Module Implementation
+
+After multi-module feature implemented, migrate to proper structure.
+
+**Migrated Structure:**
+
+[source]
+----
+gui-toolkit/
+├── project.xml                    # NEW: Aggregator
+├── framework/
+│   ├── project.xml                # MODIFIED: Add packaging=library
+│   └── src/main/pascal/
+└── examples/
+    └── demo/
+        ├── project.xml            # MODIFIED: Replace paths with module refs
+        └── src/main/pascal/
+----
+
+**gui-toolkit/project.xml (NEW):**
+
+[source,xml]
+----
+<project>
+  <name>GUIToolkit</name>
+  <version>1.0.0</version>
+  <build>
+    <packaging>pom</packaging>
+  </build>
+  <modules>
+    <module>framework</module>
+    <module>examples/demo</module>
+  </modules>
+</project>
+----
+
+**framework/project.xml (MODIFIED):**
+
+[source,xml]
+----
+<project>
+  <name>GUIToolkit</name>
+  <version>1.0.0</version>
+  <build>
+    <packaging>library</packaging>   <!-- ADDED -->
+    <mainSource>Toolkit.pas</mainSource>
+  </build>
+</project>
+----
+
+**examples/demo/project.xml (MODIFIED):**
+
+[source,xml]
+----
+<project>
+  <name>ToolkitDemo</name>
+  <version>1.0.0</version>
+  <build>
+    <mainSource>Demo.lpr</mainSource>
+    <manualUnitPaths>true</manualUnitPaths>
+    <unitPaths>
+      <path>src/main/pascal</path>
+      <!-- REMOVED: ../../framework/target/units -->
+    </unitPaths>
+  </build>
+
+  <!-- ADDED: Module dependencies -->
+  <modules>
+    <module>../../framework</module>
+  </modules>
+</project>
+----
+
+**Build Process:**
+
+[source,bash]
+----
+# Single command from aggregator root
+cd gui-toolkit
+pasbuild compile    # Builds framework, then demo
+----
+
+=== Compatibility Guarantees
+
+* **Existing single-project builds unchanged**: No migration required
+* **New `<packaging>` element optional**: Defaults to `application`
+* **Phase 1 workaround continues working**: Manual `-Fu` paths still supported
+
+
+== Implementation Plan
+
+=== Implementation Phases
+
+==== Phase 1: Core Infrastructure
+
+**Estimated Effort:** 2-3 days
+
+**Tasks:**
+
+1. **Add packaging type support** (PasBuild.Types.pas)
+   - Add `TPackagingType` enumeration
+   - Extend `TProjectConfig` with packaging field
+   - Default to `ptApplication` for backward compatibility
+
+2. **Parse `<packaging>` element** (PasBuild.Config.pas)
+   - Add XML parsing for `<build><packaging>`
+   - Validate enum values: pom, library, application
+   - Handle missing element (default to application)
+
+3. **Parse `<modules>` element** (PasBuild.Config.pas)
+   - Add XML parsing for `<modules><module>` list
+   - Store in `TProjectConfig.Modules` string list
+   - Support both aggregator modules and dependency modules
+
+4. **Validate packaging rules** (PasBuild.Config.pas)
+   - Aggregator (pom) requires `<modules>`, forbids `<mainSource>`
+   - Library: `<mainSource>` optional (bootstrap auto-generated if omitted)
+   - Application requires `<mainSource>`
+   - Library/application forbids aggregator `<modules>` (use module dependencies instead)
+   - Aggregator cannot have module dependencies
+
+**Test Cases:**
+
+[source,pascal]
+----
+procedure TestParsePackagingPom;
+// Verify packaging=pom parsed correctly
+
+procedure TestParsePackagingLibrary;
+// Verify packaging=library parsed correctly
+
+procedure TestParsePackagingDefault;
+// Verify missing <packaging> defaults to application
+
+procedure TestParseModulesList;
+// Verify <modules> parsed into string list
+
+procedure TestValidatePomRequiresModules;
+// Verify aggregator must have <modules>
+
+procedure TestValidatePomForbidsMainSource;
+// Verify aggregator cannot have <mainSource>
+----
+
+==== Phase 2: Module Discovery
+
+**Estimated Effort:** 3-4 days
+
+**Tasks:**
+
+1. **Implement TModuleInfo class** (PasBuild.Types.pas)
+   - Module metadata: name, path, config, dependencies, units directory
+   - Loading from project.xml file
+
+2. **Implement TModuleRegistry class** (PasBuild.Types.pas)
+   - Module registration and lookup by name
+   - Module lookup by path
+   - Duplicate name detection
+
+3. **Implement module discovery algorithm** (PasBuild.ModuleDiscovery.pas - NEW FILE)
+   - Load aggregator project.xml
+   - Iterate `<modules>` and resolve paths
+   - Load each module's project.xml
+   - Register in TModuleRegistry
+   - Resolve module dependencies (second pass)
+
+4. **Path resolution utilities** (PasBuild.Utils.pas)
+   - Resolve relative module paths to absolute
+   - Validate paths within project tree (security)
+   - Cross-platform path normalization
+
+**Test Cases:**
+
+[source,pascal]
+----
+procedure TestModuleDiscoverySimple;
+// Aggregator with 2 modules, no dependencies
+
+procedure TestModuleDiscoveryWithDependencies;
+// Module A depends on Module B
+
+procedure TestModuleDiscoveryNestedPaths;
+// Modules in subdirectories (examples/demo1)
+
+procedure TestModuleDiscoveryInvalidPath;
+// Module path outside project tree - should fail
+
+procedure TestModuleDiscoveryMissingProjectXml;
+// Module directory exists but no project.xml - should fail
+
+procedure TestModuleDiscoveryDuplicateNames;
+// Two modules with same <name> - should fail
+----
+
+==== Phase 3: Build Order Calculation
+
+**Estimated Effort:** 2-3 days
+
+**Tasks:**
+
+1. **Implement topological sort** (PasBuild.ModuleRegistry.pas)
+   - Depth-first traversal of dependency graph
+   - Cycle detection with error reporting
+   - Multiple valid orderings supported
+
+2. **Implement cycle detection** (PasBuild.ModuleRegistry.pas)
+   - Track visited nodes and path stack
+   - Report full cycle path on detection
+
+3. **Error reporting** (PasBuild.ModuleRegistry.pas)
+   - Detailed error messages with module names and paths
+   - Visualization of dependency chain
+
+**Test Cases:**
+
+[source,pascal]
+----
+procedure TestBuildOrderLinear;
+// A -> B -> C should build C, B, A
+
+procedure TestBuildOrderDiamond;
+// A -> B,C -> D should build D, then B,C (order flexible), then A
+
+procedure TestBuildOrderCycleDetection;
+// A -> B -> A should raise ECyclicDependency
+
+procedure TestBuildOrderMultipleRoots;
+// A -> C, B -> C should build C, then A,B (order flexible)
+
+procedure TestBuildOrderComplexGraph;
+// 10 modules with various dependencies
+----
+
+==== Phase 4: Artifact Resolution
+
+**Estimated Effort:** 2 days
+
+**Tasks:**
+
+1. **Implement artifact resolution** (PasBuild.ModuleRegistry.pas)
+   - For each module, resolve dependency names to TModuleInfo
+   - Validate dependencies exist in registry
+   - Build list of `-Fu` paths from dependency modules
+
+2. **Extend TBuildConfig** (PasBuild.Types.pas)
+   - Add `ResolvedModulePaths` field
+   - Merge with existing unit paths during compilation
+
+3. **Modify compile command** (PasBuild.Command.Compile.pas)
+   - Include resolved module paths in `-Fu` arguments
+   - Preserve order: standard paths, then module paths
+
+**Test Cases:**
+
+[source,pascal]
+----
+procedure TestArtifactResolutionSingleDependency;
+// Module A depends on Module B
+// Verify -Fu{B}/target/units added to A's compile
+
+procedure TestArtifactResolutionMultipleDependencies;
+// Module A depends on B and C
+// Verify both -Fu paths added
+
+procedure TestArtifactResolutionTransitive;
+// A -> B -> C
+// When building A, verify only B's units in -Fu (not C's)
+
+procedure TestArtifactResolutionPomReference;
+// A depends on aggregator - should fail
+----
+
+==== Phase 5: Reactor Build
+
+**Estimated Effort:** 3 days
+
+**Tasks:**
+
+1. **Implement TReactorCommand class** (PasBuild.Command.Reactor.pas - NEW FILE)
+   - Execute goal on all modules in build order
+   - Fail fast on first module failure
+   - Parallel build support (optional, future enhancement)
+
+2. **Modify main entry point** (PasBuild.pas)
+   - Detect aggregator projects
+   - Create module registry
+   - Dispatch to TReactorCommand instead of direct goal execution
+
+3. **Module build logging** (PasBuild.Command.Reactor.pas)
+   - Display module name before build
+   - Aggregate build times per module
+   - Summary at end: X/Y modules succeeded
+
+**Test Cases:**
+
+[source,pascal]
+----
+procedure TestReactorBuildAllModules;
+// Build all modules in correct order
+
+procedure TestReactorBuildStopsOnFailure;
+// Module B fails, verify A built, C/D not built
+
+procedure TestReactorBuildSingleModule;
+// Build only selected module + dependencies
+
+procedure TestReactorBuildSkipsAggregator;
+// Aggregator has no source, should not compile
+----
+
+==== Phase 6: CLI Enhancements
+
+**Estimated Effort:** 2 days
+
+**Tasks:**
+
+1. **Module selection flag** (PasBuild.CLI.pas)
+   - Parse `-m <module-name>` flag
+   - Filter module list to selected module + dependencies
+
+2. **Verbose module logging** (PasBuild.Command.Reactor.pas)
+   - Display module dependency graph when `-v` flag used
+   - Show build order before execution
+
+3. **Help text updates** (PasBuild.CLI.pas)
+   - Document multi-module commands
+   - Add examples for aggregator builds
+
+**Test Cases:**
+
+[source,pascal]
+----
+procedure TestCLIModuleSelection;
+// Verify -m flag filters modules
+
+procedure TestCLIVerboseModuleGraph;
+// Verify -v shows dependency graph
+
+procedure TestCLIHelpText;
+// Verify help includes multi-module docs
+----
+
+==== Phase 7: Documentation
+
+**Estimated Effort:** 2 days
+
+**Tasks:**
+
+1. **Update design.adoc** (docs/design.adoc)
+   - Add multi-module section
+   - Document packaging types
+   - Module dependency syntax
+
+2. **Create tutorial** (docs/multi-module-tutorial.adoc - NEW FILE)
+   - Step-by-step guide for creating multi-module project
+   - Migration guide from single-project
+   - Common patterns (framework + examples)
+
+3. **Update README** (README.adoc)
+   - Add multi-module to feature list
+   - Link to multi-module tutorial
+
+=== Testing Strategy
+
+==== Unit Tests
+
+Test individual components in isolation:
+
+* Configuration parsing (packaging, modules)
+* Module discovery algorithm
+* Topological sort
+* Path resolution
+
+==== Integration Tests
+
+Test complete workflows:
+
+* Build simple multi-module project (2 modules)
+* Build complex project (5+ modules, nested dependencies)
+* Error cases (cycles, missing modules, invalid packaging)
+
+==== Dogfooding
+
+Use multi-module in real projects:
+
+* **PasBuild itself**: Could split into pasbuild-core (library) + pasbuild-cli (application)
+* **Example framework**: Create sample GUI toolkit with demos as regression test
+
+==== Performance Tests
+
+Measure overhead of multi-module:
+
+* Module discovery time (should be < 50ms for 20 modules)
+* Build order calculation (should be < 10ms for 20 modules)
+* Overall build time regression (should be < 5% vs sequential builds)
+
+=== Backward Compatibility Testing
+
+Verify existing projects unaffected:
+
+[source,bash]
+----
+# Run entire PasBuild test suite
+cd pasbuild
+pasbuild test
+
+# Build PasBuild itself
+pasbuild clean compile
+
+# Test single-project with manual unit paths (Phase 1 workaround)
+# Should continue working after multi-module implementation
+----
+
+
+== Examples
+
+=== Example 1: Simple Framework + Demo
+
+==== Project Structure
+
+[source]
+----
+math-lib/
+├── project.xml                    # Aggregator
+├── core/
+│   ├── project.xml
+│   └── src/main/pascal/
+│       ├── MathCore.pas
+│       └── Statistics.pas
+└── demo/
+    ├── project.xml
+    └── src/main/pascal/
+        └── MathDemo.lpr
+----
+
+==== math-lib/project.xml
+
+[source,xml]
+----
+<?xml version="1.0" encoding="UTF-8"?>
+<project>
+  <name>MathLib</name>
+  <version>1.0.0</version>
+  <author>Math Team</author>
+  <license>MIT</license>
+
+  <build>
+    <packaging>pom</packaging>
+  </build>
+
+  <modules>
+    <module>core</module>
+    <module>demo</module>
+  </modules>
+</project>
+----
+
+==== core/project.xml
+
+[source,xml]
+----
+<?xml version="1.0" encoding="UTF-8"?>
+<project>
+  <name>MathCore</name>
+  <version>1.0.0</version>
+
+  <build>
+    <packaging>library</packaging>
+    <!-- mainSource not needed - bootstrap auto-generated -->
+  </build>
+</project>
+----
+
+==== demo/project.xml
+
+[source,xml]
+----
+<?xml version="1.0" encoding="UTF-8"?>
+<project>
+  <name>MathDemo</name>
+  <version>1.0.0</version>
+
+  <build>
+    <packaging>application</packaging>
+    <mainSource>MathDemo.lpr</mainSource>
+    <executableName>mathdemo</executableName>
+
+    <manualUnitPaths>true</manualUnitPaths>
+    <unitPaths>
+      <path>src/main/pascal</path>
+    </unitPaths>
+  </build>
+
+  <modules>
+    <module>../core</module>
+  </modules>
+</project>
+----
+
+==== Build Commands
+
+[source,bash]
+----
+# Build everything from aggregator root
+cd math-lib
+pasbuild compile
+# Output:
+# [INFO] Building module: MathCore (1/2)
+# [INFO]   Compiling MathCore...
+# [INFO]   Build succeeded: MathCore (1.2s)
+# [INFO] Building module: MathDemo (2/2)
+# [INFO]   Compiling MathDemo...
+# [INFO]   Build succeeded: MathDemo (0.8s)
+# [INFO] Reactor build succeeded (2/2 modules, 2.0s total)
+
+# Build only demo (includes dependency)
+cd demo
+pasbuild compile
+# Output:
+# [INFO] Detected child module, loading parent aggregator...
+# [INFO] Building module: MathCore (1/2)
+# [INFO]   Build succeeded: MathCore (1.2s)
+# [INFO] Building module: MathDemo (2/2)
+# [INFO]   Build succeeded: MathDemo (0.8s)
+----
+
+=== Example 2: Layered Framework
+
+==== Project Structure
+
+[source]
+----
+gui-framework/
+├── project.xml                    # Aggregator
+├── foundation/
+│   ├── project.xml
+│   └── src/main/pascal/
+│       ├── Types.pas
+│       └── Collections.pas
+├── graphics/
+│   ├── project.xml
+│   └── src/main/pascal/
+│       ├── Canvas.pas
+│       └── Colors.pas
+├── widgets/
+│   ├── project.xml
+│   └── src/main/pascal/
+│       ├── Button.pas
+│       └── Label.pas
+└── examples/
+    ├── simple/
+    │   ├── project.xml
+    │   └── src/main/pascal/
+    │       └── SimpleApp.lpr
+    └── complex/
+        ├── project.xml
+        └── src/main/pascal/
+            └── ComplexApp.lpr
+----
+
+==== Dependency Graph
+
+[source]
+----
+foundation (no dependencies)
+    ↑
+    |
+graphics (depends on: foundation)
+    ↑
+    |
+widgets (depends on: foundation, graphics)
+    ↑
+    |
+    +-------------------+
+    |                   |
+simple (depends on: widgets)    complex (depends on: widgets)
+----
+
+==== gui-framework/project.xml
+
+[source,xml]
+----
+<?xml version="1.0" encoding="UTF-8"?>
+<project>
+  <name>GUIFramework</name>
+  <version>2.0.0</version>
+
+  <build>
+    <packaging>pom</packaging>
+  </build>
+
+  <modules>
+    <module>foundation</module>
+    <module>graphics</module>
+    <module>widgets</module>
+    <module>examples/simple</module>
+    <module>examples/complex</module>
+  </modules>
+</project>
+----
+
+==== foundation/project.xml
+
+[source,xml]
+----
+<?xml version="1.0" encoding="UTF-8"?>
+<project>
+  <name>GUIFoundation</name>
+  <version>2.0.0</version>
+
+  <build>
+    <packaging>library</packaging>
+    <!-- mainSource not needed - bootstrap auto-generated -->
+  </build>
+</project>
+----
+
+==== graphics/project.xml
+
+[source,xml]
+----
+<?xml version="1.0" encoding="UTF-8"?>
+<project>
+  <name>GUIGraphics</name>
+  <version>2.0.0</version>
+
+  <build>
+    <packaging>library</packaging>
+    <!-- mainSource not needed - bootstrap auto-generated -->
+
+    <manualUnitPaths>true</manualUnitPaths>
+    <unitPaths>
+      <path>src/main/pascal</path>
+    </unitPaths>
+  </build>
+
+  <modules>
+    <module>../foundation</module>
+  </modules>
+</project>
+----
+
+==== widgets/project.xml
+
+[source,xml]
+----
+<?xml version="1.0" encoding="UTF-8"?>
+<project>
+  <name>GUIWidgets</name>
+  <version>2.0.0</version>
+
+  <build>
+    <packaging>library</packaging>
+    <!-- mainSource not needed - bootstrap auto-generated -->
+
+    <manualUnitPaths>true</manualUnitPaths>
+    <unitPaths>
+      <path>src/main/pascal</path>
+    </unitPaths>
+  </build>
+
+  <modules>
+    <module>../foundation</module>
+    <module>../graphics</module>
+  </modules>
+</project>
+----
+
+==== examples/simple/project.xml
+
+[source,xml]
+----
+<?xml version="1.0" encoding="UTF-8"?>
+<project>
+  <name>SimpleGUIApp</name>
+  <version>2.0.0</version>
+
+  <build>
+    <packaging>application</packaging>
+    <mainSource>SimpleApp.lpr</mainSource>
+
+    <manualUnitPaths>true</manualUnitPaths>
+    <unitPaths>
+      <path>src/main/pascal</path>
+    </unitPaths>
+  </build>
+
+  <modules>
+    <module>../../widgets</module>
+  </modules>
+</project>
+----
+
+==== Build Order
+
+Based on dependency graph, valid build orders include:
+
+[source]
+----
+Order 1:
+1. foundation
+2. graphics
+3. widgets
+4. simple
+5. complex
+
+Order 2 (also valid):
+1. foundation
+2. graphics
+3. widgets
+4. complex
+5. simple
+----
+
+Both are correct because `simple` and `complex` have no dependencies on each other.
+
+=== Example 3: Conditional Platform-Specific Modules
+
+==== Project Structure
+
+[source]
+----
+cross-platform-app/
+├── project.xml                    # Aggregator
+├── common/
+│   └── project.xml
+├── platform-unix/
+│   └── project.xml
+├── platform-windows/
+│   └── project.xml
+└── app/
+    └── project.xml
+----
+
+==== app/project.xml
+
+[source,xml]
+----
+<?xml version="1.0" encoding="UTF-8"?>
+<project>
+  <name>CrossPlatformApp</name>
+  <version>1.0.0</version>
+
+  <build>
+    <packaging>application</packaging>
+    <mainSource>App.lpr</mainSource>
+
+    <manualUnitPaths>true</manualUnitPaths>
+    <unitPaths>
+      <path>src/main/pascal</path>
+    </unitPaths>
+  </build>
+
+  <modules>
+    <module condition="UNIX">../platform-unix</module>
+    <module condition="WINDOWS">../platform-windows</module>
+    <module>../common</module>
+  </modules>
+</project>
+----
+
+**Note:** Conditional module references use same condition system as conditional unit paths. Module only resolved if condition matches current platform.
+
+
+== Open Questions and Future Enhancements
+
+=== Open Questions
+
+==== Question 1: Module Version Consistency
+
+**Question:** Should child modules be required to have same version as parent aggregator?
+
+**Options:**
+
+A. **Strict Enforcement** - Child `<version>` must match parent
+   - Pros: Prevents version drift, simpler release management
+   - Cons: Requires updating all module versions together
+
+B. **Loose Enforcement** - Child `<version>` can differ
+   - Pros: Independent module versioning
+   - Cons: Confusing for users, complicates dependency management
+
+**Recommendation:** Start with Option A (strict) for MVP. Can relax later if needed.
+
+==== Question 2: Module Name vs Directory Name
+
+**Question:** Should module name (from `<name>`) be required to match directory name?
+
+**Options:**
+
+A. **No Enforcement** - Name and directory independent
+   - Pros: Flexibility, follows Maven model
+   - Cons: Discovery by name requires registry lookup
+
+B. **Strict Matching** - Directory name must match `<name>`
+   - Pros: Easier discovery, clearer structure
+   - Cons: Renaming requires directory rename
+
+**Recommendation:** Option A (no enforcement) for consistency with Maven.
+
+==== Question 3: Nested Aggregators
+
+**Question:** Should aggregators be allowed to contain other aggregators?
+
+**Example:**
+
+[source]
+----
+root/
+├── project.xml (pom)
+├── core/
+│   └── project.xml (library)
+└── examples/
+    ├── project.xml (pom)        # Nested aggregator
+    ├── demo1/project.xml (application)
+    └── demo2/project.xml (application)
+----
+
+**Options:**
+
+A. **Allow Nested Aggregators**
+   - Pros: Better organization for large projects
+   - Cons: Complexity in module discovery
+
+B. **Forbid Nested Aggregators**
+   - Pros: Simpler implementation, flatter structure
+   - Cons: All modules must be direct children
+
+**Recommendation:** Option B (forbid) for MVP. Add nested support in future if demand exists.
+
+==== Question 4: Conditional Modules
+
+**Question:** Should aggregator's `<modules>` list support conditional inclusion?
+
+**Example:**
+
+[source,xml]
+----
+<modules>
+  <module>core</module>
+  <module condition="UNIX">platform-unix</module>
+  <module condition="WINDOWS">platform-windows</module>
+</modules>
+----
+
+**Options:**
+
+A. **Support Conditional Modules**
+   - Pros: Platform-specific module sets, CI can build subset
+   - Cons: Complexity in module discovery
+
+B. **No Conditional Modules**
+   - Pros: Simpler, all modules always present
+   - Cons: Must build platform-specific modules on all platforms (may fail)
+
+**Recommendation:** Option B (no conditionals) for MVP. Use conditional dependencies in child modules instead.
+
+=== Future Enhancements
+
+==== Enhancement 1: Parallel Module Builds
+
+**Description:** Build independent modules in parallel to reduce total build time.
+
+**Example:**
+
+[source]
+----
+Given:
+  A (no deps)
+  B (no deps)
+  C (depends on A, B)
+
+Build A and B in parallel, then C.
+----
+
+**Implementation:**
+
+* Identify modules with no pending dependencies
+* Fork processes for parallel compilation
+* Wait for completion before starting dependent modules
+
+**Estimated Speedup:** 30-50% for projects with many independent modules
+
+==== Enhancement 2: Incremental Reactor Builds
+
+**Description:** Only rebuild modules that changed since last build.
+
+**Implementation:**
+
+* Track timestamp of last successful build per module
+* Hash source files to detect changes
+* Rebuild changed modules + downstream dependents
+
+**Challenge:** Detecting interface changes that require dependent rebuilds (Free Pascal units have signatures in `.ppu` files)
+
+==== Enhancement 3: External Module References
+
+**Description:** Reference modules from other project trees.
+
+**Example:**
+
+[source,xml]
+----
+<modules>
+  <module>../my-framework</module>          <!-- Relative to aggregator -->
+  <module>/opt/libraries/common</module>    <!-- Absolute path -->
+</modules>
+----
+
+**Use Case:** Shared libraries used by multiple unrelated projects
+
+**Challenges:**
+
+* Security concerns with absolute paths
+* Version compatibility between projects
+* No single aggregator for build ordering
+
+==== Enhancement 4: Dependency Version Constraints
+
+**Description:** Allow specifying required versions of dependencies.
+
+**Example:**
+
+[source,xml]
+----
+<modules>
+  <module version="1.2.0">../framework</module>  <!-- Require exact version -->
+  <module minVersion="2.0.0">../utils</module>   <!-- Require minimum version -->
+</modules>
+----
+
+**Implementation:**
+
+* Parse version constraints
+* Validate referenced module's version matches
+* Fail build if constraint violated
+
+**Use Case:** Ensure API compatibility when framework and app maintained by different teams
+
+==== Enhancement 5: Module Aliases
+
+**Description:** Allow short aliases for module references.
+
+**Example:**
+
+[source,xml]
+----
+<!-- In aggregator -->
+<modules>
+  <module id="core">framework-core</module>
+  <module id="gui">framework-gui</module>
+</modules>
+
+<!-- In application -->
+<modules>
+  <module>core</module>     <!-- Resolves to framework-core -->
+  <module>gui</module>      <!-- Resolves to framework-gui -->
+</modules>
+----
+
+**Use Case:** Shorter references, easier refactoring
+
+==== Enhancement 6: Build Profiles for Modules
+
+**Description:** Activate profiles in specific modules only.
+
+**Example:**
+
+[source,bash]
+----
+pasbuild compile -P core:release,demo:debug
+# Build 'core' module with 'release' profile
+# Build 'demo' module with 'debug' profile
+----
+
+**Use Case:** Test release framework with debug demo
+
+==== Enhancement 7: Module Templates
+
+**Description:** Generate module structure from templates.
+
+**Example:**
+
+[source,bash]
+----
+cd MyFramework
+pasbuild module:create --name MyModule --type library
+# Creates MyModule/ directory with project.xml template
+# Adds <module>MyModule</module> to aggregator
+----
+
+**Use Case:** Quickly scaffold new modules
+
+==== Enhancement 8: Module Dependency Visualization
+
+**Description:** Generate graphical dependency graph.
+
+**Example:**
+
+[source,bash]
+----
+pasbuild module:graph --output deps.dot
+dot -Tpng deps.dot -o deps.png
+----
+
+**Output:** PNG diagram showing module relationships
+
+**Use Case:** Understand complex projects, identify refactoring opportunities
+
+
+== Summary
+
+This specification defines a comprehensive multi-module build system for PasBuild that:
+
+* **Solves real problems**: Eliminates manual build orchestration for related projects
+* **Maintains simplicity**: Opt-in feature with clear syntax
+* **Follows proven patterns**: Inspired by Maven but adapted to Pascal/FPC
+* **Enables new workflows**: Framework + examples, shared libraries, modular applications
+* **Preserves backward compatibility**: Existing projects unaffected
+
+The design leverages PasBuild's existing architecture (command pattern, dependency resolution, path management) while adding minimal new concepts (packaging types, module registry, reactor builds).
+
+Implementation is phased to allow iterative development and testing, with clear migration path from current manual workarounds to proper multi-module support.

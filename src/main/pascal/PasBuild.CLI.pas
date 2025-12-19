@@ -29,6 +29,7 @@ type
     Goal: TBuildGoal;
     ProfileIds: TStringList;  // Changed from ProfileId to support multiple profiles
     ProjectFile: string;  // Custom project file path (default: project.xml)
+    SelectedModule: string;  // Module name for multi-module builds (empty = all modules)
     ShowHelp: Boolean;
     ShowVersion: Boolean;
     Verbose: Boolean;
@@ -114,6 +115,7 @@ begin
   Result.ProfileIds.Delimiter := ',';
   Result.ProfileIds.StrictDelimiter := True;
   Result.ProjectFile := 'project.xml';  // Default
+  Result.SelectedModule := '';  // Default: all modules
   Result.ShowHelp := False;
   Result.ShowVersion := False;
   Result.Verbose := False;
@@ -185,6 +187,17 @@ begin
       end;
       Result.ProjectFile := ParamStr(I);
     end
+    // Module selection flag (for multi-module builds)
+    else if (Arg = '-m') or (Arg = '--module') then
+    begin
+      Inc(I);
+      if I > ParamCount then
+      begin
+        Result.ErrorMessage := 'Option ' + Arg + ' requires a module name';
+        Exit;
+      end;
+      Result.SelectedModule := ParamStr(I);
+    end
     else
     begin
       Result.ErrorMessage := 'Unknown option: ' + Arg;
@@ -213,6 +226,7 @@ begin
   WriteLn('Options:');
   WriteLn('  -p <profile[,profile...]>    Activate build profile(s)');
   WriteLn('  --profile <id>               Activate build profile (same as -p)');
+  WriteLn('  -m <module>, --module        Build specific module in multi-module project');
   WriteLn('  -f <file>, --file <file>     Use alternate project file (default: project.xml)');
   WriteLn('  -v, --verbose                Show full compiler output');
   WriteLn('  -h, --help                   Show this help message');
@@ -225,6 +239,7 @@ begin
   WriteLn('  pasbuild compile -p base,debug        # Build with base + debug profiles');
   WriteLn('  pasbuild compile -v                   # Build with verbose FPC output');
   WriteLn('  pasbuild compile -f custom.xml        # Use custom project file');
+  WriteLn('  pasbuild compile -m mymodule          # Build specific module (multi-module)');
   WriteLn('  pasbuild test                         # Run tests');
   WriteLn('  pasbuild package                      # Create release archive');
   WriteLn('  pasbuild init                         # Create new project');

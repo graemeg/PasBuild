@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project>
+  <name>math-core</name>
+  <version>1.0.0</version>
+  <author>PasBuild Team</author>
+  <license>MIT</license>
+
+  <build>
+    <!-- Library packaging produces compiled units -->
+    <packaging>library</packaging>
+  </build>
+</project>

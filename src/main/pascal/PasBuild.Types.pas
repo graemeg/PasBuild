@@ -16,11 +16,11 @@ unit PasBuild.Types;
 interface
 
 uses
-  Classes, SysUtils, fgl;
+  Classes, SysUtils, fgl, contnrs;
 
 type
   { Project type enumeration }
-  TProjectType = (ptApplication, ptLibrary);
+  TProjectType = (ptApplication, ptLibrary, ptPom);
 
   { Test framework enumeration }
   TTestFramework = (tfAuto, tfFPCUnit, tfFPTest);
@@ -33,6 +33,8 @@ type
   TSourcePackageConfig = class;
   TProjectConfig = class;
   TConditionalPath = class;
+  TModuleInfo = class;
+  TModuleRegistry = class;
 
   { TConditionalPath - Represents a path with an optional condition }
   TConditionalPath = class
@@ -83,6 +85,7 @@ type
     FUnitPaths: TConditionalPathList;
     FIncludePaths: TConditionalPathList;
     FManualUnitPaths: Boolean;
+    FResolvedModulePaths: TStringList;  // Artifact paths from module dependencies
   public
     constructor Create;
     destructor Destroy; override;
@@ -96,6 +99,7 @@ type
     property UnitPaths: TConditionalPathList read FUnitPaths;
     property IncludePaths: TConditionalPathList read FIncludePaths;
     property ManualUnitPaths: Boolean read FManualUnitPaths write FManualUnitPaths;
+    property ResolvedModulePaths: TStringList read FResolvedModulePaths;
   end;
 
   { TTestConfig - Test configuration section }
@@ -151,6 +155,8 @@ type
     FTestResourcesConfig: TResourcesConfig;
     FSourcePackageConfig: TSourcePackageConfig;
     FProfiles: TProfileList;
+    FModules: TStringList;                   // Child modules (for aggregator)
+    FModuleDependencies: TStringList;        // Module dependencies (for library/app)
   public
     constructor Create;
     destructor Destroy; override;
@@ -167,6 +173,46 @@ type
     property TestResourcesConfig: TResourcesConfig read FTestResourcesConfig;
     property SourcePackageConfig: TSourcePackageConfig read FSourcePackageConfig;
     property Profiles: TProfileList read FProfiles;
+    property Modules: TStringList read FModules;                           // Child modules list
+    property ModuleDependencies: TStringList read FModuleDependencies;    // Module dependencies
+  end;
+
+  { TModuleInfo - Module metadata for build ordering }
+  TModuleInfo = class
+  private
+    FName: string;
+    FPath: string;
+    FConfig: TProjectConfig;
+    FDependencies: TStringList;
+    FUnitsDirectory: string;
+  public
+    constructor Create;
+    destructor Destroy; override;
+
+    property Name: string read FName write FName;
+    property Path: string read FPath write FPath;
+    property Config: TProjectConfig read FConfig write FConfig;
+    property Dependencies: TStringList read FDependencies;
+    property UnitsDirectory: string read FUnitsDirectory write FUnitsDirectory;
+  end;
+
+  { TModuleRegistry - Registry for module resolution and lookup }
+  TModuleRegistry = class
+  private
+    FModules: TObjectList;
+    FModulesByName: TStringList;
+    procedure ResolveArtifactsRecursive(AModule: TModuleInfo; AOriginalModule: TModuleInfo; VisitedModules: TStringList);
+  public
+    constructor Create;
+    destructor Destroy; override;
+
+    procedure RegisterModule(AModule: TModuleInfo);
+    function FindModuleByName(const AName: string): TModuleInfo;
+    function FindModuleByPath(const APath: string): TModuleInfo;
+    function GetBuildOrder: TList;
+    procedure ResolveArtifacts(AModule: TModuleInfo);
+
+    property Modules: TObjectList read FModules;
   end;
 
 implementation
@@ -235,6 +281,9 @@ begin
   FIncludePaths := TConditionalPathList.Create;
   FIncludePaths.FreeObjects := True;
 
+  FResolvedModulePaths := TStringList.Create;
+  FResolvedModulePaths.Duplicates := dupIgnore;
+
   // Set defaults
   FProjectType := ptApplication;  // Application by default
   FOutputDirectory := 'target';
@@ -247,6 +296,7 @@ begin
   FCompilerOptions.Free;
   FUnitPaths.Free;
   FIncludePaths.Free;
+  FResolvedModulePaths.Free;
   inherited Destroy;
 end;
 
@@ -307,6 +357,13 @@ begin
   FProfiles := TProfileList.Create;
   FProfiles.FreeObjects := True;
 
+  // Multi-module support
+  FModules := TStringList.Create;
+  FModules.Duplicates := dupIgnore;
+
+  FModuleDependencies := TStringList.Create;
+  FModuleDependencies.Duplicates := dupIgnore;
+
   // Set defaults
   FAuthor := 'Unknown';
   FLicense := 'Proprietary';
@@ -320,7 +377,216 @@ begin
   FTestResourcesConfig.Free;
   FSourcePackageConfig.Free;
   FProfiles.Free;
+  FModules.Free;
+  FModuleDependencies.Free;
   inherited Destroy;
+end;
+
+{ TModuleInfo implementation }
+
+constructor TModuleInfo.Create;
+begin
+  inherited Create;
+  FDependencies := TStringList.Create;
+  FDependencies.Duplicates := dupIgnore;
+  FConfig := nil;
+end;
+
+destructor TModuleInfo.Destroy;
+begin
+  FDependencies.Free;
+  if Assigned(FConfig) then
+    FConfig.Free;
+  inherited Destroy;
+end;
+
+{ TModuleRegistry implementation }
+
+constructor TModuleRegistry.Create;
+begin
+  inherited Create;
+  FModules := TObjectList.Create(True);  { Owns modules }
+  FModulesByName := TStringList.Create;
+  FModulesByName.Duplicates := dupError;  { Raise error on duplicate }
+end;
+
+destructor TModuleRegistry.Destroy;
+begin
+  FModulesByName.Free;
+  FModules.Free;
+  inherited Destroy;
+end;
+
+procedure TModuleRegistry.RegisterModule(AModule: TModuleInfo);
+begin
+  if not Assigned(AModule) then
+    raise Exception.Create('Cannot register nil module');
+
+  if FModulesByName.IndexOf(AModule.Name) >= 0 then
+    raise Exception.CreateFmt('Duplicate module name: %s', [AModule.Name]);
+
+  FModules.Add(AModule);
+  FModulesByName.AddObject(AModule.Name, AModule);
+end;
+
+function TModuleRegistry.FindModuleByName(const AName: string): TModuleInfo;
+var
+  Index: Integer;
+begin
+  Index := FModulesByName.IndexOf(AName);
+  if Index >= 0 then
+    Result := TModuleInfo(FModulesByName.Objects[Index])
+  else
+    Result := nil;
+end;
+
+function TModuleRegistry.FindModuleByPath(const APath: string): TModuleInfo;
+var
+  I: Integer;
+begin
+  Result := nil;
+  for I := 0 to FModules.Count - 1 do
+  begin
+    if SameFileName(TModuleInfo(FModules[I]).Path, APath) then
+    begin
+      Result := TModuleInfo(FModules[I]);
+      Exit;
+    end;
+  end;
+end;
+
+function TModuleRegistry.GetBuildOrder: TList;
+var
+  Visited, RecStack: TStringList;
+
+  procedure Visit(const ModuleName: string);
+  var
+    Module: TModuleInfo;
+    I: Integer;
+    DepName: string;
+    DepModule: TModuleInfo;
+    StackIndex: Integer;
+  begin
+    Module := FindModuleByName(ModuleName);
+    if Module = nil then
+      raise Exception.CreateFmt('Module not found: %s', [ModuleName]);
+
+    { Check if already visited }
+    if Visited.IndexOf(ModuleName) >= 0 then
+      Exit;
+
+    { Check for cycle (module in recursion stack) }
+    StackIndex := RecStack.IndexOf(ModuleName);
+    if StackIndex >= 0 then
+    begin
+      { Cyclic dependency detected }
+      raise Exception.CreateFmt('Cyclic dependency detected: %s', [ModuleName]);
+    end;
+
+    { Add to recursion stack }
+    RecStack.Add(ModuleName);
+
+    { Visit all dependencies first (depth-first) }
+    for I := 0 to Module.Dependencies.Count - 1 do
+    begin
+      DepName := Module.Dependencies[I];
+      DepModule := FindModuleByName(DepName);
+      if DepModule = nil then
+        raise Exception.CreateFmt('Dependency not found: %s (required by %s)', [DepName, ModuleName]);
+
+      Visit(DepName);
+    end;
+
+    { Remove from recursion stack }
+    StackIndex := RecStack.IndexOf(ModuleName);
+    if StackIndex >= 0 then
+      RecStack.Delete(StackIndex);
+
+    { Mark as visited and add to build order }
+    Visited.Add(ModuleName);
+    Result.Add(Module);
+  end;
+
+var
+  I: Integer;
+  Module: TModuleInfo;
+begin
+  Result := TList.Create;
+  Visited := TStringList.Create;
+  RecStack := TStringList.Create;
+  try
+    Visited.Duplicates := dupIgnore;
+    RecStack.Duplicates := dupIgnore;
+
+    { Visit all modules to build topological order }
+    for I := 0 to FModules.Count - 1 do
+    begin
+      Module := TModuleInfo(FModules[I]);
+      if Visited.IndexOf(Module.Name) < 0 then
+        Visit(Module.Name);
+    end;
+  finally
+    RecStack.Free;
+    Visited.Free;
+  end;
+end;
+
+procedure TModuleRegistry.ResolveArtifacts(AModule: TModuleInfo);
+var
+  VisitedModules: TStringList;
+begin
+  { Use a set to track visited modules and avoid infinite loops in case of cycles }
+  VisitedModules := TStringList.Create;
+  try
+    ResolveArtifactsRecursive(AModule, AModule, VisitedModules);
+  finally
+    VisitedModules.Free;
+  end;
+end;
+
+procedure TModuleRegistry.ResolveArtifactsRecursive(AModule: TModuleInfo; AOriginalModule: TModuleInfo; VisitedModules: TStringList);
+var
+  I: Integer;
+  DepName: string;
+  DepModule: TModuleInfo;
+  UnitsPath: string;
+begin
+  { Iterate through module's dependencies and add their units directories (including transitive) }
+  for I := 0 to AModule.Dependencies.Count - 1 do
+  begin
+    DepName := AModule.Dependencies[I];
+
+    { Skip if already visited (prevents infinite recursion) }
+    if VisitedModules.IndexOf(DepName) >= 0 then
+      Continue;
+
+    VisitedModules.Add(DepName);
+
+    DepModule := FindModuleByName(DepName);
+
+    if DepModule = nil then
+      raise Exception.CreateFmt('Module "%s" referenced by "%s" not found',
+        [DepName, AModule.Name]);
+
+    { Only library and application modules produce artifacts }
+    if DepModule.Config <> nil then
+    begin
+      if DepModule.Config.BuildConfig.ProjectType in [ptLibrary, ptApplication] then
+      begin
+        UnitsPath := DepModule.UnitsDirectory;
+        { Add to the original module's resolved paths, not the current dependency's paths }
+        if AOriginalModule.Config <> nil then
+          AOriginalModule.Config.BuildConfig.ResolvedModulePaths.Add(UnitsPath);
+      end
+      else if DepModule.Config.BuildConfig.ProjectType = ptPom then
+        raise Exception.CreateFmt(
+          'Module "%s" cannot depend on aggregator "%s" (packaging=pom)',
+          [AModule.Name, DepName]);
+    end;
+
+    { Recursively resolve transitive dependencies }
+    ResolveArtifactsRecursive(DepModule, AOriginalModule, VisitedModules);
+  end;
 end;
 
 end.

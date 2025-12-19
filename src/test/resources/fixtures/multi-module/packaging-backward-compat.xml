@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project>
+  <name>TestBackwardCompat</name>
+  <version>1.0.0</version>
+
+  <build>
+    <!-- Old projectType element - should still work -->
+    <projectType>library</projectType>
+  </build>
+</project>

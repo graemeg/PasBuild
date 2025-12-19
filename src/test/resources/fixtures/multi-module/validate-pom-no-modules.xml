@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project>
+  <name>TestPomNoModules</name>
+  <version>1.0.0</version>
+
+  <build>
+    <packaging>pom</packaging>
+  </build>
+
+  <!-- Missing <modules> section - should fail validation -->
+</project>

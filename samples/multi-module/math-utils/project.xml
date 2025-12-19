@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project>
+  <name>math-utils</name>
+  <version>1.0.0</version>
+  <author>PasBuild Team</author>
+  <license>MIT</license>
+
+  <build>
+    <!-- Library packaging produces compiled units -->
+    <packaging>library</packaging>
+  </build>
+
+  <!-- Depend on math-core -->
+  <moduleDependencies>
+    <module>../math-core</module>
+  </moduleDependencies>
+</project>

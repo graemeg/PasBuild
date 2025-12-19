@@ -1,0 +1,108 @@
+= Simple Math Multi-Module Example
+
+This example demonstrates a simple multi-module PasBuild project structure with three modules and transitive dependencies.
+
+== Project Structure
+
+[source]
+----
+simple-math/                          # Aggregator (packaging=pom)
+├── project.xml                       # Aggregator config
+├── math-core/                        # Library module (no dependencies)
+│   ├── project.xml
+│   └── src/main/pascal/
+│       └── MathCore.Math.pas         # Basic math functions
+├── math-utils/                       # Library module (depends on math-core)
+│   ├── project.xml
+│   └── src/main/pascal/
+│       └── MathUtils.Statistics.pas  # Statistics functions
+└── calculator/                       # Application (depends on math-utils)
+    ├── project.xml
+    └── src/main/pascal/
+        └── Calculator.Main.pas       # Main application
+----
+
+== Module Dependencies
+
+[source]
+----
+calculator (application)
+  └── math-utils (library)
+      └── math-core (library)
+----
+
+Build order: math-core → math-utils → calculator
+
+== Running the Example
+
+=== Build All Modules
+
+[source,bash]
+----
+pasbuild compile
+----
+
+Output:
+[source]
+----
+[INFO] Building 3 modules in dependency order
+[INFO] Building module 1/3: math-core
+[INFO] Building module 2/3: math-utils
+[INFO] Building module 3/3: calculator
+[INFO] Reactor build complete: 3/3 modules built
+----
+
+=== Build with Dependency Graph
+
+[source,bash]
+----
+pasbuild compile -v
+----
+
+=== Build Specific Module
+
+[source,bash]
+----
+pasbuild compile -m calculator
+----
+
+This builds math-core and math-utils first, then calculator.
+
+=== Run the Application
+
+[source,bash]
+----
+./calculator/target/calculator
+----
+
+Output:
+[source]
+----
+Simple Multi-Module Calculator
+==============================
+
+Basic Math Operations:
+  5 + 3 = 8
+  10 - 4 = 6
+  6 * 7 = 42
+  20 / 4 = 5
+
+Statistics Operations:
+  Values: 10 20 30 40 50
+  Average: 30
+  Maximum: 50
+  Minimum: 10
+
+Build successful! All modules compiled correctly.
+----
+
+== What You'll Learn
+
+* Creating aggregator projects with `packaging=pom`
+* Creating library modules with `packaging=library`
+* Creating application modules with main source
+* Specifying module dependencies with relative paths
+* Building multiple modules in dependency order
+* Transitive dependency resolution
+
+For more details, see `docs/multi-module-tutorial.adoc`.

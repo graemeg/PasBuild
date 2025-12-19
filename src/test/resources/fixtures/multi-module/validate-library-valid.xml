@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project>
+  <name>TestLibraryValid</name>
+  <version>1.0.0</version>
+
+  <build>
+    <packaging>library</packaging>
+  </build>
+</project>

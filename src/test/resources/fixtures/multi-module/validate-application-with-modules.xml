@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project>
+  <name>TestApplicationWithModules</name>
+  <version>1.0.0</version>
+
+  <build>
+    <packaging>application</packaging>
+    <mainSource>Main.pas</mainSource>
+  </build>
+
+  <modules>
+    <module>module1</module>
+  </modules>
+</project>

@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project>
+  <name>calculator</name>
+  <version>1.0.0</version>
+  <author>PasBuild Team</author>
+  <license>MIT</license>
+
+  <build>
+    <!-- Application (default) packaging with executable -->
+    <mainSource>Calculator.Main.pas</mainSource>
+    <executableName>calculator</executableName>
+  </build>
+
+  <!-- Depend on math-utils (which transitively depends on math-core) -->
+  <moduleDependencies>
+    <module>../math-utils</module>
+  </moduleDependencies>
+</project>

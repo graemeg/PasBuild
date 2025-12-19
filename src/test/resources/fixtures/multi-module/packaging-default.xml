@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project>
+  <name>TestDefault</name>
+  <version>1.0.0</version>
+
+  <build>
+    <!-- No packaging element - should default to application -->
+    <mainSource>Main.pas</mainSource>
+  </build>
+</project>
