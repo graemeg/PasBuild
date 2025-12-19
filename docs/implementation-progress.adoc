@@ -1006,7 +1006,7 @@ Build tool: PasBuild
 |Test all goals on Linux
 |All goals tested on Linux x86_64
 
-|⬜
+|✅
 |Test all goals on Windows
 |Cross-platform verification needed
 
@@ -1018,11 +1018,11 @@ Build tool: PasBuild
 |Build PasBuild using PasBuild
 |Self-hosting achieved in Phase 2.2.1
 
-|⬜
+|✅
 |Write user documentation (`README.adoc`)
 |Getting started guide needed
 
-|⬜
+|✅
 |Create example project in `examples/`
 |Demonstration project needed
 |===
@@ -1074,19 +1074,19 @@ Build tool: PasBuild
 |===
 |Status |Task |Priority
 
-|⏸️
+|✅
 |Implement test goal (`pasbuild test`)
 |High
 
-|⏸️
+|✅
 |Implement resource copying
 |Medium
 
-|⏸️
-|Implement version injection (`-dVERSION`)
+|✅
+|Implement version injection (`-dVERSION`). Using resource filtering instead.
 |Low
 
-|⏸️
+|✅
 |Implement source code packaging goal
 |Low
 
@@ -1098,7 +1098,7 @@ Build tool: PasBuild
 |Add global `<build><compilerOptions>` support
 |Low (profile-level sufficient for MVP)
 
-|⏸️
+|✅
 |Support multiple profile activation
 |Low
 
