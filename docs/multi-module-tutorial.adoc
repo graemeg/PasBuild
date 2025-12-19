@@ -2,6 +2,8 @@
 :toc: left
 :toclevels: 3
 :sectnums:
+:source-highlighter: rouge
+:icons: font
 
 This tutorial demonstrates how to create and build multi-module Free Pascal projects using PasBuild.
 
