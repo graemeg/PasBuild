@@ -378,10 +378,10 @@ This disables auto-generation and uses your custom program file instead.
   </build>
 
   <!-- Module dependencies -->
-  <modules>
+  <moduleDependencies>
     <module>../../framework-core</module>
     <module>../../framework-gui</module>
-  </modules>
+  </moduleDependencies>
 </project>
 ----
 
@@ -1024,9 +1024,9 @@ gui-toolkit/
   </build>
 
   <!-- ADDED: Module dependencies -->
-  <modules>
+  <moduleDependencies>
     <module>../../framework</module>
-  </modules>
+  </moduleDependencies>
 </project>
 ----
 
@@ -1450,9 +1450,9 @@ math-lib/
     </unitPaths>
   </build>
 
-  <modules>
+  <moduleDependencies>
     <module>../core</module>
-  </modules>
+  </moduleDependencies>
 </project>
 ----
 
@@ -1593,9 +1593,9 @@ simple (depends on: widgets)    complex (depends on: widgets)
     </unitPaths>
   </build>
 
-  <modules>
+  <moduleDependencies>
     <module>../foundation</module>
-  </modules>
+  </moduleDependencies>
 </project>
 ----
 
@@ -1618,10 +1618,10 @@ simple (depends on: widgets)    complex (depends on: widgets)
     </unitPaths>
   </build>
 
-  <modules>
+  <moduleDependencies>
     <module>../foundation</module>
     <module>../graphics</module>
-  </modules>
+  </moduleDependencies>
 </project>
 ----
 
@@ -1644,9 +1644,9 @@ simple (depends on: widgets)    complex (depends on: widgets)
     </unitPaths>
   </build>
 
-  <modules>
+  <moduleDependencies>
     <module>../../widgets</module>
-  </modules>
+  </moduleDependencies>
 </project>
 ----
 
@@ -1710,11 +1710,11 @@ cross-platform-app/
     </unitPaths>
   </build>
 
-  <modules>
+  <moduleDependencies>
     <module condition="UNIX">../platform-unix</module>
     <module condition="WINDOWS">../platform-windows</module>
     <module>../common</module>
-  </modules>
+  </moduleDependencies>
 </project>
 ----
 

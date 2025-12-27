@@ -111,15 +111,15 @@ Create each library module with `packaging=library`:
   </build>
 
   <!-- UI depends on core library -->
-  <modules>
+  <moduleDependencies>
     <module>../core</module>
-  </modules>
+  </moduleDependencies>
 </project>
 ----
 
 Key points:
 - Libraries use `packaging=library`
-- Specify dependencies in `<modules>` section (relative paths)
+- Specify dependencies in `<moduleDependencies>` section (relative paths)
 - Libraries produce compiled units in `target/units/`
 
 == Step 3: Create Application Modules
@@ -143,9 +143,9 @@ Create application modules with `packaging=application` (default):
   </build>
 
   <!-- Demo depends on UI (which transitively depends on core) -->
-  <modules>
+  <moduleDependencies>
     <module>../ui</module>
-  </modules>
+  </moduleDependencies>
 </project>
 ----
 
