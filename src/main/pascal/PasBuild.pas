@@ -141,13 +141,13 @@ begin
           // Create reactor command to build all modules
           case Args.Goal of
             bgClean:
-              Command := TReactorCommand.Create(Config, Args.ProfileIds, Registry, 'clean');
+              Command := TReactorCommand.Create(Config, Args.ProfileIds, Registry, 'clean', Args.SelectedModule);
 
             bgCompile:
-              Command := TReactorCommand.Create(Config, Args.ProfileIds, Registry, 'compile');
+              Command := TReactorCommand.Create(Config, Args.ProfileIds, Registry, 'compile', Args.SelectedModule);
 
             bgTest:
-              Command := TReactorCommand.Create(Config, Args.ProfileIds, Registry, 'test');
+              Command := TReactorCommand.Create(Config, Args.ProfileIds, Registry, 'test', Args.SelectedModule);
 
             bgPackage:
               Command := TAggregatedPackageCommand.Create(Config, Args.ProfileIds, Registry);

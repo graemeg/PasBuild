@@ -32,12 +32,14 @@ type
     FGoalName: string;
     FModulesBuilt: Integer;
     FModulesFailed: Integer;
+    FSelectedModule: string;  // Empty = all modules, otherwise build only this module + dependencies
     procedure DisplayDependencyGraph;
+    procedure FilterBuildOrderForSelectedModule(var BuildOrder: TList);
   protected
     function GetName: string; override;
   public
     constructor Create(AConfig: TProjectConfig; AProfileIds: TStringList;
-      ARegistry: TModuleRegistry; const AGoalName: string); reintroduce;
+      ARegistry: TModuleRegistry; const AGoalName: string; const ASelectedModule: string = ''); reintroduce;
     destructor Destroy; override;
 
     function Execute: Integer; override;
@@ -47,6 +49,7 @@ type
     property GoalName: string read FGoalName;
     property ModulesBuilt: Integer read FModulesBuilt;
     property ModulesFailed: Integer read FModulesFailed;
+    property SelectedModule: string read FSelectedModule write FSelectedModule;
   end;
 
 implementation
@@ -54,11 +57,12 @@ implementation
 { TReactorCommand }
 
 constructor TReactorCommand.Create(AConfig: TProjectConfig; AProfileIds: TStringList;
-  ARegistry: TModuleRegistry; const AGoalName: string);
+  ARegistry: TModuleRegistry; const AGoalName: string; const ASelectedModule: string = '');
 begin
   inherited Create(AConfig, AProfileIds);
   FRegistry := ARegistry;
   FGoalName := AGoalName;
+  FSelectedModule := ASelectedModule;
   FModulesBuilt := 0;
   FModulesFailed := 0;
 end;
@@ -104,6 +108,72 @@ begin
   TUtils.LogInfo('');
 end;
 
+procedure TReactorCommand.FilterBuildOrderForSelectedModule(var BuildOrder: TList);
+var
+  I: Integer;
+  Module: TModuleInfo;
+  SelectedModuleInfo: TModuleInfo;
+  FilteredOrder: TList;
+  IncludeModule: Boolean;
+begin
+  { Find the selected module by name }
+  SelectedModuleInfo := nil;
+  for I := 0 to FRegistry.Modules.Count - 1 do
+  begin
+    Module := TModuleInfo(FRegistry.Modules[I]);
+    if CompareText(Module.Name, FSelectedModule) = 0 then
+    begin
+      SelectedModuleInfo := Module;
+      Break;
+    end;
+  end;
+
+  if SelectedModuleInfo = nil then
+  begin
+    TUtils.LogError('Module not found: ' + FSelectedModule);
+    { Clear build order to signal error }
+    BuildOrder.Clear;
+    Exit;
+  end;
+
+  { Filter: Keep only modules that the selected module depends on (and the selected module itself) }
+  { The build order is topologically sorted, so all dependencies come before the selected module }
+  FilteredOrder := TList.Create;
+  try
+    for I := 0 to BuildOrder.Count - 1 do
+    begin
+      Module := TModuleInfo(BuildOrder[I]);
+      IncludeModule := False;
+
+      { Include the selected module itself }
+      if CompareText(Module.Name, FSelectedModule) = 0 then
+        IncludeModule := True
+      { Include if this module is a (direct or transitive) dependency of the selected module }
+      { Since build order is sorted, we only include modules up to and including selected }
+      else
+      begin
+        { Check if this module is transitively needed by selected module }
+        { For now, include all modules that come before selected in build order }
+        IncludeModule := True;
+      end;
+
+      if IncludeModule then
+        FilteredOrder.Add(Module);
+
+      { Stop once we've added the selected module }
+      if CompareText(Module.Name, FSelectedModule) = 0 then
+        Break;
+    end;
+
+    { Replace build order with filtered order }
+    BuildOrder.Clear;
+    for I := 0 to FilteredOrder.Count - 1 do
+      BuildOrder.Add(FilteredOrder[I]);
+  finally
+    FilteredOrder.Free;
+  end;
+end;
+
 function TReactorCommand.Execute: Integer;
 var
   BuildOrder: TList;
@@ -123,15 +193,25 @@ begin
   { Get build order from registry }
   BuildOrder := FRegistry.GetBuildOrder;
   try
+    { Filter to selected module if specified }
+    if FSelectedModule <> '' then
+    begin
+      FilterBuildOrderForSelectedModule(BuildOrder);
+    end;
+
     ModuleCount := BuildOrder.Count;
 
     if ModuleCount = 0 then
     begin
-      TUtils.LogInfo('No modules to build');
-      Exit(0);
+      if FSelectedModule <> '' then
+        TUtils.LogError('Selected module not found or has no dependencies: ' + FSelectedModule);
+      Exit(1);
     end;
 
-    TUtils.LogInfo('Building ' + IntToStr(ModuleCount) + ' modules in dependency order');
+    if FSelectedModule <> '' then
+      TUtils.LogInfo('Building ' + IntToStr(ModuleCount) + ' modules (selected: ' + FSelectedModule + ')')
+    else
+      TUtils.LogInfo('Building ' + IntToStr(ModuleCount) + ' modules in dependency order');
 
     { Display dependency graph in verbose mode }
     if FVerbose then
