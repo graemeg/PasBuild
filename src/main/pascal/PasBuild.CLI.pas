@@ -54,69 +54,62 @@ type
 implementation
 
 uses
-  PasBuild.Utils;
+  PasBuild.Utils, TypInfo;
 
 { TArgumentParser }
 
 class function TArgumentParser.GoalFromString(const AGoalStr: string): TBuildGoal;
 var
   GoalLower: string;
+  GoalEnumName: string;
 begin
   GoalLower := LowerCase(AGoalStr);
+  GoalEnumName := 'bg'+StringReplace(GoalLower, '-', '', [rfReplaceAll]);
+  if GoalLower = '-h' then
+    GoalLower := '--help';
+  try
+    Result := TBuildGoal(GetEnumValue(TypeInfo(TBuildGoal), GoalEnumName));
+    if Ord(Result) = -1 then Result := bgUnknown;
+  except
+    Result := bgUnknown;
+  end;
 
-  if GoalLower = 'clean' then
-    Result := bgClean
-  else if GoalLower = 'process-resources' then
-    Result := bgProcessResources
-  else if GoalLower = 'compile' then
-    Result := bgCompile
-  else if GoalLower = 'process-test-resources' then
-    Result := bgProcessTestResources
-  else if GoalLower = 'test-compile' then
-    Result := bgTestCompile
-  else if GoalLower = 'test' then
-    Result := bgTest
-  else if GoalLower = 'package' then
-    Result := bgPackage
-  else if GoalLower = 'source-package' then
-    Result := bgSourcePackage
-  else if GoalLower = 'install' then
-    Result := bgInstall
-  else if GoalLower = 'dependency-tree' then
-    Result := bgDependencyTree
-  else if GoalLower = 'resolve' then
-    Result := bgResolve
-  else if GoalLower = 'init' then
-    Result := bgInit
-  else if (GoalLower = '--help') or (GoalLower = '-h') then
-    Result := bgHelp
-  else if GoalLower = '--version' then
-    Result := bgVersion
-  else if GoalLower = '--license' then
-    Result := bgLicense
-  else
+  if (Result in [bgHelp, bgVersion, bgLicense])
+  and (Copy(GoalLower, 1, 2) <> '--') then
     Result := bgUnknown;
 end;
 
 class function TArgumentParser.GoalToString(AGoal: TBuildGoal): string;
+var
+  i: Integer;
 begin
-  case AGoal of
-    bgClean: Result := 'clean';
-    bgProcessResources: Result := 'process-resources';
-    bgCompile: Result := 'compile';
-    bgProcessTestResources: Result := 'process-test-resources';
-    bgTestCompile: Result := 'test-compile';
-    bgTest: Result := 'test';
-    bgPackage: Result := 'package';
-    bgSourcePackage: Result := 'source-package';
-    bgInstall: Result := 'install';
-    bgDependencyTree: Result := 'dependency-tree';
-    bgResolve: Result := 'resolve';
-    bgInit: Result := 'init';
-    bgHelp: Result := '--help';
-    bgVersion: Result := '--version';
-    bgLicense: Result := '--license';
-    else Result := 'unknown';
+  try
+    // get Enum name e.g. bgProcessResources and copy just 'ProcessResources';
+    Result := Copy(GetEnumName(TypeInfo(TBuildGoal), Ord(AGoal)), 3, Maxint);
+
+    // set 'P' to 'p' for 'processResources' example
+    Result[1] := LowerCase(Result[1]); // set first letter lowercase
+
+    i := 2; // start on second letter
+    while i <= Length(Result) do
+    begin
+      // look for capitol letters which indicate a hyphen
+      if Result[i] <> LowerCase(Result[i]) then
+      begin
+        // insert hyphen
+        Result[i] := LowerCase(Result[i]);
+        Insert('-', Result, i);
+        Inc(i);
+      end;
+      Inc(i);
+    end;
+
+    // now some special cases
+    case Result of
+      'help', 'version', 'license': Result := '--' + Result;
+    end;
+  except
+    Result := 'unknown';
   end;
 end;
 
