@@ -23,6 +23,7 @@ uses
   PasBuild.Command.Test,
   PasBuild.Command.Package,
   PasBuild.Command.Install,
+  PasBuild.Command.LazarusPackage,
   PasBuild.Utils;
 
 type
@@ -265,6 +266,9 @@ begin
 
           'compile':
             ModuleCommand := TCompileCommand.Create(ModuleConfig, FProfileIds);
+
+          'lazarus-package':
+            ModuleCommand := TLazarusPackageCommand.Create(ModuleConfig, FProfileIds);
 
           'test-compile':
             ModuleCommand := TTestCompileCommand.Create(ModuleConfig, FProfileIds);

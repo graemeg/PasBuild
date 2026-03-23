@@ -38,7 +38,7 @@ uses
   PasBuild.ModuleDiscovery,
   PasBuild.Repository,
   PasBuild.Dependencies,
-  PasBuild.Utils;
+  PasBuild.Utils, PasBuild.LazarusPackage, PasBuild.Command.LazarusPackage;
 
 var
   Args: TCommandLineArgs;
@@ -215,6 +215,9 @@ begin
             bgCompile:
               Command := TReactorCommand.Create(Config, Args.ProfileIds, Registry, 'compile', Args.SelectedModule);
 
+            bgLazarusPackage:
+              Command := TReactorCommand.Create(Config, Args.ProfileIds, Registry, 'lazarus-package', Args.SelectedModule);
+
             bgTestCompile:
               Command := TReactorCommand.Create(Config, Args.ProfileIds, Registry, 'test-compile', Args.SelectedModule);
 
@@ -270,6 +273,9 @@ begin
 
           bgCompile:
             Command := TCompileCommand.Create(Config, Args.ProfileIds);
+
+          bgLazarusPackage:
+            Command := TLazarusPackageCommand.Create(Config, Args.ProfileIds);
 
           bgProcessTestResources:
             Command := TProcessTestResourcesCommand.Create(Config, Config.TestResourcesConfig, Config.BuildConfig.OutputDirectory);

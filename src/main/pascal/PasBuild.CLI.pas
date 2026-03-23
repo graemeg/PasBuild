@@ -23,7 +23,7 @@ const
 
 type
   { Valid build goals }
-  TBuildGoal = (bgUnknown, bgClean, bgProcessResources, bgCompile, bgProcessTestResources, bgTestCompile, bgTest, bgPackage, bgSourcePackage, bgInstall, bgDependencyTree, bgResolve, bgInit, bgHelp, bgVersion, bgLicense);
+  TBuildGoal = (bgUnknown, bgClean, bgProcessResources, bgCompile, bgProcessTestResources, bgTestCompile, bgTest, bgPackage, bgSourcePackage, bgLazarusPackage, bgInstall, bgDependencyTree, bgResolve, bgInit, bgHelp, bgVersion, bgLicense);
 
   { Parsed command-line arguments }
   TCommandLineArgs = record
@@ -262,6 +262,7 @@ begin
   WriteLn('  test                    Run tests (runs: compile -> process-test-resources -> test-compile -> test)');
   WriteLn('  package                 Create release archive (runs: clean -> compile -> package)');
   WriteLn('  source-package          Create source archive with src/, docs, and configured files');
+  WriteLn('  lazarus-package         Create a *.lpk in the target/lazpkg folder.');
   WriteLn('  install                 Install compiled units to local repository (~/.pasbuild/repository/)');
   WriteLn('  dependency-tree         Show project dependency tree (no compilation)');
   WriteLn('  resolve                 Output resolved build configuration as JSON (no compilation)');
