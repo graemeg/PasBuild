@@ -28,12 +28,13 @@ type
       const AOutputPath: string;
       AActiveDefines: TStringList
     ): Boolean;
-  private
+  protected
     class function DiscoverUnits(
       const ABasePath: string;
       AUnitPaths: TConditionalPathList;
       AManualMode: Boolean;
-      AActiveDefines: TStringList
+      AActiveDefines: TStringList;
+      AUnitNameOnly: Boolean
     ): TStringList;
     class function ParseUnitName(const AFilePath: string): string;
   end;
@@ -47,11 +48,13 @@ var
   F: TextFile;
   Line: string;
   UnitPos: Integer;
+  UnitKeyFound: Boolean;
   InBraceComment: Boolean;
   InParenComment: Boolean;
   CommentEndPos: Integer;
 begin
   Result := '';
+  UnitKeyFound := False;
 
   if not FileExists(AFilePath) then
     Exit;
@@ -147,17 +150,31 @@ begin
           Continue;
 
         // Look for "unit <name>;"
-        if AnsiStartsStr('unit ', LowerCase(Line)) then
+        if UnitKeyFound or AnsiStartsStr('unit', LowerCase(Line)) then
         begin
-          UnitPos := Pos('unit ', LowerCase(Line));
-          if UnitPos > 0 then
+          UnitPos := Pos('unit', LowerCase(Line));
+          if (UnitPos > 0) or UnitKeyFound then
           begin
-            Delete(Line, 1, UnitPos + 4);  // Remove "unit "
+            if not UnitKeyFound then
+              Delete(Line, 1, UnitPos + 3);  // Remove "unit"
+            if (Length(Trim(Line)) = 0) then
+            begin
+              // can be "unit\n" check on the next line
+              UnitKeyFound := True;
+              Continue;
+            end;
+
+            if not UnitKeyFound and (Line[1] <> ' ') then
+              Continue;
+
             Line := Trim(Line);
 
             // Remove trailing semicolon
             if AnsiEndsStr(';', Line) then
+            begin
               Delete(Line, Length(Line), 1);
+              UnitKeyFound:=False;
+            end;
 
             Result := Trim(Line);
           end;
@@ -176,7 +193,8 @@ class function TBootstrapGenerator.DiscoverUnits(
   const ABasePath: string;
   AUnitPaths: TConditionalPathList;
   AManualMode: Boolean;
-  AActiveDefines: TStringList
+  AActiveDefines: TStringList;
+  AUnitNameOnly: Boolean
 ): TStringList;
 var
   AllDirs, Units: TStringList;
@@ -223,10 +241,16 @@ begin
         try
           repeat
             UnitFile := IncludeTrailingPathDelimiter(Dir) + SearchRec.Name;
-            DiscoveredUnit := ParseUnitName(UnitFile);
+            if AUnitNameOnly then
+            begin
+              DiscoveredUnit := ParseUnitName(UnitFile);
 
-            if DiscoveredUnit <> '' then
-              Result.Add(DiscoveredUnit);
+              if DiscoveredUnit <> '' then
+                Result.Add(DiscoveredUnit);
+            end
+            else begin
+              Result.Add(UnitFile);
+            end;
           until FindNext(SearchRec) <> 0;
         finally
           FindClose(SearchRec);
@@ -261,7 +285,8 @@ begin
     BasePath,
     AConfig.BuildConfig.UnitPaths,
     AConfig.BuildConfig.ManualUnitPaths,
-    AActiveDefines
+    AActiveDefines,
+    True
   );
 
   try
