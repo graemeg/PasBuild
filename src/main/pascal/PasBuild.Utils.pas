@@ -17,7 +17,8 @@ interface
 uses
   Classes, SysUtils, StrUtils, Process,
   PasBuild.Types,
-  PasBuild.Compiler.Backend;
+  PasBuild.Compiler.Backend,
+  PasBuild.Utils.Console;
 
 type
   { Utility functions for file operations and process execution }
@@ -76,6 +77,8 @@ type
     class procedure LogInfo(const AMessage: string);
     class procedure LogError(const AMessage: string);
     class procedure LogWarning(const AMessage: string);
+    class procedure LogTag(const ATag: String; const AMessage: String);
+    class procedure LogTag(const ATag: String; const AMessage: String; var LogTo: Text);
     class procedure LogSeparator;
 
     { Build status tracking }
@@ -526,24 +529,45 @@ end;
 class procedure TUtils.LogInfo(const AMessage: string);
 begin
   if not FQuietMode then
-    WriteLn('[INFO] ', AMessage);
+    LogTag('[INFO]', AMessage);
 end;
 
 class procedure TUtils.LogError(const AMessage: string);
 begin
-  WriteLn(StdErr, '[ERROR] ', AMessage);
+  LogTag('[ERROR]', AMessage, StdErr);
 end;
 
 class procedure TUtils.LogWarning(const AMessage: string);
 begin
   if not FQuietMode then
-    WriteLn('[WARNING] ', AMessage);
+    LogTag('[WARNING]', AMessage);
+end;
+
+class procedure TUtils.LogTag(const ATag: String; const AMessage: String);
+begin
+  LogTag(ATag, AMessage, StdOut);
+end;
+
+class procedure TUtils.LogTag(const ATag: String; const AMessage: String; var LogTo: Text);
+var
+  Color: TSimpleColor;
+begin
+  case ATag of
+    '[INFO]'    : Color := scBlue;
+    '[WARN]'    : Color := scYellow;
+    '[WARNING]' : Color := scYellow;
+    '[ERROR]'   : Color := scRed;
+  else
+    Color := scWhite;
+  end;
+  WriteColor(Color, ATag+' ', LogTo);
+  WriteLn(AMessage);
 end;
 
 class procedure TUtils.LogSeparator;
 begin
   if not FQuietMode then
-    WriteLn('[INFO] ', StringOfChar('-', 72));
+    LogInfo(StringOfChar('-', 72));
 end;
 
 class function TUtils.DirectoryContainsIncludeFiles(const ADirectory: string): Boolean;

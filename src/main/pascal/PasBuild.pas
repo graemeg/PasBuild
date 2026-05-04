@@ -63,7 +63,8 @@ begin
   TUtils.QuietMode := Args.Goal = bgResolve;
 
   if not TUtils.QuietMode then
-    WriteLn('[INFO] PasBuild ', PASBUILD_VERSION, ' — Born ', PASBUILD_BUILD_DATE, '. Raised by Graeme Geldenhuys.');
+    TUtils.LogInfo('PasBuild ' + PASBUILD_VERSION + ' — Born ' + PASBUILD_BUILD_DATE + '. Raised by Graeme Geldenhuys.');
+
 
   // Resolve compiler executable and instantiate backend via factory.
   // Precedence: --compiler flag > PASBUILD_COMPILER env > PASBUILD_FPC env (deprecated) > 'fpc'

@@ -231,7 +231,7 @@ begin
     // Deprecated alias
     else if (Arg = '--fpc') then
     begin
-      WriteLn('[WARN] --fpc is deprecated; use --compiler instead');
+      TUtils.LogWarning('--fpc is deprecated; use --compiler instead');
       Inc(I);
       if I > ParamCount then
       begin
