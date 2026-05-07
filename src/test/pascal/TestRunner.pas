@@ -18,6 +18,7 @@ uses
   PasBuild.Test.Config.MultiModule,
   PasBuild.Test.ModuleDiscovery,
   PasBuild.Test.Utils,
+  PasBuild.Test.Utils.Console,
   PasBuild.Test.Repository,
   PasBuild.Test.Config.Dependencies,
   PasBuild.Test.Dependencies,

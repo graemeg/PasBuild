@@ -1,7 +1,7 @@
 {
   This file is part of PasBuild.
 
-  Copyright (c) 2025 Graeme Geldenhuys <graemeg@gmail.com>
+  Copyright (c) 2026 Graeme Geldenhuys <graemeg@gmail.com>
 
   SPDX-License-Identifier: BSD-3-Clause
 

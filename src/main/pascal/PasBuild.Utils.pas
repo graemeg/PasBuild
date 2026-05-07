@@ -554,14 +554,13 @@ var
 begin
   case ATag of
     '[INFO]'    : Color := scBlue;
-    '[WARN]'    : Color := scYellow;
     '[WARNING]' : Color := scYellow;
     '[ERROR]'   : Color := scRed;
   else
     Color := scWhite;
   end;
   WriteColor(Color, ATag+' ', LogTo);
-  WriteLn(AMessage);
+  WriteLn(LogTo, AMessage);
 end;
 
 class procedure TUtils.LogSeparator;
