@@ -54,6 +54,10 @@ var
   PluginPath: string;
   PhaseInfo: TPluginPhaseInfo;
   CompilerPath: string;
+  ParentXml: string;
+  ParentConfig: TProjectConfig;
+  IsParentPom: Boolean;
+  ModuleName: string;
 
 begin
   // Parse command line arguments
@@ -148,7 +152,7 @@ begin
   else
   begin
     try
-      Config := TConfigLoader.LoadProjectXML(Args.ProjectFile);
+      Config := TConfigLoader.LoadProjectXML(Args.ProjectFile, True);
     except
     on E: EProjectConfigError do
     begin
@@ -162,6 +166,39 @@ begin
       ExitCode := 1;
       Exit;
     end;
+    end;
+
+    // When a module omits <version> (inheriting from aggregator) and the user
+    // ran pasbuild from that module's directory, automatically redirect to the
+    // parent aggregator and build only this module.
+    if (Config.Version = '') and (Args.SelectedModule = '') then
+    begin
+      ParentXml := ExpandFileName('../project.xml');
+      if FileExists(ParentXml) then
+      begin
+        ParentConfig := nil;
+        IsParentPom := False;
+        try
+          ParentConfig := TConfigLoader.LoadProjectXML(ParentXml, True);
+          IsParentPom := ParentConfig.BuildConfig.ProjectType = ptPom;
+        except
+          // Ignore load errors; fall through to normal validation (which will
+          // report the missing <version> on the current project).
+        end;
+        if IsParentPom then
+        begin
+          ModuleName := Config.Name;
+          Config.Free;
+          Config := ParentConfig;
+          ParentConfig := nil;
+          TUtils.LogInfo('No <version> found; delegating to aggregator for module "' + ModuleName + '"');
+          SetCurrentDir(ExpandFileName('..'));
+          Args.ProjectFile := 'project.xml';
+          Args.SelectedModule := ModuleName;
+        end
+        else
+          ParentConfig.Free;
+      end;
     end;
   end;
 
