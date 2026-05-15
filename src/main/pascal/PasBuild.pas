@@ -199,6 +199,13 @@ begin
         else
           ParentConfig.Free;
       end;
+      // If still no version after the parent-POM check, restore the original error.
+      if Config.Version = '' then
+      begin
+        TUtils.LogError('Missing required field: <version>');
+        ExitCode := 1;
+        Exit;
+      end;
     end;
   end;
 
