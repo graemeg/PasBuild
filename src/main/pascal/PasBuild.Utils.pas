@@ -57,12 +57,13 @@ type
     class function ExecuteProcessWithLog(const ACommand: string; const ALogFile: string; AShowErrors: Boolean): Integer;
 
     { Compiler detection — delegate to the active backend. }
-    class function DetectFPCVersion: string;
+    class function DetectCompilerVersion: string;
+    class function DetectCompilerName: string;
     class function DetectTargetCPU: string;
     class function DetectTargetOS: string;
-    class function GetTargetTriplet: string;
+    class function GetTargetQuadruplet: string;
     class function GetPackagePlatformSuffix: string;
-    class function IsFPCAvailable: Boolean;
+    class function IsCompilerAvailable: Boolean;
 
     { Path utilities }
     class function QuotePath(const APath: string): string;
@@ -474,9 +475,14 @@ begin
   end;
 end;
 
-class function TUtils.DetectFPCVersion: string;
+class function TUtils.DetectCompilerVersion: string;
 begin
   Result := GetCompilerBackend.GetVersion;
+end;
+
+class function TUtils.DetectCompilerName: string;
+begin
+  Result := LowerCase(GetCompilerBackend.Name);
 end;
 
 class function TUtils.DetectTargetCPU: string;
@@ -489,9 +495,10 @@ begin
   Result := GetCompilerBackend.GetTargetOS;
 end;
 
-class function TUtils.GetTargetTriplet: string;
+class function TUtils.GetTargetQuadruplet: string;
 begin
-  Result := DetectTargetCPU + '-' + DetectTargetOS + '-' + DetectFPCVersion;
+  Result := DetectCompilerName + '-' + DetectTargetCPU + '-' +
+            DetectTargetOS + '-' + DetectCompilerVersion;
 end;
 
 class function TUtils.GetPackagePlatformSuffix: string;
@@ -499,7 +506,7 @@ begin
   Result := DetectTargetCPU + '-' + DetectTargetOS;
 end;
 
-class function TUtils.IsFPCAvailable: Boolean;
+class function TUtils.IsCompilerAvailable: Boolean;
 begin
   Result := GetCompilerBackend.GetVersion <> '';
 end;

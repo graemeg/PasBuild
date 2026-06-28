@@ -21,7 +21,7 @@ var
   UnitPaths, ActiveDefines: TStringList;
   ConditionalPaths: TConditionalPathList;
   Path: string;
-  FPCVersion: string;
+  CompilerVersion: string;
 
 begin
   WriteLn('=== Testing PasBuild.Utils ===');
@@ -60,15 +60,15 @@ begin
   end;
   WriteLn;
 
-  // Test FPC detection
-  WriteLn('[FPC Detection]');
-  if TUtils.IsFPCAvailable then
+  // Test compiler detection
+  WriteLn('[Compiler Detection]');
+  if TUtils.IsCompilerAvailable then
   begin
-    FPCVersion := TUtils.DetectFPCVersion;
-    WriteLn('  ✓ FPC found: version ', FPCVersion);
+    CompilerVersion := TUtils.DetectCompilerVersion;
+    WriteLn('  ✓ Compiler found: version ', CompilerVersion);
   end
   else
-    WriteLn('  ✗ FPC not found in PATH');
+    WriteLn('  ✗ Compiler not found in PATH');
   WriteLn;
 
   // Test platform utilities

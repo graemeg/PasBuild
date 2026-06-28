@@ -49,7 +49,8 @@ type
   { Tests for TResolveCommand — multi-module aggregator projects }
   TTestResolveCommandMulti = class(TTestCase)
   private
-    FTriplet: string;
+    FTargetId: string;
+    FRepo: TLocalRepository;
     function BuildThreeModuleRegistry: TModuleRegistry;
     procedure InstallMockArtifact(const AName, AVersion: string);
     procedure CleanupMockArtifact(const AName, AVersion: string);
@@ -571,8 +572,8 @@ var
   UnitsDir, DummyFile: string;
   F: TextFile;
 begin
-  TLocalRepository.EnsureDirectoryStructure(AName, AVersion, FTriplet);
-  UnitsDir := TLocalRepository.GetUnitsPath(AName, AVersion, FTriplet);
+  FRepo.EnsureDirectoryStructure(AName, AVersion, FTargetId);
+  UnitsDir := FRepo.GetUnitsPath(AName, AVersion, FTargetId);
   DummyFile := IncludeTrailingPathDelimiter(UnitsDir) + AName + '.ppu';
   AssignFile(F, DummyFile);
   Rewrite(F);
@@ -585,12 +586,13 @@ begin
     Metadata.Name := AName;
     Metadata.Version := AVersion;
     Metadata.Packaging := 'library';
-    Metadata.FPCVersion := '3.2.2';
+    Metadata.Compiler := 'fpc';
+    Metadata.CompilerVersion := '3.2.2';
     Metadata.TargetCPU := 'x86_64';
     Metadata.TargetOS := 'linux';
     Metadata.Timestamp := FormatDateTime('yyyy-mm-dd"T"hh:nn:ss', Now);
     Metadata.Dependencies := DepArray;
-    TLocalRepository.WriteMetadata(AName, AVersion, FTriplet, Metadata);
+    FRepo.WriteMetadata(AName, AVersion, FTargetId, Metadata);
   finally
     Metadata.Free;
   end;
@@ -600,28 +602,30 @@ procedure TTestResolveCommandMulti.CleanupMockArtifact(const AName, AVersion: st
 var
   ArtifactDir, UnitsDir: string;
 begin
-  ArtifactDir := TLocalRepository.GetArtifactPath(AName, AVersion, FTriplet);
+  ArtifactDir := FRepo.GetArtifactPath(AName, AVersion, FTargetId);
   if not DirectoryExists(ArtifactDir) then
     Exit;
   { Remove units directory contents and directory }
-  UnitsDir := TLocalRepository.GetUnitsPath(AName, AVersion, FTriplet);
+  UnitsDir := FRepo.GetUnitsPath(AName, AVersion, FTargetId);
   DeleteFile(IncludeTrailingPathDelimiter(UnitsDir) + AName + '.ppu');
   RemoveDir(UnitsDir);
   { Remove metadata and artifact directory }
-  DeleteFile(TLocalRepository.GetMetadataPath(AName, AVersion, FTriplet));
+  DeleteFile(FRepo.GetMetadataPath(AName, AVersion, FTargetId));
   RemoveDir(ArtifactDir);
 end;
 
 procedure TTestResolveCommandMulti.SetUp;
 begin
   inherited SetUp;
-  FTriplet := TUtils.GetTargetTriplet;
+  FTargetId := TUtils.GetTargetQuadruplet;
+  FRepo := TLocalRepository.Create;
   InstallMockArtifact('some-ext', '2.0.0');
 end;
 
 procedure TTestResolveCommandMulti.TearDown;
 begin
   CleanupMockArtifact('some-ext', '2.0.0');
+  FRepo.Free;
   inherited TearDown;
 end;
 

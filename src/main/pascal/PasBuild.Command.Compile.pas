@@ -333,7 +333,7 @@ begin
   // Check the configured compiler responds to a version probe.  Report the
   // actual executable (which may be a --compiler override like ppcx64), not a
   // hardcoded 'fpc' — the old message misled users who passed --compiler.
-  if not TUtils.IsFPCAvailable then
+  if not TUtils.IsCompilerAvailable then
   begin
     TUtils.LogError('Compiler not found or not responding: '
       + TUtils.GetCompilerBackend.Executable);

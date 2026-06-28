@@ -16,7 +16,8 @@ interface
 
 uses
   Classes, SysUtils,
-  PasBuild.Types;
+  PasBuild.Types,
+  PasBuild.Repository;
 
 type
   { Exception raised when dependency resolution fails }
@@ -27,7 +28,8 @@ type
   private
     FVerbose: Boolean;
     FVisited: TStringList;
-    procedure ResolveOne(const AName, AVersion, ATriplet: string;
+    FRepository: TLocalRepository;
+    procedure ResolveOne(const AName, AVersion, ATargetId: string;
       AResolvedPaths: TStringList);
   public
     constructor Create;
@@ -43,8 +45,7 @@ type
 implementation
 
 uses
-  PasBuild.Utils,
-  PasBuild.Repository;
+  PasBuild.Utils;
 
 { TDependencyResolver }
 
@@ -55,15 +56,17 @@ begin
   FVisited.Sorted := True;
   FVisited.Duplicates := dupIgnore;
   FVerbose := False;
+  FRepository := TLocalRepository.Create;
 end;
 
 destructor TDependencyResolver.Destroy;
 begin
+  FRepository.Free;
   FVisited.Free;
   inherited Destroy;
 end;
 
-procedure TDependencyResolver.ResolveOne(const AName, AVersion, ATriplet: string;
+procedure TDependencyResolver.ResolveOne(const AName, AVersion, ATargetId: string;
   AResolvedPaths: TStringList);
 var
   Key, UnitsPath: string;
@@ -79,17 +82,15 @@ begin
     Exit;
   FVisited.Add(Key);
 
-  // Check if artifact exists in local repository
-  if not TLocalRepository.ArtifactExists(AName, AVersion, ATriplet) then
+  if not FRepository.ArtifactExists(AName, AVersion, ATargetId) then
   begin
-    // Provide helpful error: check if artifact exists for other targets
-    Targets := TLocalRepository.GetAvailableTargets(AName, AVersion);
+    Targets := FRepository.GetAvailableTargets(AName, AVersion);
     try
       if Targets.Count > 0 then
         raise EDependencyError.CreateFmt(
           'Dependency "%s:%s" not found for target "%s". ' +
-          'Available targets: %s. Recompile and install with matching FPC target.',
-          [AName, AVersion, ATriplet, Targets.CommaText])
+          'Available targets: %s. Recompile and install with matching compiler target.',
+          [AName, AVersion, ATargetId, Targets.CommaText])
       else
         raise EDependencyError.CreateFmt(
           'Dependency "%s:%s" not found in local repository. ' +
@@ -100,23 +101,21 @@ begin
     end;
   end;
 
-  // Add units path
-  UnitsPath := TLocalRepository.GetUnitsPath(AName, AVersion, ATriplet);
+  UnitsPath := FRepository.GetUnitsPath(AName, AVersion, ATargetId);
   if AResolvedPaths.IndexOf(UnitsPath) < 0 then
     AResolvedPaths.Add(UnitsPath);
 
   if FVerbose then
     TUtils.LogInfo('  Resolved: ' + AName + ':' + AVersion + ' -> ' + UnitsPath);
 
-  // Read metadata to find transitive dependencies
-  Metadata := TLocalRepository.ReadMetadata(AName, AVersion, ATriplet);
+  Metadata := FRepository.ReadMetadata(AName, AVersion, ATargetId);
   try
     for I := 0 to Length(Metadata.Dependencies) - 1 do
     begin
       ResolveOne(
         Metadata.Dependencies[I].Name,
         Metadata.Dependencies[I].Version,
-        ATriplet,
+        ATargetId,
         AResolvedPaths
       );
     end;
@@ -127,7 +126,7 @@ end;
 
 procedure TDependencyResolver.ResolveDependencies(AConfig: TProjectConfig);
 var
-  Triplet: string;
+  TargetId: string;
   I: Integer;
 begin
   if AConfig.Dependencies.Count = 0 then
@@ -139,8 +138,7 @@ begin
     TUtils.LogInfo('Resolving ' + IntToStr(AConfig.Dependencies.Count) +
                    ' external dependencies...');
 
-  // Detect target triplet once
-  Triplet := TUtils.GetTargetTriplet;
+  TargetId := TUtils.GetTargetQuadruplet;
 
   // Clear visited set for this resolution run
   FVisited.Clear;
@@ -151,7 +149,7 @@ begin
     ResolveOne(
       AConfig.Dependencies[I].Name,
       AConfig.Dependencies[I].Version,
-      Triplet,
+      TargetId,
       AConfig.BuildConfig.ResolvedModulePaths
     );
   end;

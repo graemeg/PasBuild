@@ -43,7 +43,7 @@ type
     procedure TestSetCustomPath;
     procedure TestSetAbsolutePath;
     procedure TestResetToDefault;
-    procedure TestCustomFPCUsedByIsFPCAvailable;
+    procedure TestCustomFPCUsedByIsCompilerAvailable;
   end;
 
   { Test TCommandLineArgs.CompilerExecutable field }
@@ -67,17 +67,17 @@ type
     procedure TestDoubleAmpersand;
   end;
 
-  { Test FPC target detection utilities }
-  TTestFPCTargetDetection = class(TTestCase)
+  { Test compiler target detection utilities }
+  TTestCompilerTargetDetection = class(TTestCase)
   published
     procedure TestDetectTargetCPU;
     procedure TestDetectTargetOS;
-    procedure TestGetTargetTriplet;
-    procedure TestTargetTripletFormat;
+    procedure TestGetTargetQuadruplet;
+    procedure TestTargetQuadrupletFormat;
     procedure TestGetPackagePlatformSuffixNotEmpty;
     procedure TestGetPackagePlatformSuffixTwoComponents;
-    procedure TestGetPackagePlatformSuffixNoFPCVersion;
-    procedure TestGetPackagePlatformSuffixMatchesTriplet;
+    procedure TestGetPackagePlatformSuffixNoCompilerVersion;
+    procedure TestGetPackagePlatformSuffixMatchesQuadruplet;
   end;
 
   { Test Blaise backend --no-incremental handling }
@@ -170,12 +170,11 @@ begin
     'fpc', TUtils.GetCompilerBackend.Executable);
 end;
 
-procedure TTestFPCExecutable.TestCustomFPCUsedByIsFPCAvailable;
+procedure TTestFPCExecutable.TestCustomFPCUsedByIsCompilerAvailable;
 begin
-  { Setting a nonexistent backend should cause IsFPCAvailable to return False }
   TUtils.SetCompilerBackend(TFPCBackend.Create('nonexistent-fpc-binary-that-does-not-exist'));
-  AssertFalse('IsFPCAvailable should return False for nonexistent binary',
-    TUtils.IsFPCAvailable);
+  AssertFalse('IsCompilerAvailable should return False for nonexistent binary',
+    TUtils.IsCompilerAvailable);
 end;
 
 { TTestCLIFPCExecutable }
@@ -226,15 +225,15 @@ begin
   end;
 end;
 
-{ TTestFPCTargetDetection }
+{ TTestCompilerTargetDetection }
 
-procedure TTestFPCTargetDetection.TestDetectTargetCPU;
+procedure TTestCompilerTargetDetection.TestDetectTargetCPU;
 var
   CPU: string;
 begin
-  if not TUtils.IsFPCAvailable then
+  if not TUtils.IsCompilerAvailable then
   begin
-    Ignore('FPC not available');
+    Ignore('Compiler not available');
     Exit;
   end;
   CPU := TUtils.DetectTargetCPU;
@@ -242,13 +241,13 @@ begin
   AssertTrue('Target CPU should not be error value', CPU <> 'Unknown');
 end;
 
-procedure TTestFPCTargetDetection.TestDetectTargetOS;
+procedure TTestCompilerTargetDetection.TestDetectTargetOS;
 var
   OS: string;
 begin
-  if not TUtils.IsFPCAvailable then
+  if not TUtils.IsCompilerAvailable then
   begin
-    Ignore('FPC not available');
+    Ignore('Compiler not available');
     Exit;
   end;
   OS := TUtils.DetectTargetOS;
@@ -256,76 +255,80 @@ begin
   AssertTrue('Target OS should not be error value', OS <> 'Unknown');
 end;
 
-procedure TTestFPCTargetDetection.TestGetTargetTriplet;
+procedure TTestCompilerTargetDetection.TestGetTargetQuadruplet;
 var
-  Triplet: string;
+  Quadruplet: string;
 begin
-  if not TUtils.IsFPCAvailable then
+  if not TUtils.IsCompilerAvailable then
   begin
-    Ignore('FPC not available');
+    Ignore('Compiler not available');
     Exit;
   end;
-  Triplet := TUtils.GetTargetTriplet;
-  AssertTrue('Target triplet should not be empty', Triplet <> '');
-  // Should contain exactly two hyphens (cpu-os-version)
-  AssertTrue('Target triplet should contain at least two hyphens',
-    (Pos('-', Triplet) > 0) and (Pos('-', Copy(Triplet, Pos('-', Triplet) + 1, MaxInt)) > 0));
+  Quadruplet := TUtils.GetTargetQuadruplet;
+  AssertTrue('Target quadruplet should not be empty', Quadruplet <> '');
+  // Should contain exactly three hyphens (compiler-cpu-os-version)
+  AssertEquals('Target quadruplet should contain exactly three hyphens',
+    3, Length(Quadruplet) - Length(StringReplace(Quadruplet, '-', '', [rfReplaceAll])));
 end;
 
-procedure TTestFPCTargetDetection.TestTargetTripletFormat;
+procedure TTestCompilerTargetDetection.TestTargetQuadrupletFormat;
 var
-  Triplet, CPU, OS, Version: string;
-  FirstDash, SecondDash: Integer;
+  Quadruplet: string;
+  Parts: TStringList;
 begin
-  if not TUtils.IsFPCAvailable then
+  if not TUtils.IsCompilerAvailable then
   begin
-    Ignore('FPC not available');
+    Ignore('Compiler not available');
     Exit;
   end;
-  Triplet := TUtils.GetTargetTriplet;
+  Quadruplet := TUtils.GetTargetQuadruplet;
 
-  // Parse the triplet
-  FirstDash := Pos('-', Triplet);
-  AssertTrue('First dash should exist', FirstDash > 0);
-  CPU := Copy(Triplet, 1, FirstDash - 1);
+  Parts := TStringList.Create;
+  try
+    Parts.Delimiter := '-';
+    Parts.StrictDelimiter := True;
+    Parts.DelimitedText := Quadruplet;
 
-  SecondDash := Pos('-', Copy(Triplet, FirstDash + 1, MaxInt));
-  AssertTrue('Second dash should exist', SecondDash > 0);
-  OS := Copy(Triplet, FirstDash + 1, SecondDash - 1);
-  Version := Copy(Triplet, FirstDash + SecondDash + 1, MaxInt);
+    AssertTrue('Should have at least 4 parts', Parts.Count >= 4);
+    AssertTrue('Compiler component should not be empty', Parts[0] <> '');
+    AssertTrue('CPU component should not be empty', Parts[1] <> '');
+    AssertTrue('OS component should not be empty', Parts[2] <> '');
+    AssertTrue('Version component should not be empty', Parts[Parts.Count - 1] <> '');
 
-  AssertTrue('CPU component should not be empty', CPU <> '');
-  AssertTrue('OS component should not be empty', OS <> '');
-  AssertTrue('Version component should not be empty', Version <> '');
-
-  // Version should match DetectFPCVersion
-  AssertEquals('Version component should match DetectFPCVersion',
-    TUtils.DetectFPCVersion, Version);
+    AssertEquals('Compiler component should match DetectCompilerName',
+      TUtils.DetectCompilerName, Parts[0]);
+    AssertEquals('CPU component should match DetectTargetCPU',
+      TUtils.DetectTargetCPU, Parts[1]);
+    AssertEquals('OS component should match DetectTargetOS',
+      TUtils.DetectTargetOS, Parts[2]);
+  finally
+    Parts.Free;
+  end;
 end;
 
-{ TTestFPCTargetDetection — GetPackagePlatformSuffix }
+{ TTestCompilerTargetDetection - GetPackagePlatformSuffix }
 
-procedure TTestFPCTargetDetection.TestGetPackagePlatformSuffixNotEmpty;
+procedure TTestCompilerTargetDetection.TestGetPackagePlatformSuffixNotEmpty;
 var
   Suffix: string;
 begin
-  if not TUtils.IsFPCAvailable then
+  if not TUtils.IsCompilerAvailable then
   begin
-    Ignore('FPC not available');
+    Ignore('Compiler not available');
     Exit;
   end;
   Suffix := TUtils.GetPackagePlatformSuffix;
   AssertTrue('Package platform suffix should not be empty', Suffix <> '');
 end;
 
-procedure TTestFPCTargetDetection.TestGetPackagePlatformSuffixTwoComponents;
+procedure TTestCompilerTargetDetection.TestGetPackagePlatformSuffixTwoComponents;
 var
   Suffix: string;
   DashPos: Integer;
 begin
-  if not TUtils.IsFPCAvailable then
+  if not TUtils.IsCompilerAvailable then
   begin
-    Ignore('FPC not available');
+    Ignore('Compiler not available');
     Exit;
   end;
   Suffix := TUtils.GetPackagePlatformSuffix;
@@ -333,46 +336,49 @@ begin
   AssertTrue('Suffix should contain a hyphen separating cpu and os', DashPos > 0);
   AssertTrue('cpu component should not be empty', DashPos > 1);
   AssertTrue('os component should not be empty', Length(Suffix) > DashPos);
-  // Exactly one hyphen: no second hyphen after the first
-  AssertEquals('Suffix should have exactly one hyphen (cpu-os, no fpc version)',
+  AssertEquals('Suffix should have exactly one hyphen (cpu-os, no compiler version)',
     0, Pos('-', Copy(Suffix, DashPos + 1, MaxInt)));
 end;
 
-procedure TTestFPCTargetDetection.TestGetPackagePlatformSuffixNoFPCVersion;
+procedure TTestCompilerTargetDetection.TestGetPackagePlatformSuffixNoCompilerVersion;
 var
-  Suffix, FPCVersion: string;
+  Suffix, CompilerVersion: string;
 begin
-  if not TUtils.IsFPCAvailable then
+  if not TUtils.IsCompilerAvailable then
   begin
-    Ignore('FPC not available');
+    Ignore('Compiler not available');
     Exit;
   end;
   Suffix := TUtils.GetPackagePlatformSuffix;
-  FPCVersion := TUtils.DetectFPCVersion;
-  AssertEquals('Package suffix must not contain the FPC version',
-    0, Pos(FPCVersion, Suffix));
+  CompilerVersion := TUtils.DetectCompilerVersion;
+  AssertEquals('Package suffix must not contain the compiler version',
+    0, Pos(CompilerVersion, Suffix));
 end;
 
-procedure TTestFPCTargetDetection.TestGetPackagePlatformSuffixMatchesTriplet;
+procedure TTestCompilerTargetDetection.TestGetPackagePlatformSuffixMatchesQuadruplet;
 var
-  Suffix, Triplet, CPU, OS: string;
-  FirstDash: Integer;
+  Suffix, Quadruplet: string;
+  Parts: TStringList;
 begin
-  if not TUtils.IsFPCAvailable then
+  if not TUtils.IsCompilerAvailable then
   begin
-    Ignore('FPC not available');
+    Ignore('Compiler not available');
     Exit;
   end;
   Suffix := TUtils.GetPackagePlatformSuffix;
-  Triplet := TUtils.GetTargetTriplet;
+  Quadruplet := TUtils.GetTargetQuadruplet;
 
-  // Extract cpu and os from triplet (format: cpu-os-fpcversion)
-  FirstDash := Pos('-', Triplet);
-  CPU := Copy(Triplet, 1, FirstDash - 1);
-  OS  := Copy(Triplet, FirstDash + 1, Pos('-', Copy(Triplet, FirstDash + 1, MaxInt)) - 1);
+  Parts := TStringList.Create;
+  try
+    Parts.Delimiter := '-';
+    Parts.StrictDelimiter := True;
+    Parts.DelimitedText := Quadruplet;
 
-  AssertEquals('Package suffix should equal cpu-os from the full triplet',
-    CPU + '-' + OS, Suffix);
+    AssertEquals('Package suffix should equal cpu-os from the quadruplet',
+      Parts[1] + '-' + Parts[2], Suffix);
+  finally
+    Parts.Free;
+  end;
 end;
 
 { TTestXmlEscapeText }
@@ -498,7 +504,7 @@ initialization
   RegisterTest(TTestFPCExecutable);
   RegisterTest(TTestCLIFPCExecutable);
   RegisterTest(TTestXmlEscapeText);
-  RegisterTest(TTestFPCTargetDetection);
+  RegisterTest(TTestCompilerTargetDetection);
   RegisterTest(TTestBlaiseIncremental);
 
 end.

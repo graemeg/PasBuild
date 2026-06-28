@@ -340,7 +340,7 @@ begin
   // Show which compiler is being used and its version
   WriteLn('Compiler backend : ', TUtils.GetCompilerBackend.Name);
   WriteLn('Compiler path    : ', TUtils.GetCompilerBackend.Executable);
-  WriteLn('Compiler version : ', TUtils.DetectFPCVersion());
+  WriteLn('Compiler version : ', TUtils.DetectCompilerVersion());
   WriteLn;
 end;
 

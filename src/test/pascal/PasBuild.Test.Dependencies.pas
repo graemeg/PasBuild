@@ -24,7 +24,8 @@ type
   { Test dependency resolution from local repository }
   TTestDependencyResolver = class(TTestCase)
   private
-    FTriplet: string;
+    FRepo: TLocalRepository;
+    FTargetId: string;
     procedure InstallMockArtifact(const AName, AVersion: string;
       const ADeps: array of string);
     procedure CleanupMockArtifact(const AName, AVersion: string);
@@ -58,10 +59,10 @@ var
   F: TextFile;
 begin
   // Create directory structure
-  TLocalRepository.EnsureDirectoryStructure(AName, AVersion, FTriplet);
+  FRepo.EnsureDirectoryStructure(AName, AVersion, FTargetId);
 
   // Create a dummy .ppu file so the artifact looks real
-  UnitsDir := TLocalRepository.GetUnitsPath(AName, AVersion, FTriplet);
+  UnitsDir := FRepo.GetUnitsPath(AName, AVersion, FTargetId);
   DummyFile := IncludeTrailingPathDelimiter(UnitsDir) + AName + '.ppu';
   AssignFile(F, DummyFile);
   Rewrite(F);
@@ -84,12 +85,13 @@ begin
     Metadata.Name := AName;
     Metadata.Version := AVersion;
     Metadata.Packaging := 'library';
-    Metadata.FPCVersion := '3.2.2';
+    Metadata.Compiler := 'fpc';
+    Metadata.CompilerVersion := '3.2.2';
     Metadata.TargetCPU := 'x86_64';
     Metadata.TargetOS := 'linux';
     Metadata.Timestamp := '2026-01-01T00:00:00';
     Metadata.Dependencies := DepArray;
-    TLocalRepository.WriteMetadata(AName, AVersion, FTriplet, Metadata);
+    FRepo.WriteMetadata(AName, AVersion, FTargetId, Metadata);
   finally
     Metadata.Free;
   end;
@@ -127,17 +129,19 @@ var
   end;
 
 begin
-  ArtifactPath := TLocalRepository.GetArtifactPath(AName, AVersion, FTriplet);
+  ArtifactPath := FRepo.GetArtifactPath(AName, AVersion, FTargetId);
   RemoveDirRecursive(ArtifactPath);
 end;
 
 procedure TTestDependencyResolver.SetUp;
 begin
-  FTriplet := TUtils.GetTargetTriplet;
+  FRepo := TLocalRepository.Create;
+  FTargetId := TUtils.GetTargetQuadruplet;
 end;
 
 procedure TTestDependencyResolver.TearDown;
 begin
+  FRepo.Free;
   // Cleanup is done per-test in each test method
 end;
 
@@ -274,16 +278,15 @@ var
   Config: TProjectConfig;
   Resolver: TDependencyResolver;
   Metadata: TArtifactMetadata;
-  WrongTriplet: string;
+  WrongTargetId: string;
   UnitsDir, DummyFile: string;
   F: TextFile;
   ExceptionRaised: Boolean;
 begin
-  // Install under a different triplet
-  WrongTriplet := 'arm-darwin-3.2.2';
-  TLocalRepository.EnsureDirectoryStructure('test-dep-wrong-target', '1.0.0', WrongTriplet);
+  WrongTargetId := 'fpc-arm-darwin-3.2.2';
+  FRepo.EnsureDirectoryStructure('test-dep-wrong-target', '1.0.0', WrongTargetId);
 
-  UnitsDir := TLocalRepository.GetUnitsPath('test-dep-wrong-target', '1.0.0', WrongTriplet);
+  UnitsDir := FRepo.GetUnitsPath('test-dep-wrong-target', '1.0.0', WrongTargetId);
   DummyFile := IncludeTrailingPathDelimiter(UnitsDir) + 'dummy.ppu';
   AssignFile(F, DummyFile);
   Rewrite(F);
@@ -295,11 +298,12 @@ begin
     Metadata.Name := 'test-dep-wrong-target';
     Metadata.Version := '1.0.0';
     Metadata.Packaging := 'library';
-    Metadata.FPCVersion := '3.2.2';
+    Metadata.Compiler := 'fpc';
+    Metadata.CompilerVersion := '3.2.2';
     Metadata.TargetCPU := 'arm';
     Metadata.TargetOS := 'darwin';
     Metadata.Timestamp := '2026-01-01T00:00:00';
-    TLocalRepository.WriteMetadata('test-dep-wrong-target', '1.0.0', WrongTriplet, Metadata);
+    FRepo.WriteMetadata('test-dep-wrong-target', '1.0.0', WrongTargetId, Metadata);
   finally
     Metadata.Free;
   end;
@@ -320,7 +324,7 @@ begin
           AssertTrue('Error should mention target',
             Pos('target', LowerCase(E.Message)) > 0);
           AssertTrue('Error should list available targets',
-            Pos('arm-darwin-3.2.2', E.Message) > 0);
+            Pos('fpc-arm-darwin-3.2.2', E.Message) > 0);
         end;
       end;
     finally
@@ -330,16 +334,15 @@ begin
     AssertTrue('Target mismatch should raise exception', ExceptionRaised);
   finally
     Config.Free;
-    // Clean up the wrong triplet directory
     DeleteFile(IncludeTrailingPathDelimiter(
-      TLocalRepository.GetUnitsPath('test-dep-wrong-target', '1.0.0', WrongTriplet)) + 'dummy.ppu');
-    DeleteFile(TLocalRepository.GetMetadataPath('test-dep-wrong-target', '1.0.0', WrongTriplet));
-    RemoveDir(TLocalRepository.GetUnitsPath('test-dep-wrong-target', '1.0.0', WrongTriplet));
-    RemoveDir(TLocalRepository.GetArtifactPath('test-dep-wrong-target', '1.0.0', WrongTriplet));
+      FRepo.GetUnitsPath('test-dep-wrong-target', '1.0.0', WrongTargetId)) + 'dummy.ppu');
+    DeleteFile(FRepo.GetMetadataPath('test-dep-wrong-target', '1.0.0', WrongTargetId));
+    RemoveDir(FRepo.GetUnitsPath('test-dep-wrong-target', '1.0.0', WrongTargetId));
+    RemoveDir(FRepo.GetArtifactPath('test-dep-wrong-target', '1.0.0', WrongTargetId));
     // Remove version and name directories if empty
-    RemoveDir(TLocalRepository.GetRepositoryRoot + DirectorySeparator +
+    RemoveDir(TLocalRepository.GetDefaultRoot + DirectorySeparator +
               'test-dep-wrong-target' + DirectorySeparator + '1.0.0');
-    RemoveDir(TLocalRepository.GetRepositoryRoot + DirectorySeparator +
+    RemoveDir(TLocalRepository.GetDefaultRoot + DirectorySeparator +
               'test-dep-wrong-target');
   end;
 end;

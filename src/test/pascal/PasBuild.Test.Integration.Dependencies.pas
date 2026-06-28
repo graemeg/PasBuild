@@ -26,7 +26,8 @@ type
     install -> config loading -> dependency resolution -> compiler path injection }
   TTestIntegrationInstallAndResolve = class(TTestCase)
   private
-    FTriplet: string;
+    FTargetId: string;
+    FRepo: TLocalRepository;
     function GetFixturePath(const AFileName: string): string;
     procedure InstallMockArtifact(const AName, AVersion: string;
       const ADeps: array of string);
@@ -34,6 +35,7 @@ type
     procedure RemoveDirRecursive(const ADir: string);
   protected
     procedure SetUp; override;
+    procedure TearDown; override;
   published
     procedure TestInstallThenResolveConsumer;
     procedure TestConsumerWithoutInstallFails;
@@ -64,10 +66,10 @@ var
   UnitsDir, DummyFile: string;
   F: TextFile;
 begin
-  TLocalRepository.EnsureDirectoryStructure(AName, AVersion, FTriplet);
+  FRepo.EnsureDirectoryStructure(AName, AVersion, FTargetId);
 
   // Create dummy .ppu and .o files
-  UnitsDir := TLocalRepository.GetUnitsPath(AName, AVersion, FTriplet);
+  UnitsDir := FRepo.GetUnitsPath(AName, AVersion, FTargetId);
   DummyFile := IncludeTrailingPathDelimiter(UnitsDir) + AName + '.ppu';
   AssignFile(F, DummyFile);
   Rewrite(F);
@@ -95,12 +97,13 @@ begin
     Metadata.Name := AName;
     Metadata.Version := AVersion;
     Metadata.Packaging := 'library';
-    Metadata.FPCVersion := '3.2.2';
+    Metadata.Compiler := 'fpc';
+    Metadata.CompilerVersion := '3.2.2';
     Metadata.TargetCPU := 'x86_64';
     Metadata.TargetOS := 'linux';
     Metadata.Timestamp := FormatDateTime('yyyy-mm-dd"T"hh:nn:ss', Now);
     Metadata.Dependencies := DepArray;
-    TLocalRepository.WriteMetadata(AName, AVersion, FTriplet, Metadata);
+    FRepo.WriteMetadata(AName, AVersion, FTargetId, Metadata);
   finally
     Metadata.Free;
   end;
@@ -138,16 +141,22 @@ procedure TTestIntegrationInstallAndResolve.CleanupMockArtifact(
 var
   NameDir: string;
 begin
-  RemoveDirRecursive(TLocalRepository.GetArtifactPath(AName, AVersion, FTriplet));
+  RemoveDirRecursive(FRepo.GetArtifactPath(AName, AVersion, FTargetId));
   // Try to remove parent dirs if empty
-  NameDir := TLocalRepository.GetRepositoryRoot + DirectorySeparator + AName;
+  NameDir := TLocalRepository.GetDefaultRoot + DirectorySeparator + AName;
   RemoveDir(NameDir + DirectorySeparator + AVersion);
   RemoveDir(NameDir);
 end;
 
 procedure TTestIntegrationInstallAndResolve.SetUp;
 begin
-  FTriplet := TUtils.GetTargetTriplet;
+  FTargetId := TUtils.GetTargetQuadruplet;
+  FRepo := TLocalRepository.Create;
+end;
+
+procedure TTestIntegrationInstallAndResolve.TearDown;
+begin
+  FRepo.Free;
 end;
 
 procedure TTestIntegrationInstallAndResolve.TestInstallThenResolveConsumer;
@@ -177,7 +186,7 @@ begin
       AssertEquals('Should have 1 resolved path', 1,
         Config.BuildConfig.ResolvedModulePaths.Count);
 
-      ExpectedUnitsPath := TLocalRepository.GetUnitsPath('test-lib', '1.0.0', FTriplet);
+      ExpectedUnitsPath := FRepo.GetUnitsPath('test-lib', '1.0.0', FTargetId);
       AssertEquals('Resolved path should match repository units path',
         ExpectedUnitsPath, Config.BuildConfig.ResolvedModulePaths[0]);
     finally
@@ -254,8 +263,8 @@ begin
         Config.BuildConfig.ResolvedModulePaths.Count);
 
       // Verify both paths are present
-      BaseUnitsPath := TLocalRepository.GetUnitsPath('test-base-lib', '1.0.0', FTriplet);
-      MidUnitsPath := TLocalRepository.GetUnitsPath('test-mid-lib', '1.0.0', FTriplet);
+      BaseUnitsPath := FRepo.GetUnitsPath('test-base-lib', '1.0.0', FTargetId);
+      MidUnitsPath := FRepo.GetUnitsPath('test-mid-lib', '1.0.0', FTargetId);
 
       FoundBase := False;
       FoundMid := False;
@@ -293,10 +302,10 @@ begin
   try
     // Verify the artifact still exists and resolves
     AssertTrue('Artifact should exist after overwrite',
-      TLocalRepository.ArtifactExists('test-lib', '1.0.0', FTriplet));
+      FRepo.ArtifactExists('test-lib', '1.0.0', FTargetId));
 
     // Read metadata to verify it's valid
-    Metadata := TLocalRepository.ReadMetadata('test-lib', '1.0.0', FTriplet);
+    Metadata := FRepo.ReadMetadata('test-lib', '1.0.0', FTargetId);
     try
       AssertEquals('Metadata name should match', 'test-lib', Metadata.Name);
     finally

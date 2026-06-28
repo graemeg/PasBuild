@@ -31,7 +31,8 @@ type
     FName: string;
     FVersion: string;
     FPackaging: string;
-    FFPCVersion: string;
+    FCompiler: string;
+    FCompilerVersion: string;
     FTargetCPU: string;
     FTargetOS: string;
     FTimestamp: string;
@@ -40,7 +41,8 @@ type
     property Name: string read FName write FName;
     property Version: string read FVersion write FVersion;
     property Packaging: string read FPackaging write FPackaging;
-    property FPCVersion: string read FFPCVersion write FFPCVersion;
+    property Compiler: string read FCompiler write FCompiler;
+    property CompilerVersion: string read FCompilerVersion write FCompilerVersion;
     property TargetCPU: string read FTargetCPU write FTargetCPU;
     property TargetOS: string read FTargetOS write FTargetOS;
     property Timestamp: string read FTimestamp write FTimestamp;
@@ -49,69 +51,88 @@ type
 
   { Local repository management }
   TLocalRepository = class
+  private
+    FRepositoryRoot: string;
   public
-    { Repository root directory }
-    class function GetRepositoryRoot: string;
+    constructor Create; overload;
+    constructor Create(const ARepositoryRoot: string); overload;
+
+    { Default repository root directory }
+    class function GetDefaultRoot: string;
+
+    property RepositoryRoot: string read FRepositoryRoot;
 
     { Path construction }
-    class function GetArtifactPath(const AName, AVersion, ATriplet: string): string;
-    class function GetUnitsPath(const AName, AVersion, ATriplet: string): string;
-    class function GetMetadataPath(const AName, AVersion, ATriplet: string): string;
+    function GetArtifactPath(const AName, AVersion, ATargetId: string): string;
+    function GetUnitsPath(const AName, AVersion, ATargetId: string): string;
+    function GetMetadataPath(const AName, AVersion, ATargetId: string): string;
 
     { Repository queries }
-    class function ArtifactExists(const AName, AVersion, ATriplet: string): Boolean;
-    class function GetAvailableTargets(const AName, AVersion: string): TStringList;
+    function ArtifactExists(const AName, AVersion, ATargetId: string): Boolean;
+    function GetAvailableTargets(const AName, AVersion: string): TStringList;
 
     { Directory management }
-    class procedure EnsureDirectoryStructure(const AName, AVersion, ATriplet: string);
+    procedure EnsureDirectoryStructure(const AName, AVersion, ATargetId: string);
 
     { Artifact installation }
-    class procedure CopyUnitFiles(const ASourceUnitsDir, AName, AVersion, ATriplet: string);
-    class function CountFiles(const ADirectory, APattern: string): Integer;
+    procedure CopyUnitFiles(const ASourceUnitsDir, AName, AVersion, ATargetId: string);
+    function CountFiles(const ADirectory, APattern: string): Integer;
 
     { Metadata operations }
-    class procedure WriteMetadata(const AName, AVersion, ATriplet: string; AMetadata: TArtifactMetadata);
-    class function ReadMetadata(const AName, AVersion, ATriplet: string): TArtifactMetadata;
+    procedure WriteMetadata(const AName, AVersion, ATargetId: string; AMetadata: TArtifactMetadata);
+    function ReadMetadata(const AName, AVersion, ATargetId: string): TArtifactMetadata;
   end;
 
 implementation
 
 { TLocalRepository }
 
-class function TLocalRepository.GetRepositoryRoot: string;
+constructor TLocalRepository.Create;
+begin
+  inherited Create;
+  FRepositoryRoot := GetDefaultRoot;
+end;
+
+constructor TLocalRepository.Create(const ARepositoryRoot: string);
+begin
+  inherited Create;
+  FRepositoryRoot := ARepositoryRoot;
+end;
+
+class function TLocalRepository.GetDefaultRoot: string;
 begin
   Result := IncludeTrailingPathDelimiter(GetUserDir) +
             '.pasbuild' + DirectorySeparator + 'repository';
 end;
 
-class function TLocalRepository.GetArtifactPath(const AName, AVersion, ATriplet: string): string;
+function TLocalRepository.GetArtifactPath(const AName, AVersion, ATargetId: string): string;
 begin
-  Result := GetRepositoryRoot + DirectorySeparator +
+  Result := FRepositoryRoot + DirectorySeparator +
             AName + DirectorySeparator +
             AVersion + DirectorySeparator +
-            ATriplet;
+            ATargetId;
 end;
 
-class function TLocalRepository.GetUnitsPath(const AName, AVersion, ATriplet: string): string;
+function TLocalRepository.GetUnitsPath(const AName, AVersion, ATargetId: string): string;
 begin
-  Result := GetArtifactPath(AName, AVersion, ATriplet) + DirectorySeparator + 'units';
+  Result := GetArtifactPath(AName, AVersion, ATargetId) + DirectorySeparator + 'units';
 end;
 
-class function TLocalRepository.GetMetadataPath(const AName, AVersion, ATriplet: string): string;
+function TLocalRepository.GetMetadataPath(const AName, AVersion, ATargetId: string): string;
 begin
-  Result := GetArtifactPath(AName, AVersion, ATriplet) + DirectorySeparator + 'metadata.xml';
+  Result := GetArtifactPath(AName, AVersion, ATargetId) + DirectorySeparator + 'metadata.xml';
 end;
 
-class function TLocalRepository.ArtifactExists(const AName, AVersion, ATriplet: string): Boolean;
+function TLocalRepository.ArtifactExists(const AName, AVersion, ATargetId: string): Boolean;
 var
   ArtifactDir, MetadataFile: string;
 begin
-  ArtifactDir := GetArtifactPath(AName, AVersion, ATriplet);
-  MetadataFile := GetMetadataPath(AName, AVersion, ATriplet);
+  ArtifactDir := GetArtifactPath(AName, AVersion, ATargetId);
+  MetadataFile := GetMetadataPath(AName, AVersion, ATargetId);
   Result := DirectoryExists(ArtifactDir) and FileExists(MetadataFile);
 end;
 
-class function TLocalRepository.GetAvailableTargets(const AName, AVersion: string): TStringList;
+function TLocalRepository.GetAvailableTargets(const AName, AVersion: string): TStringList;
 var
   SearchRec: TSearchRec;
   VersionDir: string;
@@ -119,7 +140,7 @@ begin
   Result := TStringList.Create;
   Result.Sorted := True;
 
-  VersionDir := GetRepositoryRoot + DirectorySeparator +
+  VersionDir := FRepositoryRoot + DirectorySeparator +
                 AName + DirectorySeparator + AVersion;
 
   if not DirectoryExists(VersionDir) then
@@ -139,16 +160,16 @@ begin
   end;
 end;
 
-class procedure TLocalRepository.EnsureDirectoryStructure(const AName, AVersion, ATriplet: string);
+procedure TLocalRepository.EnsureDirectoryStructure(const AName, AVersion, ATargetId: string);
 var
   UnitsDir: string;
 begin
-  UnitsDir := GetUnitsPath(AName, AVersion, ATriplet);
+  UnitsDir := GetUnitsPath(AName, AVersion, ATargetId);
   if not ForceDirectories(UnitsDir) then
     raise Exception.CreateFmt('Failed to create repository directory: %s', [UnitsDir]);
 end;
 
-class procedure TLocalRepository.CopyUnitFiles(const ASourceUnitsDir, AName, AVersion, ATriplet: string);
+procedure TLocalRepository.CopyUnitFiles(const ASourceUnitsDir, AName, AVersion, ATargetId: string);
 var
   SearchRec: TSearchRec;
   SourcePath, DestPath, DestDir: string;
@@ -157,7 +178,7 @@ begin
   if not DirectoryExists(ASourceUnitsDir) then
     raise Exception.CreateFmt('Source units directory not found: %s', [ASourceUnitsDir]);
 
-  DestDir := GetUnitsPath(AName, AVersion, ATriplet);
+  DestDir := GetUnitsPath(AName, AVersion, ATargetId);
 
   if FindFirst(IncludeTrailingPathDelimiter(ASourceUnitsDir) + '*', faAnyFile, SearchRec) = 0 then
   begin
@@ -192,7 +213,7 @@ begin
   end;
 end;
 
-class function TLocalRepository.CountFiles(const ADirectory, APattern: string): Integer;
+function TLocalRepository.CountFiles(const ADirectory, APattern: string): Integer;
 var
   SearchRec: TSearchRec;
 begin
@@ -213,7 +234,7 @@ begin
   end;
 end;
 
-class procedure TLocalRepository.WriteMetadata(const AName, AVersion, ATriplet: string;
+procedure TLocalRepository.WriteMetadata(const AName, AVersion, ATargetId: string;
   AMetadata: TArtifactMetadata);
 var
   Doc: TXMLDocument;
@@ -221,7 +242,7 @@ var
   I: Integer;
   MetadataPath: string;
 begin
-  MetadataPath := GetMetadataPath(AName, AVersion, ATriplet);
+  MetadataPath := GetMetadataPath(AName, AVersion, ATargetId);
 
   Doc := TXMLDocument.Create;
   try
@@ -246,8 +267,12 @@ begin
     BuildNode := Doc.CreateElement('build');
     RootNode.AppendChild(BuildNode);
 
-    ElemNode := Doc.CreateElement('fpcVersion');
-    ElemNode.AppendChild(Doc.CreateTextNode(AMetadata.FPCVersion));
+    ElemNode := Doc.CreateElement('compiler');
+    ElemNode.AppendChild(Doc.CreateTextNode(AMetadata.Compiler));
+    BuildNode.AppendChild(ElemNode);
+
+    ElemNode := Doc.CreateElement('compilerVersion');
+    ElemNode.AppendChild(Doc.CreateTextNode(AMetadata.CompilerVersion));
     BuildNode.AppendChild(ElemNode);
 
     ElemNode := Doc.CreateElement('targetCPU');
@@ -287,7 +312,7 @@ begin
   end;
 end;
 
-class function TLocalRepository.ReadMetadata(const AName, AVersion, ATriplet: string): TArtifactMetadata;
+function TLocalRepository.ReadMetadata(const AName, AVersion, ATargetId: string): TArtifactMetadata;
 var
   Doc: TXMLDocument;
   RootNode, BuildNode, DepsNode, DepNode, ChildNode: TDOMNode;
@@ -307,7 +332,7 @@ var
   end;
 
 begin
-  MetadataPath := GetMetadataPath(AName, AVersion, ATriplet);
+  MetadataPath := GetMetadataPath(AName, AVersion, ATargetId);
 
   if not FileExists(MetadataPath) then
     raise Exception.CreateFmt('Metadata file not found: %s', [MetadataPath]);
@@ -326,7 +351,15 @@ begin
     BuildNode := RootNode.FindNode('build');
     if BuildNode <> nil then
     begin
-      Result.FPCVersion := GetChildText(BuildNode, 'fpcVersion');
+      Result.Compiler := GetChildText(BuildNode, 'compiler');
+      Result.CompilerVersion := GetChildText(BuildNode, 'compilerVersion');
+      // Backwards compat: old metadata used <fpcVersion> without <compiler>
+      if (Result.CompilerVersion = '') and (Result.Compiler = '') then
+      begin
+        Result.CompilerVersion := GetChildText(BuildNode, 'fpcVersion');
+        if Result.CompilerVersion <> '' then
+          Result.Compiler := 'fpc';
+      end;
       Result.TargetCPU := GetChildText(BuildNode, 'targetCPU');
       Result.TargetOS := GetChildText(BuildNode, 'targetOS');
       Result.Timestamp := GetChildText(BuildNode, 'timestamp');
