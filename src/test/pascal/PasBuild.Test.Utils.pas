@@ -90,6 +90,22 @@ type
     procedure TestFPCIgnoresNoIncremental;
   end;
 
+  TTestCacheDirectories = class(TTestCase)
+  published
+    procedure TestGetCacheRootContainsPasbuild;
+    procedure TestGetDownloadCacheDirUnderCacheRoot;
+    procedure TestGetBuildCacheDirUnderCacheRoot;
+    procedure TestEnsureCacheDirCreatesDirectory;
+  end;
+
+  TTestCLIOfflineFlag = class(TTestCase)
+  published
+    procedure TestOfflineModeFieldExists;
+    procedure TestOfflineModeDefaultFalse;
+    procedure TestForceFetchFieldExists;
+    procedure TestForceFetchDefaultFalse;
+  end;
+
 implementation
 
 { TTestQuotePath }
@@ -499,6 +515,80 @@ begin
   end;
 end;
 
+{ TTestCacheDirectories }
+
+procedure TTestCacheDirectories.TestGetCacheRootContainsPasbuild;
+begin
+  AssertTrue('Cache root contains .pasbuild',
+    Pos('.pasbuild', TUtils.GetCacheRoot) > 0);
+  AssertTrue('Cache root ends with cache',
+    Copy(TUtils.GetCacheRoot, Length(TUtils.GetCacheRoot) - 4, 5) = 'cache');
+end;
+
+procedure TTestCacheDirectories.TestGetDownloadCacheDirUnderCacheRoot;
+begin
+  AssertTrue('Download cache under cache root',
+    Pos(TUtils.GetCacheRoot, TUtils.GetDownloadCacheDir) = 1);
+  AssertTrue('Download cache ends with downloads',
+    Copy(TUtils.GetDownloadCacheDir,
+      Length(TUtils.GetDownloadCacheDir) - 8, 9) = 'downloads');
+end;
+
+procedure TTestCacheDirectories.TestGetBuildCacheDirUnderCacheRoot;
+begin
+  AssertTrue('Build cache under cache root',
+    Pos(TUtils.GetCacheRoot, TUtils.GetBuildCacheDir) = 1);
+  AssertTrue('Build cache ends with builds',
+    Copy(TUtils.GetBuildCacheDir,
+      Length(TUtils.GetBuildCacheDir) - 5, 6) = 'builds');
+end;
+
+procedure TTestCacheDirectories.TestEnsureCacheDirCreatesDirectory;
+var
+  Dir: string;
+begin
+  Dir := TUtils.EnsureCacheDir('test-ensure');
+  try
+    AssertTrue('Directory should exist', DirectoryExists(Dir));
+  finally
+    RemoveDir(Dir);
+  end;
+end;
+
+{ TTestCLIOfflineFlag }
+
+procedure TTestCLIOfflineFlag.TestOfflineModeFieldExists;
+var
+  Args: TCommandLineArgs;
+begin
+  Args.OfflineMode := True;
+  AssertTrue('OfflineMode field is writable', Args.OfflineMode);
+end;
+
+procedure TTestCLIOfflineFlag.TestOfflineModeDefaultFalse;
+var
+  Args: TCommandLineArgs;
+begin
+  Args.OfflineMode := False;
+  AssertFalse('OfflineMode default is false', Args.OfflineMode);
+end;
+
+procedure TTestCLIOfflineFlag.TestForceFetchFieldExists;
+var
+  Args: TCommandLineArgs;
+begin
+  Args.ForceFetch := True;
+  AssertTrue('ForceFetch field is writable', Args.ForceFetch);
+end;
+
+procedure TTestCLIOfflineFlag.TestForceFetchDefaultFalse;
+var
+  Args: TCommandLineArgs;
+begin
+  Args.ForceFetch := False;
+  AssertFalse('ForceFetch default is false', Args.ForceFetch);
+end;
+
 initialization
   RegisterTest(TTestQuotePath);
   RegisterTest(TTestFPCExecutable);
@@ -506,5 +596,7 @@ initialization
   RegisterTest(TTestXmlEscapeText);
   RegisterTest(TTestCompilerTargetDetection);
   RegisterTest(TTestBlaiseIncremental);
+  RegisterTest(TTestCacheDirectories);
+  RegisterTest(TTestCLIOfflineFlag);
 
 end.

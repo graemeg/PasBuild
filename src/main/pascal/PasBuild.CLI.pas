@@ -35,6 +35,8 @@ type
     ForceAllModules: Boolean;  // True when --all is passed; overrides activeByDefault=false
     CompilerExecutable: string;  // Custom Pascal compiler path (empty = default 'fpc')
     NoIncremental: Boolean;  // Disable incremental compilation (Blaise: --no-incremental; FPC: ignored)
+    OfflineMode: Boolean;  // Disable remote dependency fetching
+    ForceFetch: Boolean;  // Re-download remote dependencies even if already in local repository
     ShowHelp: Boolean;
     ShowVersion: Boolean;
     ShowLicense: Boolean;
@@ -112,6 +114,8 @@ begin
   Result.ForceAllModules := False;  // Default: respect activeByDefault
   Result.CompilerExecutable := '';  // Default: use 'fpc' from PATH
   Result.NoIncremental := False;  // Default: let the compiler use its own default
+  Result.OfflineMode := False;  // Default: allow remote fetching
+  Result.ForceFetch := False;  // Default: use cached dependencies
   Result.ShowHelp := False;
   Result.ShowVersion := False;
   Result.ShowLicense := False;
@@ -224,6 +228,16 @@ begin
     begin
       Result.NoIncremental := True;
     end
+    // Disable remote dependency fetching
+    else if (Arg = '--offline') then
+    begin
+      Result.OfflineMode := True;
+    end
+    // Force re-download of remote dependencies
+    else if (Arg = '--force-fetch') then
+    begin
+      Result.ForceFetch := True;
+    end
     // Compiler executable flag
     else if (Arg = '--compiler') then
     begin
@@ -302,6 +316,8 @@ begin
   WriteLn('  -f <file>, --file <file>     Use alternate project file (default: project.xml)');
   WriteLn('  --compiler <path>            Use custom Pascal compiler (default: fpc)');
   WriteLn('  --fpc <path>                 Deprecated alias for --compiler');
+  WriteLn('  --offline                    Disable remote dependency fetching');
+  WriteLn('  --force-fetch                Re-download remote dependencies even if cached');
   WriteLn('  -v, --verbose                Show full compiler output');
   WriteLn('  -h, --help                   Show this help message');
   WriteLn('  --version                    Show version information');

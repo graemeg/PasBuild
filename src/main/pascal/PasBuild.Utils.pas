@@ -82,6 +82,12 @@ type
     class procedure LogTag(const ATag: String; const AMessage: String; var LogTo: Text);
     class procedure LogSeparator;
 
+    { Cache directory helpers }
+    class function GetCacheRoot: string;
+    class function GetDownloadCacheDir: string;
+    class function GetBuildCacheDir: string;
+    class function EnsureCacheDir(const ASubDir: string): string;
+
     { Build status tracking }
     class function CreateStatusDirectory(const AGoalName: string): string;
     class function CollectSourceFiles(const ABaseDir: string): TStringList;
@@ -744,6 +750,29 @@ begin
   finally
     DirList.Free;
   end;
+end;
+
+class function TUtils.GetCacheRoot: string;
+begin
+  Result := IncludeTrailingPathDelimiter(GetUserDir) + '.pasbuild' +
+    DirectorySeparator + 'cache';
+end;
+
+class function TUtils.GetDownloadCacheDir: string;
+begin
+  Result := GetCacheRoot + DirectorySeparator + 'downloads';
+end;
+
+class function TUtils.GetBuildCacheDir: string;
+begin
+  Result := GetCacheRoot + DirectorySeparator + 'builds';
+end;
+
+class function TUtils.EnsureCacheDir(const ASubDir: string): string;
+begin
+  Result := GetCacheRoot + DirectorySeparator + ASubDir;
+  if not ForceDirectories(Result) then
+    raise Exception.CreateFmt('Failed to create cache directory: %s', [Result]);
 end;
 
 class function TUtils.CreateStatusDirectory(const AGoalName: string): string;
