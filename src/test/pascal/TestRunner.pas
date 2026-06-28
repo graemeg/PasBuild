@@ -38,7 +38,8 @@ uses
   PasBuild.Test.Config.ProjectMetadata,
   PasBuild.Test.Remote.Registry,
   PasBuild.Test.Remote.Manifest,
-  PasBuild.Test.Remote;
+  PasBuild.Test.Remote,
+  PasBuild.Test.Remote.Builder;
 
 var
   Application: TTestRunner;

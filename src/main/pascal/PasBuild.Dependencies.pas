@@ -58,7 +58,8 @@ implementation
 
 uses
   PasBuild.Utils,
-  PasBuild.Remote;
+  PasBuild.Remote,
+  PasBuild.Remote.Builder;
 
 { TDependencyResolver }
 
@@ -148,8 +149,9 @@ function TDependencyResolver.TryRemoteResolve(const AName, AVersion,
   ATargetId: string; AResolvedPaths: TStringList): Boolean;
 var
   Manifest: TReleaseManifest;
-  CompilerName, CompilerVersion, MinVer: string;
-  I: Integer;
+  Builder: TRemoteBuilder;
+  CompilerName, CompilerVersion, MinVer, UnitsPath: string;
+  ConnTimeout, ReadTimeout, I: Integer;
 begin
   Result := False;
 
@@ -181,12 +183,30 @@ begin
         AResolvedPaths
       );
 
+    if Assigned(FSettings) then
+    begin
+      ConnTimeout := FSettings.ConnectTimeout;
+      ReadTimeout := FSettings.ReadTimeout;
+    end
+    else
+    begin
+      ConnTimeout := 30;
+      ReadTimeout := 60;
+    end;
+
     TUtils.LogInfo('  Fetching remote dependency: ' + AName + ':' + AVersion);
-    TUtils.LogInfo('  Remote build pipeline not yet implemented (Phase 3)');
-    raise EDependencyError.CreateFmt(
-      'Remote dependency "%s:%s" found in registry but remote build ' +
-      'pipeline is not yet implemented. Install the dependency manually.',
-      [AName, AVersion]);
+    Builder := TRemoteBuilder.Create(ConnTimeout, ReadTimeout);
+    try
+      Builder.Verbose := FVerbose;
+      Builder.BuildAndInstall(Manifest);
+    finally
+      Builder.Free;
+    end;
+
+    UnitsPath := FRepository.GetUnitsPath(AName, AVersion, ATargetId);
+    if AResolvedPaths.IndexOf(UnitsPath) < 0 then
+      AResolvedPaths.Add(UnitsPath);
+    Result := True;
   finally
     Manifest.Free;
   end;
