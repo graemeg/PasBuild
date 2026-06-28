@@ -1,0 +1,1490 @@
+= Remote Dependency Management Design Specification
+:toc: left
+:toclevels: 4
+:sectnums:
+:source-highlighter: rouge
+:icons: font
+
+// claude --resume 1a26efad-741b-492e-b332-370240e87739
+
+== Overview
+
+This specification defines remote dependency management for PasBuild, enabling projects to
+automatically fetch, compile, and install external dependencies from a Git-hosted registry
+when they are not present in the local repository.
+
+=== Motivation
+
+PasBuild's existing dependency management (specified in `dependency-management-design.adoc`)
+provides local repository support: developers compile a library project, run `pasbuild install`
+to place compiled `.ppu`/`.o` files into `~/.pasbuild/repository/`, and consumer projects
+reference them via `<dependencies>` in `project.xml`. This model has three limitations:
+
+**First-use friction.**
+When a new developer clones a project that depends on `fpgui-framework:1.0.0`, they must
+manually locate, clone, compile, and install every dependency (and every transitive dependency)
+before they can build. There is no `pasbuild compile` that "just works" on a fresh checkout.
+
+**No ecosystem discoverability.**
+There is no central catalogue of PasBuild-compatible libraries. Developers cannot search for
+or browse available packages.
+
+**Distribution burden.**
+Library authors must provide ad-hoc installation instructions. There is no standard mechanism
+for publishing a library for others to consume.
+
+=== Design Principles
+
+* **Source-only remote packages.** The remote repository stores only source packages (ZIP
+  archives of Pascal source code). Binary `.ppu`/`.o` files are tied to an exact compiler
+  version, CPU architecture, and OS -- making binary distribution brittle and requiring one
+  archive per platform permutation. Source packages are portable: the consumer's PasBuild
+  fetches the source, compiles it with the local compiler, and installs the result into
+  the local binary repository. This mirrors how Alire (Ada), Go modules, and Homebrew work.
+
+* **Compiler-neutral.** PasBuild supports multiple compiler backends (FPC and Blaise).
+  Both the local repository and remote registry use compiler-agnostic metadata. The local
+  repository encodes the compiler name into its path structure to prevent incompatible
+  artifacts from colliding.
+
+* **Index-based registry.** The registry is a Git repository containing lightweight XML manifest
+  files that point to source archives hosted elsewhere (e.g. as Git forge release assets).
+  This keeps the registry small and fast to query, while package authors retain control of their
+  own release infrastructure. This follows the Alire model.
+
+* **No dedicated server.** The registry is served as static files over HTTPS -- either via
+  a Git forge's raw file access (GitHub, Codeberg, SourceHut) or any static HTTP server.
+  No server-side logic is required for package consumption.
+
+* **Local-first resolution.** The existing local repository remains the primary source.
+  Remote fetching is a fallback, triggered only when a dependency is not found locally.
+
+* **Forge-agnostic.** The design works with GitHub, Codeberg, SourceHut, or any Git forge
+  that serves raw files over HTTPS.
+
+* **Maven alignment.** Configuration and concepts follow Maven conventions where applicable.
+
+
+== Local Repository Modernisation
+
+Remote dependency resolution falls back to the local repository: check local first, fetch
+remotely only if not found. This means the local repository must correctly handle
+multi-compiler scenarios before remote resolution can work. The current local repository
+has two issues that this specification addresses as a prerequisite.
+
+=== Problem: FPC-Branded Metadata
+
+The local repository's `metadata.xml` uses the element `<fpcVersion>` and the Pascal
+property `TArtifactMetadata.FPCVersion` to store the compiler version. When the Blaise
+backend is active, the Blaise version string is stored under `<fpcVersion>`, which is
+semantically incorrect and confusing. Error messages in `PasBuild.Dependencies.pas` also
+reference "FPC" specifically (e.g. "Recompile and install with matching FPC target").
+
+=== Problem: Compiler-Unaware Path Structure
+
+The current local repository path is:
+
+[source]
+----
+~/.pasbuild/repository/<name>/<version>/<cpu>-<os>-<compilerVersion>/
+----
+
+This is a triplet of CPU, OS, and compiler version. It does not encode _which_ compiler
+produced the artifacts. An FPC 3.2.2 build and a hypothetical Blaise 3.2.2 build for the
+same CPU and OS would write to the same directory, silently overwriting each other with
+incompatible `.ppu`/`.o` files.
+
+=== Solution: Compiler-Neutral Quadruplet
+
+The path structure becomes a quadruplet that includes the compiler name:
+
+[source]
+----
+~/.pasbuild/repository/<name>/<version>/<compiler>-<cpu>-<os>-<compilerVersion>/
+----
+
+**Examples:**
+
+* `~/.pasbuild/repository/fpgui-framework/1.0.0/fpc-x86_64-linux-3.2.2/`
+* `~/.pasbuild/repository/fpgui-framework/1.0.0/blaise-x86_64-linux-0.5.0/`
+
+The compiler name is obtained from `TCompilerBackend.Name` (returns `'FPC'` or `'Blaise'`),
+lowercased for the path component.
+
+=== Solution: Compiler-Neutral Metadata
+
+The `metadata.xml` format is updated to use generic element names:
+
+.Current format (FPC-specific)
+[source,xml]
+----
+<build>
+  <fpcVersion>3.2.2</fpcVersion>
+  <targetCPU>x86_64</targetCPU>
+  <targetOS>linux</targetOS>
+  <timestamp>2026-06-27T12:00:00</timestamp>
+</build>
+----
+
+.New format (compiler-neutral)
+[source,xml]
+----
+<build>
+  <compiler>fpc</compiler>
+  <compilerVersion>3.2.2</compilerVersion>
+  <targetCPU>x86_64</targetCPU>
+  <targetOS>linux</targetOS>
+  <timestamp>2026-06-27T12:00:00</timestamp>
+</build>
+----
+
+==== Code Changes
+
+[cols="2,4"]
+|===
+|Location |Change
+
+|`PasBuild.Repository.pas` `TArtifactMetadata`
+|Rename `FFPCVersion`/`FPCVersion` to `FCompilerVersion`/`CompilerVersion`. Add
+`FCompiler`/`Compiler` property.
+
+|`PasBuild.Repository.pas` `WriteMetadata`
+|Write `<compiler>` and `<compilerVersion>` instead of `<fpcVersion>`.
+
+|`PasBuild.Repository.pas` `ReadMetadata`
+|Read `<compiler>` and `<compilerVersion>`. For backwards compatibility, fall back to
+reading `<fpcVersion>` (mapping it to `Compiler='fpc'`, `CompilerVersion=<value>`) if
+`<compilerVersion>` is absent.
+
+|`PasBuild.Repository.pas` `GetArtifactPath`
+|Construct path using the quadruplet `<compiler>-<cpu>-<os>-<version>`.
+
+|`PasBuild.Utils.pas` `GetTargetTriplet`
+|Rename to `GetTargetQuadruplet`. Return `<compiler>-<cpu>-<os>-<version>` using
+`GetCompilerBackend.Name` (lowercased) as the compiler component. No deprecated alias;
+all callers updated directly (no external consumers of the Pascal API).
+
+|`PasBuild.Utils.pas` `DetectFPCVersion`
+|Rename to `DetectCompilerVersion`. No deprecated alias.
+
+|`PasBuild.Utils.pas` `IsFPCAvailable`
+|Rename to `IsCompilerAvailable`. No deprecated alias.
+
+|`PasBuild.Command.Install.pas`
+|Use `Metadata.Compiler` and `Metadata.CompilerVersion` instead of `Metadata.FPCVersion`.
+
+|`PasBuild.Dependencies.pas`
+|Update error messages to reference "compiler" generically instead of "FPC".
+
+|All callers of `GetTargetTriplet`
+|Update to use `GetTargetQuadruplet`. Rename `ATriplet` parameters to `ATargetId`
+throughout `TLocalRepository` and all callers for semantic correctness.
+
+|`PasBuild.Repository.pas` `TLocalRepository`
+|Refactor from static class methods to instance-based class. This enables dependency
+injection and consistent calling patterns with the new `TRemoteRepository`.
+|===
+
+==== Backwards Compatibility
+
+Existing local repository entries use the old triplet path (`<cpu>-<os>-<version>`) and
+the old `<fpcVersion>` metadata element. The transition strategy:
+
+* **ReadMetadata** falls back to reading `<fpcVersion>` when `<compilerVersion>` is absent,
+  setting `Compiler` to `'fpc'`.
+* **ArtifactExists** checks for the new quadruplet path first, then falls back to the old
+  triplet path. If found under the old path, `ReadMetadata` is called to verify the
+  `Compiler` field matches the active backend. If the compiler does not match (e.g. an
+  old FPC artifact when Blaise is active), the fallback returns `false`, preventing
+  incompatible artifacts from being served to the wrong compiler.
+* **New installs** always use the quadruplet path and new metadata format.
+* Old triplet-path entries remain functional until overwritten by a new `pasbuild install`.
+  No migration tool is needed -- the old entries simply age out.
+
+==== Atomic Install
+
+Artifact installation uses a transactional pattern to prevent corruption from
+interrupted builds:
+
+. Write all files (units + metadata) to a temporary directory: `<artifact-path>.installing`
+. On success, atomically rename the temporary directory to the final path.
+. On failure or startup, delete any stale `.installing` directories.
+
+This prevents the scenario where metadata.xml is written but unit files are
+partially copied, which would cause `ArtifactExists` to return true for a
+corrupt artifact.
+
+
+== Registry Architecture
+
+=== Registry Repository Structure
+
+The registry is a Git repository with this layout:
+
+[source]
+----
+pasbuild-registry/
+  registry.json                           <1>
+  packages/
+    fp/                                   <2>
+      fpgui-framework/
+        package.xml                       <3>
+        1.0.0.xml                         <4>
+        1.1.0.xml
+    st/
+      string-utils/
+        package.xml
+        1.0.0.xml
+    my/
+      my-logging-lib/
+        package.xml
+        0.5.0.xml
+----
+<1> Global registry metadata (format version, name)
+<2> Two-letter prefix directory (first two characters of the package name, lowercased)
+<3> Package-level metadata (description, author, version listing)
+<4> Version-specific manifest (origin URL, SHA-256, dependencies)
+
+==== Naming Conventions
+
+* **Two-letter prefix:** The first two characters of the package name, lowercased. This
+  prevents any single directory from containing thousands of entries (the same sharding
+  strategy used by Alire and crates.io). Package names must be at least two characters long.
+
+* **Package directory name:** The full package name, lowercased, using only `[a-z0-9_-]`
+  characters. Must match `<name>` in the package's `project.xml`.
+
+* **Version manifest filename:** `<version>.xml` where `<version>` is a valid semantic
+  version string (e.g. `1.0.0`, `2.1.0-beta.1`).
+
+=== `registry.json` -- Global Metadata
+
+[source,json]
+----
+{
+  "formatVersion": 1,
+  "name": "PasBuild Central Registry",
+  "description": "The default PasBuild package registry",
+  "maintainers": ["graemeg@gmail.com"],
+  "updatedAt": "2026-06-27T10:00:00Z"
+}
+----
+
+This file serves two purposes: it allows PasBuild to validate that a URL points to a genuine
+registry before attempting to fetch packages, and the `formatVersion` field enables future
+schema evolution. JSON is used here (rather than XML) because it is trivially small and
+`fpjson` is already available in the codebase.
+
+=== `package.xml` -- Package-Level Metadata
+
+[source,xml]
+----
+<?xml version="1.0" encoding="UTF-8"?>
+<package>
+  <name>fpgui-framework</name>
+  <description>Cross-platform GUI toolkit for Free Pascal</description>
+  <author>Graeme Geldenhuys</author>
+  <license>LGPL-2.1-or-later</license>
+  <projectUrl>https://fpgui.sourceforge.net</projectUrl>
+  <repoUrl>https://github.com/graemeg/fpgui</repoUrl>
+
+  <keywords>
+    <keyword>gui</keyword>
+    <keyword>widgets</keyword>
+    <keyword>cross-platform</keyword>
+    <keyword>toolkit</keyword>
+  </keywords>
+
+  <versions>
+    <version>1.1.0</version>
+    <version>1.0.0</version>
+  </versions>
+</package>
+----
+
+The `<versions>` list is ordered newest-first to allow clients to quickly find the latest
+release. Each version listed must have a corresponding `<version>.xml` manifest file in the
+same directory. The `<keywords>` element provides searchable tags for a future
+`pasbuild search` command. This file provides human-readable discovery metadata and enables
+package discoverability.
+
+=== `<version>.xml` -- Version Manifest
+
+[source,xml]
+----
+<?xml version="1.0" encoding="UTF-8"?>
+<release>
+  <name>fpgui-framework</name>
+  <version>1.0.0</version>
+  <author>Graeme Geldenhuys</author>
+  <license>LGPL-2.1-or-later</license>
+  <description>Cross-platform GUI toolkit for Free Pascal</description>
+
+  <origin>
+    <url>https://github.com/graemeg/fpgui/releases/download/v1.0.0/fpgui-framework-1.0.0-src.zip</url>
+    <sha256>a3f2b8c91d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a</sha256>
+    <size>245760</size>
+  </origin>
+
+  <compilers>
+    <compiler>
+      <name>fpc</name>
+      <minimumVersion>3.2.2</minimumVersion>
+    </compiler>
+    <compiler>
+      <name>blaise</name>
+      <minimumVersion>0.4.0</minimumVersion>
+    </compiler>
+  </compilers>
+
+  <dependencies>
+    <dependency>
+      <name>some-base-lib</name>
+      <version>2.0.0</version>
+    </dependency>
+  </dependencies>
+
+  <publishedAt>2026-06-15T14:30:00Z</publishedAt>
+</release>
+----
+
+The `<compilers>` section lists which compilers can build this package. A package that
+uses standard Object Pascal syntax understood by both FPC and Blaise would list both.
+A package using FPC-specific language extensions (e.g. generics syntax that Blaise does
+not support) would list only `fpc`. When the section is omitted, the package is assumed
+to be compatible with any compiler.
+
+==== Field Specifications
+
+[cols="2,1,4"]
+|===
+|Field |Required |Description
+
+|`name`
+|Yes
+|Package name; must match the directory name and `package.xml`
+
+|`version`
+|Yes
+|Semantic version; must match the filename
+
+|`author`
+|Yes
+|Package author
+
+|`license`
+|Yes
+|SPDX licence identifier
+
+|`description`
+|No
+|Brief description
+
+|`origin/url`
+|Yes
+|HTTPS URL to the source archive (ZIP format)
+
+|`origin/sha256`
+|Yes
+|SHA-256 hex digest of the archive file
+
+|`origin/size`
+|No
+|File size in bytes (aids progress display)
+
+|`compilers`
+|No
+|List of compatible compilers with minimum version. If omitted, any compiler is assumed.
+
+|`compilers/compiler/name`
+|Yes (per entry)
+|Compiler identifier: `fpc` or `blaise`
+
+|`compilers/compiler/minimumVersion`
+|No
+|Minimum compiler version required (e.g. `3.2.2`)
+
+|`dependencies`
+|No
+|List of dependencies with exact versions
+
+|`publishedAt`
+|No
+|ISO 8601 timestamp of publication
+|===
+
+==== Source Archive Requirements
+
+The ZIP file referenced by `origin/url` must contain a valid PasBuild project. Specifically:
+
+* It must contain a `project.xml` and a `src/` directory.
+* The archive may have a single top-level directory wrapping the content (as produced by
+  `pasbuild source-package`, which creates a `<name>-<version>/` prefix), or the content
+  may be at the archive root.
+* The archive is expected to be the output of `pasbuild source-package` or an equivalent
+  structure.
+
+
+== Resolution Algorithm
+
+=== Overview
+
+The resolution algorithm extends `TDependencyResolver.ResolveOne` (currently in
+`PasBuild.Dependencies.pas`). The existing implementation checks only the local repository
+and raises `EDependencyError` if an artifact is not found. The new algorithm adds a remote
+fallback.
+
+=== Extended Resolution Flow
+
+[source]
+----
+procedure ResolveOne(Name, Version, Triplet, ResolvedPaths):
+
+  Key := Name + ':' + Version
+  if Key in Visited then Exit           // cycle/duplicate guard
+  Visited.Add(Key)
+
+  // Step 1: Check local repository (existing behaviour)
+  if TLocalRepository.ArtifactExists(Name, Version, Triplet) then
+    AddUnitsPath(Name, Version, Triplet, ResolvedPaths)
+    ResolveTransitiveDeps(Name, Version, Triplet, ResolvedPaths)
+    Exit
+
+  // Step 2: Remote fallback (NEW)
+  if OfflineMode then
+    RaiseNotFoundError(Name, Version)   // existing error message
+
+  Manifest := FetchVersionManifest(Name, Version)
+  if Manifest = nil then
+    RaiseNotFoundError(Name, Version, Triplet)
+
+  // Step 2a: Check compiler compatibility
+  if not Manifest.IsCompatibleWith(CurrentCompiler) then
+    RaiseCompilerIncompatibleError(Name, Version, CurrentCompiler)
+  if Manifest.MinVersionFor(CurrentCompiler) > CurrentCompilerVersion then
+    RaiseCompilerVersionError(Name, Version, Manifest.MinVersionFor(CurrentCompiler))
+
+  // Step 2b: Resolve transitive deps FIRST (depth-first)
+  for each Dep in Manifest.Dependencies do
+    ResolveOne(Dep.Name, Dep.Version, Triplet, ResolvedPaths)
+
+  // Step 2c: Download source archive
+  ArchivePath := DownloadArchive(Manifest.Origin.Url, Manifest.Origin.SHA256)
+
+  // Step 2d: Extract to temporary build directory
+  ExtractDir := ExtractArchive(ArchivePath)
+
+  // Step 2e: Compile via subprocess (isolation from parent build)
+  CompileResult := RunSubprocess('pasbuild', ['compile'], ExtractDir)
+
+  // Step 2f: Install via subprocess
+  InstallResult := RunSubprocess('pasbuild', ['install'], ExtractDir)
+
+  // Step 2g: Clean up temporary directory
+  CleanUp(ExtractDir)
+
+  // Step 2h: Resolve from local (now populated)
+  AddUnitsPath(Name, Version, Triplet, ResolvedPaths)
+----
+
+=== Key Design Decisions
+
+**Transitive dependencies are resolved before downloading.**
+This ensures that when we compile package A, all of A's dependencies are already installed
+locally. This mirrors how `pasbuild compile` already expects dependencies to be present.
+
+**Depth-first resolution.**
+The existing visited-set mechanism (`FVisited` in `TDependencyResolver`) prevents duplicate
+downloads and infinite cycles.
+
+**Compilation uses the consumer's compiler.**
+The source package is compiled with whatever compiler the consumer is using, producing
+`.ppu`/`.o` files for the correct target. This eliminates binary compatibility concerns.
+
+**Subprocess isolation for remote builds.**
+Remote dependency compilation runs as a child process (`pasbuild compile && pasbuild install`)
+in the extracted directory. This avoids ChDir mutations to the parent build's working directory
+and ensures the dependency's own `project.xml` configuration governs its build. No consumer
+profiles, defines, or compiler options leak into the dependency build. Published packages must
+compile successfully with their default configuration (no profile applied).
+
+**Registry manifest is the source of truth for dependencies.**
+When resolving remotely, dependencies are read from the registry's version manifest (not from
+the source archive's `project.xml`). This allows the registry to be validated independently
+and prevents a compromised archive from injecting unexpected dependencies.
+
+
+== Download and Build Pipeline
+
+=== Cache Directory Structure
+
+[source]
+----
+~/.pasbuild/
+  repository/                   # Existing binary repository (unchanged)
+  cache/
+    registry/                   # Cached registry manifests
+      default/
+        packages/
+          fp/
+            fpgui-framework/
+              package.xml
+              1.0.0.xml
+    downloads/                  # Downloaded source archives
+      fpgui-framework-1.0.0-src.zip
+    builds/                     # Temporary compilation workspace
+      fpgui-framework-1.0.0/
+        project.xml
+        src/
+----
+
+=== HTTP Fetching
+
+The implementation uses FPC's built-in `fphttpclient` unit (`TFPHTTPClient`). For HTTPS
+support, the `opensslsockets` unit must be included in the uses clause -- this registers
+the OpenSSL socket handler automatically.
+
+Before the first remote fetch, PasBuild probes for OpenSSL availability by attempting to
+load `libssl`. If unavailable, a clear error is raised immediately:
+
+`ERROR: Remote dependency fetching requires OpenSSL. Install libssl-dev (Debian/Ubuntu),
+openssl-devel (Fedora/RHEL), or the equivalent for your platform. Use --offline to skip
+remote fetching.`
+
+==== Timeout and Retry
+
+HTTP operations use a default connect timeout of 30 seconds and a read timeout of
+60 seconds. These are configurable in `settings.xml`:
+
+[source,xml]
+----
+<settings>
+  <http>
+    <connectTimeout>30</connectTimeout>   <!-- seconds -->
+    <readTimeout>60</readTimeout>         <!-- seconds -->
+  </http>
+</settings>
+----
+
+On a 5xx server error or connection timeout, PasBuild retries once after a 2-second
+delay. On a 4xx client error, no retry is attempted.
+
+==== Registry Manifest URLs
+
+The URL for a version manifest is deterministic given the registry base URL and the
+package identity:
+
+[source]
+----
+<base-url>/packages/<prefix>/<name>/<version>.xml
+----
+
+Examples for different forges:
+
+[source]
+----
+# GitHub (raw.githubusercontent.com)
+https://raw.githubusercontent.com/pasbuild/registry/main/packages/fp/fpgui-framework/1.0.0.xml
+
+# Codeberg (raw file access)
+https://codeberg.org/pasbuild/registry/raw/branch/main/packages/fp/fpgui-framework/1.0.0.xml
+
+# SourceHut
+https://git.sr.ht/~pasbuild/registry/blob/main/packages/fp/fpgui-framework/1.0.0.xml
+
+# Self-hosted static server
+https://registry.example.com/packages/fp/fpgui-framework/1.0.0.xml
+----
+
+The base URL is configurable, so the exact forge does not matter -- the path convention
+after the base URL is always `packages/<prefix>/<name>/<version>.xml`.
+
+=== SHA-256 Verification
+
+FPC 3.2.2 and 3.3.1 do not ship a SHA-256 unit (the `hash` package includes only `sha1`
+and `md5`). A pure Pascal SHA-256 implementation (~150 lines, no external dependencies)
+will be placed in `PasBuild.Crypto.SHA256.pas`.
+
+The verification flow:
+
+. Download archive to `~/.pasbuild/cache/downloads/<name>-<version>-src.zip`
+. Compute SHA-256 of the downloaded file
+. Compare with `origin/sha256` from the version manifest
+. If mismatch: delete the file, raise `EChecksumError`
+. If match: proceed to extraction
+
+=== Extraction and Compilation
+
+. Extract ZIP to `~/.pasbuild/cache/builds/<name>-<version>/` using `TUnZipper` (from
+  FPC's `Zipper` unit, already used in the codebase).
+
+. Detect project root within the extracted archive:
+  * If the archive contains a single top-level directory, use that.
+  * If the archive root contains `project.xml` directly, use the archive root.
+
+. Compile the extracted project:
+  * Load `project.xml` using `TConfigLoader.LoadProjectXML`.
+  * Create and execute `TCompileCommand`.
+  * The project's own dependencies are handled recursively (they were resolved in
+    step 2b of the resolution algorithm).
+
+. Install to local repository:
+  * Create and execute `TInstallCommand`.
+  * This copies `.ppu`/`.o` to `~/.pasbuild/repository/<name>/<version>/<quadruplet>/`.
+
+. Clean up:
+  * Remove `~/.pasbuild/cache/builds/<name>-<version>/`.
+  * Keep the downloaded ZIP in `cache/downloads/` for potential future rebuilds.
+
+=== Cache Management
+
+Downloaded archives are kept in `~/.pasbuild/cache/downloads/` indefinitely. A future
+`pasbuild cache clean` command can purge them. The local repository entries (compiled
+units) are never automatically invalidated -- `pasbuild install` overwrites them on
+reinstall, as it does today.
+
+
+== Registry Configuration
+
+=== Configuration Precedence
+
+From highest to lowest priority:
+
+. `project.xml` `<repositories>` section -- project-specific overrides
+. `~/.pasbuild/settings.xml` -- user-level configuration
+. `PASBUILD_REGISTRY_URL` environment variable -- for CI/CD
+. Built-in default -- the PasBuild central registry URL
+
+=== project.xml `<repositories>` Section
+
+[source,xml]
+----
+<project>
+  <name>MyApp</name>
+  <version>1.0.0</version>
+
+  <repositories>
+    <!-- Checked first (in declaration order) -->
+    <repository>
+      <id>company-internal</id>
+      <url>https://git.company.com/pasbuild-registry/raw/branch/main/</url>
+    </repository>
+
+    <!-- Checked second; 'central' is the built-in default -->
+    <repository>
+      <id>central</id>
+      <url>https://raw.githubusercontent.com/pasbuild/registry/main/</url>
+    </repository>
+  </repositories>
+
+  <dependencies>
+    <dependency>
+      <name>some-internal-lib</name>
+      <version>1.0.0</version>
+    </dependency>
+  </dependencies>
+</project>
+----
+
+**Rules:**
+
+* Repositories are checked in declaration order.
+* If no `<repositories>` section exists, the default registry is used.
+* The special id `central` refers to the built-in default; it can be overridden or excluded.
+* Each `<repository>` must have a unique `<id>` and a valid HTTPS `<url>` ending in `/`.
+
+=== `~/.pasbuild/settings.xml` (New File)
+
+[source,xml]
+----
+<?xml version="1.0" encoding="UTF-8"?>
+<settings>
+  <repositories>
+    <repository>
+      <id>central</id>
+      <url>https://raw.githubusercontent.com/pasbuild/registry/main/</url>
+    </repository>
+  </repositories>
+
+  <!-- Optional: disable remote fetching entirely -->
+  <!-- <offlineMode>true</offlineMode> -->
+</settings>
+----
+
+This file is analogous to Maven's `~/.m2/settings.xml`. If both `settings.xml` and
+`project.xml` define repositories, the project-level list takes precedence entirely
+(no merging).
+
+=== Environment Variable
+
+[source,bash]
+----
+export PASBUILD_REGISTRY_URL=https://raw.githubusercontent.com/pasbuild/registry/main/
+----
+
+When set, this is treated as a single-repository configuration with id `env`. It is
+overridden by `project.xml` `<repositories>` if present.
+
+
+== Publish Goal
+
+=== Purpose
+
+The `publish` goal automates the submission of a package to a registry. It creates a
+source package, generates the registry manifest files, and optionally opens a pull request
+on the registry repository.
+
+=== Usage
+
+[source,bash]
+----
+pasbuild publish                       # Publish to default registry
+pasbuild publish --registry myrepo     # Publish to named registry
+pasbuild publish --dry-run             # Generate manifests without submitting
+pasbuild publish --archive-url <url>   # Specify pre-uploaded archive URL
+----
+
+=== Publish Workflow
+
+[source]
+----
+1. Load and validate project.xml
+   - Verify <name>, <version>, <author>, <license> are present
+   - Verify packaging is 'library' (only libraries can be published)
+
+2. Create source package
+   - Execute 'pasbuild source-package' to generate <name>-<version>-src.zip
+   - This ensures the archive is well-formed
+
+3. Compute SHA-256 of the generated archive
+
+4. Determine archive hosting URL
+   - If --archive-url is provided, use that
+   - Otherwise, prompt the user to upload the archive as a release asset
+     and provide the download URL
+   - Validate the URL is reachable (HTTP HEAD request)
+
+5. Generate version manifest (<version>.xml)
+   - Populate from project.xml fields + computed SHA-256
+   - Include dependencies from project.xml
+
+6. Generate or update package.xml
+   - Create new or update existing with the new version
+
+7. Display generated manifests for user review
+
+8. If not --dry-run:
+   a. Clone/fork the registry repository
+   b. Create branch: publish/<name>-<version>
+   c. Commit the manifest files
+   d. Open a pull request (or provide instructions for manual submission)
+----
+
+=== Forge Integration
+
+The `publish` command must support multiple Git forges. The automated PR flow is optional
+and gated behind detection of the forge type from the registry URL:
+
+[cols="1,2,2"]
+|===
+|Forge |API |Authentication
+
+|GitHub
+|REST API (`POST /repos/{owner}/{repo}/pulls`)
+|`GITHUB_TOKEN` or `PASBUILD_GITHUB_TOKEN` env var
+
+|Codeberg / Gitea
+|Gitea-compatible REST API
+|`PASBUILD_GITEA_TOKEN` env var
+
+|SourceHut
+|Patch-based workflow (`git send-email`)
+|Generate patch file, print instructions
+
+|Other / Unknown
+|No automation
+|`--dry-run` generates manifests locally with submission instructions
+|===
+
+The initial implementation should focus on `--dry-run` (generate manifests locally) as
+the baseline, with GitHub PR automation as the first forge integration.
+
+=== Generated Manifest Example
+
+For a project with:
+
+[source,xml]
+----
+<project>
+  <name>string-utils</name>
+  <version>1.0.0</version>
+  <author>PasBuild Team</author>
+  <license>MIT</license>
+  <description>Common string manipulation utilities</description>
+  <repoUrl>https://github.com/example/string-utils</repoUrl>
+  <build><packaging>library</packaging></build>
+</project>
+----
+
+Running `pasbuild publish --archive-url https://github.com/example/string-utils/releases/download/v1.0.0/string-utils-1.0.0-src.zip` generates:
+
+.`packages/st/string-utils/1.0.0.xml`
+[source,xml]
+----
+<?xml version="1.0" encoding="UTF-8"?>
+<release>
+  <name>string-utils</name>
+  <version>1.0.0</version>
+  <author>PasBuild Team</author>
+  <license>MIT</license>
+  <description>Common string manipulation utilities</description>
+
+  <origin>
+    <url>https://github.com/example/string-utils/releases/download/v1.0.0/string-utils-1.0.0-src.zip</url>
+    <sha256>e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855</sha256>
+    <size>12480</size>
+  </origin>
+
+  <compilers>
+    <compiler>
+      <name>fpc</name>
+      <minimumVersion>3.2.2</minimumVersion>
+    </compiler>
+  </compilers>
+
+  <dependencies/>
+
+  <publishedAt>2026-06-27T12:00:00Z</publishedAt>
+</release>
+----
+
+.`packages/st/string-utils/package.xml`
+[source,xml]
+----
+<?xml version="1.0" encoding="UTF-8"?>
+<package>
+  <name>string-utils</name>
+  <description>Common string manipulation utilities</description>
+  <author>PasBuild Team</author>
+  <license>MIT</license>
+  <repoUrl>https://github.com/example/string-utils</repoUrl>
+
+  <keywords>
+    <keyword>string</keyword>
+    <keyword>utilities</keyword>
+  </keywords>
+
+  <versions>
+    <version>1.0.0</version>
+  </versions>
+</package>
+----
+
+
+== project.xml Changes
+
+=== New Elements
+
+**`<repositories>` section** (optional, under `<project>`):
+
+[source,xml]
+----
+<repositories>
+  <repository>
+    <id>central</id>
+    <url>https://raw.githubusercontent.com/pasbuild/registry/main/</url>
+  </repository>
+</repositories>
+----
+
+**`<description>` element** (optional, under `<project>`):
+
+[source,xml]
+----
+<description>A brief description of this project for registry listings</description>
+----
+
+This field is read by `pasbuild publish` to populate registry manifests. It is not used
+by the build system itself.
+
+**`<keywords>` element** (optional, under `<project>`):
+
+[source,xml]
+----
+<keywords>
+  <keyword>gui</keyword>
+  <keyword>widgets</keyword>
+  <keyword>cross-platform</keyword>
+</keywords>
+----
+
+Searchable tags used by `pasbuild publish` to populate the registry's `package.xml`.
+Enables a future `pasbuild search` command to match packages by topic. Not used by the
+build system itself.
+
+=== No Changes to `<dependencies>`
+
+The existing `<dependencies>` format is unchanged. Exact version pinning is retained.
+Version ranges are deferred to a future specification.
+
+
+== Security
+
+=== Checksum Verification
+
+Every source archive download is verified against the SHA-256 digest stored in the version
+manifest. The manifest itself is fetched over HTTPS from the registry.
+
+* **Integrity:** Detects corrupted or truncated downloads.
+* **Tamper detection:** If the archive at the origin URL is replaced after publication,
+  the SHA-256 mismatch prevents installation.
+
+=== HTTPS-Only Transport
+
+All HTTP fetching uses HTTPS. Plain HTTP URLs in `<origin><url>` and `<repository><url>`
+are rejected with an error. The `opensslsockets` unit provides TLS support via the
+system's OpenSSL installation.
+
+=== Origin URL Validation
+
+During `pasbuild publish`:
+
+* The origin URL must use HTTPS.
+* The URL must be reachable (HTTP HEAD returns 200).
+* The downloaded file must match the declared SHA-256.
+
+During `pasbuild compile` (remote fetch):
+
+* Only HTTPS registry URLs are accepted.
+* Only HTTPS origin URLs from manifests are accepted.
+* Downloaded files are verified against SHA-256 before extraction.
+
+=== Archive Extraction Safety
+
+The ZIP extraction must guard against:
+
+* **Path traversal:** Entries with `../` in their name are rejected (the existing
+  `IsPathSafe` pattern from `PasBuild.Command.SourcePackage.pas` provides this).
+* **Absolute paths:** ZIP entries with absolute paths are rejected.
+* **Symlinks:** ZIP entries that are symbolic links are skipped.
+
+=== Compiler Options Sandboxing
+
+When compiling a fetched remote dependency, the archive's `project.xml` is loaded
+and its `<compilerOptions>` section is honoured. However, certain compiler options
+could be used to execute arbitrary code during compilation (e.g. `-Fa` to alias unit
+paths, `-e` to specify an external linker, or options that invoke external programs).
+
+The remote build pipeline applies a whitelist of safe compiler options before invoking
+the compiler. Only the following categories are permitted:
+
+* **Optimisation:** `-O0` through `-O4`
+* **Defines:** `-d<name>` / `-u<name>`
+* **Code generation:** `-Cg`, `-Ci`, `-Co`, `-Cr`, `-Ct`, `-Ch`, `-Cs`
+* **Target:** `-T<target>`, `-P<cpu>`
+* **Syntax mode:** `-M<mode>` (e.g. `-Mobjfpc`, `-Mdelphi`)
+* **Verbosity/warnings:** `-v<flags>`, `-W<flags>`
+
+All other compiler options from the fetched archive's `project.xml` are silently
+stripped. This prevents a compromised archive from injecting options that execute
+external programs or redirect compilation to untrusted paths.
+
+=== No Arbitrary Code Execution
+
+The resolution algorithm downloads and verifies the archive checksum before extracting or
+compiling anything. There is no "build script" or "post-install hook" mechanism -- the only
+code that executes is the standard `pasbuild compile` and `pasbuild install` lifecycle on
+a standard PasBuild project. The registry manifests declare dependencies, not build
+commands. Compiler options from fetched archives are restricted to a safe whitelist (see
+Compiler Options Sandboxing above).
+
+=== Publish-Time Validation
+
+During `pasbuild publish`, the generated registry manifest's `<dependencies>` section
+is compared against the project's `project.xml` `<dependencies>` section. If they differ,
+a warning is emitted alerting the author to the discrepancy. This prevents silent
+divergence between what a package declares locally and what the registry advertises.
+
+
+== CLI Changes
+
+=== New Goal: `publish`
+
+[source]
+----
+pasbuild publish [options]
+
+Options:
+  --archive-url <url>    URL where the source archive is hosted
+  --registry <id>        Target registry id (default: central)
+  --dry-run              Generate manifest files without submitting
+  --token <token>        Authentication token for forge API
+----
+
+=== New Flag: `--offline`
+
+Disables remote fetching entirely. If a dependency is not in the local repository,
+resolution fails immediately with the existing error message.
+
+[source,bash]
+----
+pasbuild compile --offline
+----
+
+=== Updated Help Text
+
+The help output gains:
+
+[source]
+----
+Goals:
+  publish                 Publish package to registry
+
+Options:
+  --archive-url <url>     Source archive URL for publish goal
+  --registry <id>         Target registry for publish goal (default: central)
+  --dry-run               Generate output without submitting (publish goal)
+  --offline               Disable remote dependency fetching
+  --force-fetch            Re-download remote dependency even if already in local repository
+----
+
+=== New Flag: `--force-fetch`
+
+Forces re-download and rebuild of remote dependencies that already exist in the
+local repository. Useful when a dependency's source archive has been updated at
+the same version (e.g. a bug-fix re-release) or when the local artifact is
+suspected to be corrupt.
+
+[source,bash]
+----
+pasbuild compile --force-fetch
+----
+
+When active, the resolver skips the local repository check for remote
+dependencies and proceeds directly to the fetch-build-install pipeline. Local
+(inter-module) dependencies are unaffected.
+
+
+== Error Handling
+
+=== Network Errors
+
+[cols="2,4"]
+|===
+|Condition |Error Message
+
+|Registry URL unreachable
+|`ERROR: Cannot connect to registry '<id>' at <url>: <system error>`
+
+|HTTP 404 from registry
+|`ERROR: Package '<name>' version '<version>' not found in registry '<id>'.`
+
+|HTTP 5xx from registry
+|`ERROR: Registry '<id>' returned server error (<code>). Try again later.`
+
+|Connection timeout
+|`ERROR: Connection to <host> timed out. Check your network connection or use --offline.`
+
+|TLS/SSL error
+|`ERROR: TLS handshake failed connecting to <host>. Ensure OpenSSL is installed.`
+|===
+
+=== Verification Errors
+
+[cols="2,4"]
+|===
+|Condition |Error Message
+
+|SHA-256 mismatch
+|`ERROR: Checksum verification failed for '<name>:<version>'. Expected: <expected>, got: <actual>. The archive may have been tampered with.`
+
+|Invalid ZIP
+|`ERROR: Downloaded file for '<name>:<version>' is not a valid ZIP archive.`
+
+|Missing project.xml
+|`ERROR: Source archive for '<name>:<version>' does not contain a project.xml.`
+|===
+
+=== Build Errors
+
+[cols="2,4"]
+|===
+|Condition |Error Message
+
+|Compilation fails
+|`ERROR: Failed to compile remote dependency '<name>:<version>'. Build log: <path>. The package may be incompatible with <compiler> <version>.`
+
+|Compiler version too old
+|`ERROR: Package '<name>:<version>' requires <compiler> >= <min>. Your version is <current>.`
+
+|Compiler not supported
+|`ERROR: Package '<name>:<version>' is not compatible with the <compiler> compiler. Compatible compilers: <list>.`
+
+|Circular dependency
+|`ERROR: Circular dependency detected: <A> -> <B> -> <A>`
+|===
+
+=== Publish Errors
+
+[cols="2,4"]
+|===
+|Condition |Error Message
+
+|Not a library
+|`ERROR: Only library projects can be published. Current packaging: <type>.`
+
+|Archive URL unreachable
+|`ERROR: Archive URL <url> is not reachable (HTTP <code>). Upload the archive first.`
+
+|Version already exists
+|`ERROR: Version <version> of '<name>' already exists in registry '<id>'.`
+|===
+
+
+== Implementation Architecture
+
+=== New Units
+
+[cols="2,4"]
+|===
+|Unit |Responsibility
+
+|`PasBuild.Remote.pas`
+|`TRemoteRepository` class: HTTP fetching, manifest parsing, archive downloading
+
+|`PasBuild.Remote.Registry.pas`
+|`TRegistryConfig` class: loads and manages registry configurations from
+settings.xml, project.xml, and environment variables
+
+|`PasBuild.Remote.Manifest.pas`
+|`TReleaseManifest` class: parse `<version>.xml` and `package.xml` files
+
+|`PasBuild.Remote.Builder.pas`
+|`TRemotePackageBuilder` class: orchestrates extract-compile-install pipeline
+
+|`PasBuild.Crypto.SHA256.pas`
+|Pure Pascal SHA-256 implementation
+
+|`PasBuild.Command.Publish.pas`
+|`TPublishCommand` class: the `publish` goal implementation
+
+|`PasBuild.Settings.pas`
+|`TSettingsLoader` class: loads `~/.pasbuild/settings.xml`
+|===
+
+=== Modified Units
+
+[cols="2,4"]
+|===
+|Unit |Changes
+
+|`PasBuild.Repository.pas`
+|Rename `TArtifactMetadata.FPCVersion` to `CompilerVersion`; add `Compiler` property;
+update `WriteMetadata`/`ReadMetadata` to use `<compiler>` and `<compilerVersion>`
+elements (with `<fpcVersion>` read fallback); update path construction to use quadruplet
+
+|`PasBuild.Utils.pas`
+|Rename `DetectFPCVersion` to `DetectCompilerVersion`; rename `IsFPCAvailable` to
+`IsCompilerAvailable`; rename `GetTargetTriplet` to `GetTargetQuadruplet` (returns
+`<compiler>-<cpu>-<os>-<version>`); keep old names as deprecated aliases; add cache
+directory helpers: `GetCacheRoot`, `GetDownloadsCacheDir`, `GetBuildsCacheDir`,
+`GetRegistryCacheDir`
+
+|`PasBuild.Dependencies.pas`
+|`TDependencyResolver.ResolveOne` gains remote fallback logic; new `FRemoteRepo`
+field; new `FOfflineMode` property; update error messages to reference "compiler"
+generically instead of "FPC"
+
+|`PasBuild.Command.Install.pas`
+|Use `Metadata.Compiler` and `Metadata.CompilerVersion` instead of `Metadata.FPCVersion`
+
+|`PasBuild.Types.pas`
+|Add `FDescription` and `FKeywords: TStringList` properties to `TProjectConfig`;
+add `TRepositoryInfo` class and `FRepositories: TRepositoryList` field
+
+|`PasBuild.Config.pas`
+|Parse `<description>`, `<keywords>`, and `<repositories>` sections in
+`TConfigLoader.LoadProjectXML`
+
+|`PasBuild.CLI.pas`
+|Add `bgPublish` to `TBuildGoal`; add `OfflineMode`, `ArchiveUrl`, `RegistryId`,
+`DryRun` fields to `TCommandLineArgs`; parse `--offline`, `--archive-url`,
+`--registry`, `--dry-run` flags
+
+|`PasBuild.pas`
+|Add `publish` goal dispatch; pass `OfflineMode` to `TDependencyResolver`;
+load `settings.xml` for registry configuration
+
+|All callers of `GetTargetTriplet`, `DetectFPCVersion`, `IsFPCAvailable`
+|Update to use renamed methods
+|===
+
+=== New Types
+
+[source,pascal]
+----
+{ Repository configuration entry }
+TRepositoryInfo = class
+private
+  FId: string;
+  FUrl: string;
+public
+  property Id: string read FId write FId;
+  property Url: string read FUrl write FUrl;
+end;
+
+TRepositoryList = specialize TFPGObjectList<TRepositoryInfo>;
+
+{ Compiler compatibility entry from registry manifest }
+TCompilerRequirement = record
+  Name: string;            // 'fpc' or 'blaise'
+  MinimumVersion: string;  // e.g. '3.2.2' (empty = any version)
+end;
+TCompilerRequirementArray = array of TCompilerRequirement;
+
+{ Release manifest (parsed from <version>.xml in registry) }
+TReleaseManifest = class
+private
+  FName: string;
+  FVersion: string;
+  FAuthor: string;
+  FLicense: string;
+  FDescription: string;
+  FOriginUrl: string;
+  FOriginSHA256: string;
+  FOriginSize: Int64;
+  FCompilers: TCompilerRequirementArray;
+  FDependencies: TMetadataDependencyArray;
+  FPublishedAt: string;
+public
+  function IsCompatibleWith(const ACompilerName: string): Boolean;
+  function MinVersionFor(const ACompilerName: string): string;
+
+  property Name: string read FName write FName;
+  property Version: string read FVersion write FVersion;
+  property Author: string read FAuthor write FAuthor;
+  property License: string read FLicense write FLicense;
+  property Description: string read FDescription write FDescription;
+  property OriginUrl: string read FOriginUrl write FOriginUrl;
+  property OriginSHA256: string read FOriginSHA256 write FOriginSHA256;
+  property OriginSize: Int64 read FOriginSize write FOriginSize;
+  property Compilers: TCompilerRequirementArray read FCompilers write FCompilers;
+  property Dependencies: TMetadataDependencyArray read FDependencies write FDependencies;
+  property PublishedAt: string read FPublishedAt write FPublishedAt;
+end;
+
+{ Exceptions }
+ERemoteDependencyError = class(EDependencyError);
+EChecksumError = class(ERemoteDependencyError);
+ENetworkError = class(ERemoteDependencyError);
+----
+
+
+== Implementation Phasing
+
+=== Phase 0: Local Repository Modernisation
+
+Prerequisite for remote resolution. No network operations.
+
+* Rename `TArtifactMetadata.FPCVersion` to `CompilerVersion`; add `Compiler` property
+* Update `WriteMetadata` to write `<compiler>` and `<compilerVersion>` elements
+* Update `ReadMetadata` with backwards-compatible fallback for `<fpcVersion>`
+* Update `GetTargetTriplet` to `GetTargetQuadruplet` (`<compiler>-<cpu>-<os>-<version>`)
+* Update `ArtifactExists` to check quadruplet path first, then fall back to old triplet
+* Rename `DetectFPCVersion` to `DetectCompilerVersion`, `IsFPCAvailable` to
+  `IsCompilerAvailable` (keep old names as deprecated aliases)
+* Update all callers across the codebase
+* Update error messages in `PasBuild.Dependencies.pas` to be compiler-neutral
+* Tests verifying backwards compatibility with old triplet-path artifacts
+
+=== Phase 1: Infrastructure
+
+No network operations. Lays the foundation for remote resolution.
+
+* Add `TRepositoryInfo`, `TRepositoryList` to `PasBuild.Types.pas`
+* Add `<description>` parsing to `PasBuild.Config.pas`
+* Create `PasBuild.Settings.pas` (`settings.xml` loader)
+* Create `PasBuild.Crypto.SHA256.pas` (pure Pascal SHA-256)
+* Add cache directory helpers to `PasBuild.Utils.pas`
+* Add `--offline` flag to CLI
+* Tests for all of the above
+
+=== Phase 2: Remote Fetching
+
+HTTP client and manifest parsing.
+
+* Create `PasBuild.Remote.pas` (HTTP client wrapper using `fphttpclient`)
+* Create `PasBuild.Remote.Manifest.pas` (registry XML manifest parser)
+* Create `PasBuild.Remote.Registry.pas` (registry configuration management)
+* Parse `<repositories>` in `PasBuild.Config.pas`
+* Modify `PasBuild.Dependencies.pas` to add remote fallback
+* Tests with a local test registry
+
+=== Phase 3: Build Pipeline
+
+Fetch-compile-install orchestration.
+
+* Create `PasBuild.Remote.Builder.pas` (extract-compile-install pipeline)
+* End-to-end testing with a real registry repository
+* Test: fresh checkout resolves and builds a remote dependency
+
+=== Phase 4: Publish Goal
+
+Package submission.
+
+* Create `PasBuild.Command.Publish.pas`
+* Add `bgPublish` to CLI
+* Implement `--dry-run` mode (generate manifests locally)
+* Wire into `PasBuild.pas` main dispatch
+
+=== Phase 5: Forge Integration
+
+Automated pull request submission.
+
+* GitHub PR automation via REST API
+* Codeberg/Gitea PR automation
+* SourceHut patch generation
+
+
+== Future Considerations
+
+=== Version Ranges
+
+The current design requires exact version pinning. Future work could introduce
+constraint-based version selection:
+
+[source,xml]
+----
+<dependency>
+  <name>string-utils</name>
+  <version>[1.0.0,2.0.0)</version>
+</dependency>
+----
+
+This would require fetching `package.xml` from the registry to enumerate available
+versions, then selecting the best match. The `package.xml` format already lists all
+versions for this purpose.
+
+=== Lock Files
+
+A `pasbuild.lock` file could record the exact versions resolved during a build, ensuring
+reproducible builds across machines. Format would be one dependency per line with
+`<name>=<version>@<sha256>`.
+
+=== Private Registries
+
+The `<repositories>` mechanism already supports private registries by URL. Authentication
+could be added via token headers configured in `settings.xml`.
+
+=== Mirrors and Proxies
+
+A `<mirror>` element in `settings.xml` could redirect all requests for one registry
+through an alternative URL, supporting corporate proxies.
+
+=== Pre-built Binary Packages
+
+For large packages where compilation is slow, the registry could gain an optional
+`<binaries>` section in the version manifest listing pre-built archives by target triplet.
+The resolution algorithm would check for a matching binary first, falling back to source
+compilation. This is additive and requires no protocol changes.
+
+=== Registry Search
+
+A `pasbuild search <query>` command that fetches and searches `package.xml` files. This
+could work by fetching a generated index file, or by cloning the registry locally.
+
+=== `pasbuild cache clean`
+
+A dedicated command to purge `~/.pasbuild/cache/downloads/` and
+`~/.pasbuild/cache/builds/`, reclaiming disc space.
+
+
+== Appendix: Complete Example Workflow
+
+=== Library Author: Publishing `string-utils`
+
+[source,bash]
+----
+# 1. Author has a PasBuild library project
+cd string-utils/
+
+# 2. Create source package
+pasbuild source-package
+# -> target/string-utils-1.0.0-src.zip
+
+# 3. Upload archive as a GitHub release asset
+gh release create v1.0.0 target/string-utils-1.0.0-src.zip
+
+# 4. Publish to registry
+pasbuild publish \
+  --archive-url https://github.com/example/string-utils/releases/download/v1.0.0/string-utils-1.0.0-src.zip
+# -> Generates manifests, opens PR on registry repo
+
+# 5. Registry maintainer reviews and merges the PR
+# -> string-utils 1.0.0 is now available
+----
+
+=== Consumer: Using `string-utils` in a Project
+
+[source,xml]
+----
+<!-- myapp/project.xml -->
+<project>
+  <name>MyApp</name>
+  <version>1.0.0</version>
+
+  <build>
+    <mainSource>Main.pas</mainSource>
+    <executableName>myapp</executableName>
+  </build>
+
+  <dependencies>
+    <dependency>
+      <name>string-utils</name>
+      <version>1.0.0</version>
+    </dependency>
+  </dependencies>
+</project>
+----
+
+[source,bash]
+----
+# On a fresh machine with no local repository:
+cd myapp/
+pasbuild compile
+----
+
+[source]
+----
+[INFO] PasBuild 1.6.0
+[INFO] Resolving 1 external dependency...
+[INFO]   string-utils:1.0.0 - not in local repository
+[INFO]   Fetching manifest from central registry...
+[INFO]   Downloading string-utils-1.0.0-src.zip (12 KB)...
+[INFO]   Verifying checksum... OK
+[INFO]   Compiling string-utils 1.0.0...
+[INFO]   Installed string-utils:1.0.0 to local repository
+[INFO]   Resolved: string-utils:1.0.0 -> ~/.pasbuild/repository/string-utils/1.0.0/fpc-x86_64-linux-3.2.2/units
+[INFO] Dependencies resolved successfully
+[INFO] Executing goal: compile
+[INFO] Compiling project...
+[INFO] Build successful
+----
+
+Subsequent builds use the local repository directly (no network access):
+
+[source,bash]
+----
+pasbuild compile
+----
+
+[source]
+----
+[INFO] PasBuild 1.6.0
+[INFO] Resolving 1 external dependency...
+[INFO]   Resolved: string-utils:1.0.0 -> ~/.pasbuild/repository/string-utils/1.0.0/fpc-x86_64-linux-3.2.2/units
+[INFO] Dependencies resolved successfully
+[INFO] Executing goal: compile
+[INFO] Compiling project...
+[INFO] Build successful
+----
