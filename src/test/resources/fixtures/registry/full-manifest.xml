@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<release>
+  <name>fpgui-framework</name>
+  <version>1.0.0</version>
+  <author>Graeme Geldenhuys</author>
+  <license>LGPL-2.1-or-later</license>
+  <description>Cross-platform GUI toolkit for Free Pascal</description>
+
+  <origin>
+    <url>https://github.com/graemeg/fpgui/releases/download/v1.0.0/fpgui-framework-1.0.0-src.zip</url>
+    <sha256>a3f2b8c91d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a</sha256>
+    <size>245760</size>
+  </origin>
+
+  <compilers>
+    <compiler>
+      <name>fpc</name>
+      <minimumVersion>3.2.2</minimumVersion>
+    </compiler>
+    <compiler>
+      <name>blaise</name>
+      <minimumVersion>0.4.0</minimumVersion>
+    </compiler>
+  </compilers>
+
+  <dependencies>
+    <dependency>
+      <name>some-base-lib</name>
+      <version>2.0.0</version>
+    </dependency>
+  </dependencies>
+
+  <publishedAt>2026-06-15T14:30:00Z</publishedAt>
+</release>

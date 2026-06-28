@@ -17,35 +17,48 @@ interface
 uses
   Classes, SysUtils,
   PasBuild.Types,
-  PasBuild.Repository;
+  PasBuild.Repository,
+  PasBuild.Settings,
+  PasBuild.Remote.Registry,
+  PasBuild.Remote.Manifest;
 
 type
   { Exception raised when dependency resolution fails }
   EDependencyError = class(Exception);
 
-  { Resolves external dependencies from the local repository }
+  { Resolves external dependencies from the local repository, with remote fallback }
   TDependencyResolver = class
   private
     FVerbose: Boolean;
+    FOfflineMode: Boolean;
+    FForceFetch: Boolean;
     FVisited: TStringList;
     FRepository: TLocalRepository;
+    FSettings: TSettings;
+    FProjectRepositories: TRepositoryList;
     procedure ResolveOne(const AName, AVersion, ATargetId: string;
       AResolvedPaths: TStringList);
+    function TryRemoteResolve(const AName, AVersion, ATargetId: string;
+      AResolvedPaths: TStringList): Boolean;
+    function FetchManifestFromRegistries(const AName, AVersion: string): TReleaseManifest;
   public
     constructor Create;
     destructor Destroy; override;
 
-    { Resolve all dependencies declared in project config.
-      Adds resolved unit paths to Config.BuildConfig.ResolvedModulePaths. }
     procedure ResolveDependencies(AConfig: TProjectConfig);
 
     property Verbose: Boolean read FVerbose write FVerbose;
+    property OfflineMode: Boolean read FOfflineMode write FOfflineMode;
+    property ForceFetch: Boolean read FForceFetch write FForceFetch;
+    property Settings: TSettings read FSettings write FSettings;
+    property ProjectRepositories: TRepositoryList read FProjectRepositories write FProjectRepositories;
   end;
 
 implementation
 
 uses
-  PasBuild.Utils;
+  PasBuild.Utils,
+  PasBuild.Remote;
 
 { TDependencyResolver }
 
@@ -56,7 +69,11 @@ begin
   FVisited.Sorted := True;
   FVisited.Duplicates := dupIgnore;
   FVerbose := False;
+  FOfflineMode := False;
+  FForceFetch := False;
   FRepository := TLocalRepository.Create;
+  FSettings := nil;
+  FProjectRepositories := nil;
 end;
 
 destructor TDependencyResolver.Destroy;
@@ -66,6 +83,115 @@ begin
   inherited Destroy;
 end;
 
+function TDependencyResolver.FetchManifestFromRegistries(
+  const AName, AVersion: string): TReleaseManifest;
+var
+  Manager: TRegistryManager;
+  Repos: TRepositoryList;
+  Client: TRemoteClient;
+  ConnTimeout, ReadTimeout: Integer;
+  EnvUrl, ManifestUrl, XmlContent: string;
+  I: Integer;
+begin
+  Result := nil;
+  EnvUrl := GetEnvironmentVariable('PASBUILD_REGISTRY_URL');
+
+  Manager := TRegistryManager.Create(FProjectRepositories, FSettings, EnvUrl);
+  try
+    Repos := Manager.GetEffectiveRepositories;
+    try
+      if Assigned(FSettings) then
+      begin
+        ConnTimeout := FSettings.ConnectTimeout;
+        ReadTimeout := FSettings.ReadTimeout;
+      end
+      else
+      begin
+        ConnTimeout := 30;
+        ReadTimeout := 60;
+      end;
+
+      Client := TRemoteClient.Create(ConnTimeout, ReadTimeout);
+      try
+        for I := 0 to Repos.Count - 1 do
+        begin
+          ManifestUrl := TRegistryManager.BuildManifestUrl(
+            Repos[I].Url, AName, AVersion);
+          try
+            if FVerbose then
+              TUtils.LogInfo('  Checking registry "' + Repos[I].Id +
+                '" for ' + AName + ':' + AVersion + '...');
+
+            XmlContent := Client.FetchText(ManifestUrl);
+            Result := TManifestParser.ParseVersionManifestFromString(XmlContent);
+            Exit;
+          except
+            on E: ENetworkError do
+            begin
+              if FVerbose then
+                TUtils.LogInfo('  Not found in "' + Repos[I].Id + '": ' + E.Message);
+            end;
+          end;
+        end;
+      finally
+        Client.Free;
+      end;
+    finally
+      Repos.Free;
+    end;
+  finally
+    Manager.Free;
+  end;
+end;
+
+function TDependencyResolver.TryRemoteResolve(const AName, AVersion,
+  ATargetId: string; AResolvedPaths: TStringList): Boolean;
+var
+  Manifest: TReleaseManifest;
+  CompilerName, CompilerVersion, MinVer: string;
+  I: Integer;
+begin
+  Result := False;
+
+  Manifest := FetchManifestFromRegistries(AName, AVersion);
+  if not Assigned(Manifest) then
+    Exit;
+
+  try
+    CompilerName := TUtils.DetectCompilerName;
+    CompilerVersion := TUtils.DetectCompilerVersion;
+
+    if not Manifest.IsCompatibleWith(CompilerName) then
+      raise EDependencyError.CreateFmt(
+        'Package "%s:%s" is not compatible with compiler "%s". ' +
+        'Compatible compilers: %s',
+        [AName, AVersion, CompilerName, 'see registry manifest']);
+
+    MinVer := Manifest.MinVersionFor(CompilerName);
+    if (MinVer <> '') and (CompilerVersion < MinVer) then
+      raise EDependencyError.CreateFmt(
+        'Package "%s:%s" requires %s >= %s, but found %s',
+        [AName, AVersion, CompilerName, MinVer, CompilerVersion]);
+
+    for I := 0 to Length(Manifest.Dependencies) - 1 do
+      ResolveOne(
+        Manifest.Dependencies[I].Name,
+        Manifest.Dependencies[I].Version,
+        ATargetId,
+        AResolvedPaths
+      );
+
+    TUtils.LogInfo('  Fetching remote dependency: ' + AName + ':' + AVersion);
+    TUtils.LogInfo('  Remote build pipeline not yet implemented (Phase 3)');
+    raise EDependencyError.CreateFmt(
+      'Remote dependency "%s:%s" found in registry but remote build ' +
+      'pipeline is not yet implemented. Install the dependency manually.',
+      [AName, AVersion]);
+  finally
+    Manifest.Free;
+  end;
+end;
+
 procedure TDependencyResolver.ResolveOne(const AName, AVersion, ATargetId: string;
   AResolvedPaths: TStringList);
 var
@@ -73,16 +199,41 @@ var
   Metadata: TArtifactMetadata;
   I: Integer;
   Targets: TStringList;
+  LocalExists: Boolean;
 begin
-  // Build a unique key for cycle detection
   Key := AName + ':' + AVersion;
 
-  // Skip if already resolved (prevents cycles and duplicates)
   if FVisited.IndexOf(Key) >= 0 then
     Exit;
   FVisited.Add(Key);
 
-  if not FRepository.ArtifactExists(AName, AVersion, ATargetId) then
+  LocalExists := FRepository.ArtifactExists(AName, AVersion, ATargetId);
+
+  if LocalExists and (not FForceFetch) then
+  begin
+    UnitsPath := FRepository.GetUnitsPath(AName, AVersion, ATargetId);
+    if AResolvedPaths.IndexOf(UnitsPath) < 0 then
+      AResolvedPaths.Add(UnitsPath);
+
+    if FVerbose then
+      TUtils.LogInfo('  Resolved: ' + AName + ':' + AVersion + ' -> ' + UnitsPath);
+
+    Metadata := FRepository.ReadMetadata(AName, AVersion, ATargetId);
+    try
+      for I := 0 to Length(Metadata.Dependencies) - 1 do
+        ResolveOne(
+          Metadata.Dependencies[I].Name,
+          Metadata.Dependencies[I].Version,
+          ATargetId,
+          AResolvedPaths
+        );
+    finally
+      Metadata.Free;
+    end;
+    Exit;
+  end;
+
+  if FOfflineMode then
   begin
     Targets := FRepository.GetAvailableTargets(AName, AVersion);
     try
@@ -101,26 +252,23 @@ begin
     end;
   end;
 
-  UnitsPath := FRepository.GetUnitsPath(AName, AVersion, ATargetId);
-  if AResolvedPaths.IndexOf(UnitsPath) < 0 then
-    AResolvedPaths.Add(UnitsPath);
+  if TryRemoteResolve(AName, AVersion, ATargetId, AResolvedPaths) then
+    Exit;
 
-  if FVerbose then
-    TUtils.LogInfo('  Resolved: ' + AName + ':' + AVersion + ' -> ' + UnitsPath);
-
-  Metadata := FRepository.ReadMetadata(AName, AVersion, ATargetId);
+  Targets := FRepository.GetAvailableTargets(AName, AVersion);
   try
-    for I := 0 to Length(Metadata.Dependencies) - 1 do
-    begin
-      ResolveOne(
-        Metadata.Dependencies[I].Name,
-        Metadata.Dependencies[I].Version,
-        ATargetId,
-        AResolvedPaths
-      );
-    end;
+    if Targets.Count > 0 then
+      raise EDependencyError.CreateFmt(
+        'Dependency "%s:%s" not found for target "%s". ' +
+        'Available targets: %s. Recompile and install with matching compiler target.',
+        [AName, AVersion, ATargetId, Targets.CommaText])
+    else
+      raise EDependencyError.CreateFmt(
+        'Dependency "%s:%s" not found in local repository or any configured registry. ' +
+        'Run "pasbuild install" in the dependency project first.',
+        [AName, AVersion]);
   finally
-    Metadata.Free;
+    Targets.Free;
   end;
 end;
 

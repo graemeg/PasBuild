@@ -35,7 +35,10 @@ uses
   PasBuild.Test.Crypto.SHA256,
   PasBuild.Test.Types.Remote,
   PasBuild.Test.Settings,
-  PasBuild.Test.Config.ProjectMetadata;
+  PasBuild.Test.Config.ProjectMetadata,
+  PasBuild.Test.Remote.Registry,
+  PasBuild.Test.Remote.Manifest,
+  PasBuild.Test.Remote;
 
 var
   Application: TTestRunner;
