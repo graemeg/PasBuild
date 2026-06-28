@@ -40,7 +40,8 @@ uses
   PasBuild.Test.Remote.Manifest,
   PasBuild.Test.Remote,
   PasBuild.Test.Remote.Builder,
-  PasBuild.Test.Command.Publish;
+  PasBuild.Test.Command.Publish,
+  PasBuild.Test.Forge;
 
 var
   Application: TTestRunner;
