@@ -39,6 +39,8 @@ type
     class procedure ParseDependencies(ADepsNode: TDOMNode; AConfig: TProjectConfig);
     class procedure ParseProfile(AProfileNode: TDOMNode; AProfile: TProfile);
     class procedure ParseProfiles(AProfilesNode: TDOMNode; AConfig: TProjectConfig);
+    class procedure ParseKeywords(AKeywordsNode: TDOMNode; AKeywords: TStringList);
+    class procedure ParseRepositories(AReposNode: TDOMNode; AConfig: TProjectConfig);
     class procedure ValidatePackagingRules(AConfig: TProjectConfig);
   public
     class function LoadProjectXML(const AFilePath: string;
@@ -429,6 +431,52 @@ begin
   end;
 end;
 
+class procedure TConfigLoader.ParseKeywords(AKeywordsNode: TDOMNode; AKeywords: TStringList);
+var
+  Node: TDOMNode;
+  Keyword: string;
+  I: Integer;
+begin
+  if not Assigned(AKeywordsNode) then
+    Exit;
+
+  for I := 0 to AKeywordsNode.ChildNodes.Count - 1 do
+  begin
+    Node := AKeywordsNode.ChildNodes[I];
+    if (Node.NodeType = ELEMENT_NODE) and (Node.NodeName = 'keyword') then
+    begin
+      if Assigned(Node.FirstChild) then
+      begin
+        Keyword := Trim(string(Node.TextContent));
+        if Keyword <> '' then
+          AKeywords.Add(Keyword);
+      end;
+    end;
+  end;
+end;
+
+class procedure TConfigLoader.ParseRepositories(AReposNode: TDOMNode; AConfig: TProjectConfig);
+var
+  RepoNode: TDOMNode;
+  Id, Url: string;
+  I: Integer;
+begin
+  if not Assigned(AReposNode) then
+    Exit;
+
+  for I := 0 to AReposNode.ChildNodes.Count - 1 do
+  begin
+    RepoNode := AReposNode.ChildNodes[I];
+    if (RepoNode.NodeType = ELEMENT_NODE) and (RepoNode.NodeName = 'repository') then
+    begin
+      Id := GetNodeText(RepoNode, 'id');
+      Url := GetNodeText(RepoNode, 'url');
+      if (Id <> '') and (Url <> '') then
+        AConfig.Repositories.Add(TRepositoryInfo.Create(Id, Url));
+    end;
+  end;
+end;
+
 class function TConfigLoader.LoadProjectXML(const AFilePath: string;
   AAllowEmptyVersion: Boolean = False): TProjectConfig;
 var
@@ -473,6 +521,13 @@ begin
       Result.License := GetNodeText(RootNode, 'license', 'Proprietary');
       Result.ProjectUrl := GetNodeText(RootNode, 'projectUrl');
       Result.RepoUrl := GetNodeText(RootNode, 'repoUrl');
+      Result.Description := GetNodeText(RootNode, 'description');
+
+      // Parse <keywords> section (optional)
+      ParseKeywords(RootNode.FindNode('keywords'), Result.Keywords);
+
+      // Parse <repositories> section (optional)
+      ParseRepositories(RootNode.FindNode('repositories'), Result);
 
       // Parse <build> section (required)
       BuildNode := RootNode.FindNode('build');

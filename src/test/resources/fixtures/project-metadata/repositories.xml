@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project>
+  <name>test-app</name>
+  <version>1.0.0</version>
+  <repositories>
+    <repository>
+      <id>company-internal</id>
+      <url>https://git.company.com/pasbuild-registry/raw/branch/main/</url>
+    </repository>
+    <repository>
+      <id>central</id>
+      <url>https://raw.githubusercontent.com/pasbuild/registry/main/</url>
+    </repository>
+  </repositories>
+  <build>
+    <mainSource>Main.pas</mainSource>
+  </build>
+</project>

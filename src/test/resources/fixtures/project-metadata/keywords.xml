@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project>
+  <name>test-app</name>
+  <version>1.0.0</version>
+  <keywords>
+    <keyword>gui</keyword>
+    <keyword>toolkit</keyword>
+    <keyword>cross-platform</keyword>
+  </keywords>
+  <build>
+    <mainSource>Main.pas</mainSource>
+  </build>
+</project>

@@ -31,7 +31,11 @@ uses
   PasBuild.Test.Bootstrap,
   PasBuild.Test.ProcessResources,
   PasBuild.Test.Command.SourcePackage,
-  PasBuild.Test.FindProjectRoot;
+  PasBuild.Test.FindProjectRoot,
+  PasBuild.Test.Crypto.SHA256,
+  PasBuild.Test.Types.Remote,
+  PasBuild.Test.Settings,
+  PasBuild.Test.Config.ProjectMetadata;
 
 var
   Application: TTestRunner;

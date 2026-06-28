@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project>
+  <name>fpgui-framework</name>
+  <version>2.0.0</version>
+  <author>Graeme Geldenhuys</author>
+  <license>LGPL-2.1-only</license>
+  <description>Cross-platform GUI toolkit for Free Pascal</description>
+  <keywords>
+    <keyword>gui</keyword>
+    <keyword>toolkit</keyword>
+    <keyword>cross-platform</keyword>
+  </keywords>
+  <repositories>
+    <repository>
+      <id>internal</id>
+      <url>https://git.company.com/registry/</url>
+    </repository>
+  </repositories>
+  <build>
+    <mainSource>Main.pas</mainSource>
+  </build>
+</project>

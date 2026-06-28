@@ -142,6 +142,21 @@ type
     property IncludeDirs: TStringList read FIncludeDirs;
   end;
 
+  { TRepositoryInfo - Remote registry configuration entry }
+  TRepositoryInfo = class
+  private
+    FId: string;
+    FUrl: string;
+  public
+    constructor Create(const AId, AUrl: string);
+
+    property Id: string read FId write FId;
+    property Url: string read FUrl write FUrl;
+  end;
+
+  { List of repository configurations }
+  TRepositoryList = specialize TFPGObjectList<TRepositoryInfo>;
+
   { TDependencyInfo - External dependency declaration }
   TDependencyInfo = class
   private
@@ -176,6 +191,9 @@ type
     FInactiveModules: TStringList;           // Modules with activeByDefault="false"
     FModuleDependencies: TStringList;        // Module dependencies (for library/app)
     FDependencies: TDependencyList;          // External dependencies (from local repository)
+    FDescription: string;
+    FKeywords: TStringList;
+    FRepositories: TRepositoryList;
   public
     constructor Create;
     destructor Destroy; override;
@@ -184,6 +202,7 @@ type
     property Version: string read FVersion write FVersion;
     property Author: string read FAuthor write FAuthor;
     property License: string read FLicense write FLicense;
+    property Description: string read FDescription write FDescription;
     property ProjectUrl: string read FProjectUrl write FProjectUrl;
     property RepoUrl: string read FRepoUrl write FRepoUrl;
     property BuildConfig: TBuildConfig read FBuildConfig;
@@ -196,6 +215,8 @@ type
     property InactiveModules: TStringList read FInactiveModules;          // Modules with activeByDefault="false"
     property ModuleDependencies: TStringList read FModuleDependencies;    // Module dependencies
     property Dependencies: TDependencyList read FDependencies;            // External dependencies
+    property Keywords: TStringList read FKeywords;
+    property Repositories: TRepositoryList read FRepositories;
   end;
 
   { TModuleInfo - Module metadata for build ordering }
@@ -400,9 +421,17 @@ begin
   FDependencies := TDependencyList.Create;
   FDependencies.FreeObjects := True;
 
+  FKeywords := TStringList.Create;
+  FKeywords.Duplicates := dupIgnore;
+  FKeywords.Sorted := True;
+
+  FRepositories := TRepositoryList.Create;
+  FRepositories.FreeObjects := True;
+
   // Set defaults
   FAuthor := 'Unknown';
   FLicense := 'Proprietary';
+  FDescription := '';
 end;
 
 destructor TProjectConfig.Destroy;
@@ -417,7 +446,18 @@ begin
   FInactiveModules.Free;
   FModuleDependencies.Free;
   FDependencies.Free;
+  FKeywords.Free;
+  FRepositories.Free;
   inherited Destroy;
+end;
+
+{ TRepositoryInfo }
+
+constructor TRepositoryInfo.Create(const AId, AUrl: string);
+begin
+  inherited Create;
+  FId := AId;
+  FUrl := AUrl;
 end;
 
 { TDependencyInfo }
