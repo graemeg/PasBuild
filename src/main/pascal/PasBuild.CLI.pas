@@ -23,7 +23,7 @@ const
 
 type
   { Valid build goals }
-  TBuildGoal = (bgUnknown, bgClean, bgProcessResources, bgCompile, bgProcessTestResources, bgTestCompile, bgTest, bgPackage, bgSourcePackage, bgInstall, bgDependencyTree, bgResolve, bgInit);
+  TBuildGoal = (bgUnknown, bgClean, bgProcessResources, bgCompile, bgProcessTestResources, bgTestCompile, bgTest, bgPackage, bgSourcePackage, bgInstall, bgDependencyTree, bgResolve, bgInit, bgPublish);
 
   { Parsed command-line arguments }
   TCommandLineArgs = record
@@ -37,6 +37,9 @@ type
     NoIncremental: Boolean;  // Disable incremental compilation (Blaise: --no-incremental; FPC: ignored)
     OfflineMode: Boolean;  // Disable remote dependency fetching
     ForceFetch: Boolean;  // Re-download remote dependencies even if already in local repository
+    ArchiveUrl: string;  // Source archive URL for publish goal
+    RegistryId: string;  // Target registry id for publish goal
+    DryRun: Boolean;  // Generate output without submitting (publish goal)
     ShowHelp: Boolean;
     ShowVersion: Boolean;
     ShowLicense: Boolean;
@@ -76,7 +79,8 @@ const
     'install',
     'dependency-tree',
     'resolve',
-    'init'
+    'init',
+    'publish'
   );
 
 { TArgumentParser }
@@ -116,6 +120,9 @@ begin
   Result.NoIncremental := False;  // Default: let the compiler use its own default
   Result.OfflineMode := False;  // Default: allow remote fetching
   Result.ForceFetch := False;  // Default: use cached dependencies
+  Result.ArchiveUrl := '';  // Default: no archive URL
+  Result.RegistryId := '';  // Default: use central registry
+  Result.DryRun := False;  // Default: submit to registry
   Result.ShowHelp := False;
   Result.ShowVersion := False;
   Result.ShowLicense := False;
@@ -238,6 +245,33 @@ begin
     begin
       Result.ForceFetch := True;
     end
+    // Source archive URL for publish goal
+    else if (Arg = '--archive-url') then
+    begin
+      Inc(I);
+      if I > ParamCount then
+      begin
+        Result.ErrorMessage := 'Option ' + Arg + ' requires a URL';
+        Exit;
+      end;
+      Result.ArchiveUrl := ParamStr(I);
+    end
+    // Target registry for publish goal
+    else if (Arg = '--registry') then
+    begin
+      Inc(I);
+      if I > ParamCount then
+      begin
+        Result.ErrorMessage := 'Option ' + Arg + ' requires a registry id';
+        Exit;
+      end;
+      Result.RegistryId := ParamStr(I);
+    end
+    // Dry-run mode for publish goal
+    else if (Arg = '--dry-run') then
+    begin
+      Result.DryRun := True;
+    end
     // Compiler executable flag
     else if (Arg = '--compiler') then
     begin
@@ -291,6 +325,7 @@ begin
   WriteLn('  dependency-tree         Show project dependency tree (no compilation)');
   WriteLn('  resolve                 Output resolved build configuration as JSON (no compilation)');
   WriteLn('  init                    Create new project structure');
+  WriteLn('  publish                 Publish package to registry');
 
   // List discovered plugins
   Plugins := TPluginDiscovery.DiscoverAllPlugins;
@@ -318,6 +353,9 @@ begin
   WriteLn('  --fpc <path>                 Deprecated alias for --compiler');
   WriteLn('  --offline                    Disable remote dependency fetching');
   WriteLn('  --force-fetch                Re-download remote dependencies even if cached');
+  WriteLn('  --archive-url <url>          Source archive URL for publish goal');
+  WriteLn('  --registry <id>              Target registry for publish goal (default: central)');
+  WriteLn('  --dry-run                    Generate output without submitting (publish goal)');
   WriteLn('  -v, --verbose                Show full compiler output');
   WriteLn('  -h, --help                   Show this help message');
   WriteLn('  --version                    Show version information');

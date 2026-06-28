@@ -39,7 +39,8 @@ uses
   PasBuild.Test.Remote.Registry,
   PasBuild.Test.Remote.Manifest,
   PasBuild.Test.Remote,
-  PasBuild.Test.Remote.Builder;
+  PasBuild.Test.Remote.Builder,
+  PasBuild.Test.Command.Publish;
 
 var
   Application: TTestRunner;

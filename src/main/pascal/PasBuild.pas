@@ -31,6 +31,7 @@ uses
   PasBuild.Command.AggregatedPackage,
   PasBuild.Command.AggregatedSourcePackage,
   PasBuild.Command.Install,
+  PasBuild.Command.Publish,
   PasBuild.Command.Init,
   PasBuild.Command.Reactor,
   PasBuild.Command.DependencyTree,
@@ -352,6 +353,10 @@ begin
 
           bgInit:
             Command := TInitCommand.Create(Config, Args.ProfileIds);
+
+          bgPublish:
+            Command := TPublishCommand.Create(Config, Args.ProfileIds,
+              Args.ArchiveUrl, Args.RegistryId, Args.DryRun);
 
           else
           begin
