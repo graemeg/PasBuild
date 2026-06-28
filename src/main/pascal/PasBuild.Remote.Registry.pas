@@ -21,7 +21,7 @@ uses
 
 const
   DEFAULT_REGISTRY_ID  = 'central';
-  DEFAULT_REGISTRY_URL = 'https://raw.githubusercontent.com/pasbuild/registry/main/';
+  DEFAULT_REGISTRY_URL = 'https://raw.githubusercontent.com/graemeg/pasbuild-registry/main/';
 
 type
   TRegistryManager = class
