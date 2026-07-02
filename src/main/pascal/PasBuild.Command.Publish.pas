@@ -691,14 +691,18 @@ begin
   PackagePath := 'packages/' + TRegistryManager.GetNamePrefix(Config.Name) +
     '/' + Config.Name + '/package.xml';
 
+  // Write through the same Text handle the logger uses (StdOut, not
+  // Output) so manifest bodies cannot interleave with [INFO] lines
   TUtils.LogInfo('');
   TUtils.LogInfo('Generated version manifest (' + ManifestPath + '):');
   TUtils.LogInfo('');
-  WriteLn(VersionManifest);
+  WriteLn(StdOut, VersionManifest);
+  Flush(StdOut);
 
   TUtils.LogInfo('Generated package manifest (' + PackagePath + '):');
   TUtils.LogInfo('');
-  WriteLn(PackageManifest);
+  WriteLn(StdOut, PackageManifest);
+  Flush(StdOut);
 
   OutputDir := TUtils.NormalizePath(Config.BuildConfig.OutputDirectory) +
     DirectorySeparator + 'publish';

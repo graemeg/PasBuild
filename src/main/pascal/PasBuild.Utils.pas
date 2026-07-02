@@ -707,6 +707,10 @@ begin
   end;
   WriteColor(Color, ATag+' ', LogTo);
   WriteLn(LogTo, AMessage);
+  // StdOut/StdErr/Output are independently buffered Text handles on the
+  // same file descriptors; without a flush, log lines interleave with
+  // plain WriteLn output in buffer-fill order rather than program order
+  Flush(LogTo);
 end;
 
 class procedure TUtils.LogSeparator;
