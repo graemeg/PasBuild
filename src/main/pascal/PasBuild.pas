@@ -299,6 +299,7 @@ begin
                 Command := TPublishCommand.CreateForModule(
                   Args.ProfileIds, Registry, Args.SelectedModule,
                   Args.ArchiveUrl, Args.RegistryId, Args.DryRun);
+                TPublishCommand(Command).Sha256Override := Args.Sha256Override;
               except
                 on E: EPublishError do
                 begin
@@ -383,8 +384,11 @@ begin
             Command := TInitCommand.Create(Config, Args.ProfileIds);
 
           bgPublish:
+          begin
             Command := TPublishCommand.Create(Config, Args.ProfileIds,
               Args.ArchiveUrl, Args.RegistryId, Args.DryRun);
+            TPublishCommand(Command).Sha256Override := Args.Sha256Override;
+          end;
 
           else
           begin

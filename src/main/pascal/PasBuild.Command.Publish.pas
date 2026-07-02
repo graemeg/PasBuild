@@ -29,10 +29,14 @@ type
     FArchiveUrl: string;
     FRegistryId: string;
     FDryRun: Boolean;
+    FSha256Override: string;
     FModuleRegistry: TModuleRegistry; // borrowed; nil for single-module
     function GetSourceArchivePath: string;
     function GetRegistryUrlForPublish: string;
     function WriteManifestFile(const ADir, AFileName, AContent: string): string;
+    function ResolveOriginHash(const AArchivePath: string;
+      out ASha256: string; out ASize: Int64): Boolean;
+    function FetchExistingVersions(const ARegistryUrl: string): TStringList;
   protected
     function GetName: string; override;
   public
@@ -52,19 +56,27 @@ type
     class function GenerateVersionManifest(AConfig: TProjectConfig;
       const AArchiveUrl, ASha256: string; ASize: Int64;
       ARegistry: TModuleRegistry = nil): string;
-    class function GeneratePackageManifest(AConfig: TProjectConfig): string;
+    class function GeneratePackageManifest(AConfig: TProjectConfig;
+      AExistingVersions: TStringList = nil): string;
     class function GetRegistryManifestPath(const AName, AVersion: string): string;
+    { Parse the <versions> list out of an existing registry package.xml.
+      Returns an empty list (never raises) for invalid or non-XML input. }
+    class function ExtractVersionsFromPackageXml(const AXml: string): TStringList;
 
     property ArchiveUrl: string read FArchiveUrl write FArchiveUrl;
     property RegistryId: string read FRegistryId write FRegistryId;
     property DryRun: Boolean read FDryRun write FDryRun;
+    property Sha256Override: string read FSha256Override write FSha256Override;
   end;
 
 implementation
 
 uses
+  DateUtils, DOM, XMLRead,
   PasBuild.Utils,
   PasBuild.Crypto.SHA256,
+  PasBuild.Settings,
+  PasBuild.Remote,
   PasBuild.Remote.Registry,
   PasBuild.Remote.Forge,
   PasBuild.Command.SourcePackage;
@@ -184,7 +196,8 @@ var
   I: Integer;
   Timestamp: string;
 begin
-  Timestamp := FormatDateTime('yyyy-mm-dd"T"hh:nn:ss"Z"', Now);
+  Timestamp := FormatDateTime('yyyy-mm-dd"T"hh:nn:ss"Z"',
+    LocalTimeToUniversal(Now));
 
   // Collect the full dependency list up front: external registry
   // dependencies plus inter-module dependencies translated to their
@@ -280,10 +293,48 @@ begin
   end;
 end;
 
+class function TPublishCommand.ExtractVersionsFromPackageXml(
+  const AXml: string): TStringList;
+var
+  Stream: TStringStream;
+  Doc: TXMLDocument;
+  VersionsNode, Node: TDOMNode;
+begin
+  Result := TStringList.Create;
+  if Trim(AXml) = '' then
+    Exit;
+
+  Doc := nil;
+  Stream := TStringStream.Create(AXml);
+  try
+    try
+      ReadXMLFile(Doc, Stream);
+      if not Assigned(Doc.DocumentElement) then
+        Exit;
+      VersionsNode := Doc.DocumentElement.FindNode('versions');
+      if not Assigned(VersionsNode) then
+        Exit;
+      Node := VersionsNode.FirstChild;
+      while Assigned(Node) do
+      begin
+        if (Node.NodeType = ELEMENT_NODE) and (Node.NodeName = 'version') then
+          Result.Add(Trim(string(Node.TextContent)));
+        Node := Node.NextSibling;
+      end;
+    except
+      // Invalid XML (e.g. an HTML error page): behave as "no versions"
+    end;
+  finally
+    Doc.Free;
+    Stream.Free;
+  end;
+end;
+
 class function TPublishCommand.GeneratePackageManifest(
-  AConfig: TProjectConfig): string;
+  AConfig: TProjectConfig; AExistingVersions: TStringList): string;
 var
   Lines: TStringList;
+  Versions: TStringList;
   I: Integer;
 begin
   Lines := TStringList.Create;
@@ -307,11 +358,24 @@ begin
       Lines.Add('  </keywords>');
     end;
 
-    Lines.Add('');
-    Lines.Add('  <versions>');
-    Lines.Add('    <version>' + TUtils.XmlEscapeText(AConfig.Version) + '</version>');
-    Lines.Add('  </versions>');
-    Lines.Add('</package>');
+    // Merge the previously published versions with the current one so a
+    // new release never erases the registry's version history
+    Versions := TStringList.Create;
+    try
+      if Assigned(AExistingVersions) then
+        Versions.AddStrings(AExistingVersions);
+      if Versions.IndexOf(AConfig.Version) < 0 then
+        Versions.Add(AConfig.Version);
+
+      Lines.Add('');
+      Lines.Add('  <versions>');
+      for I := 0 to Versions.Count - 1 do
+        Lines.Add('    <version>' + TUtils.XmlEscapeText(Versions[I]) + '</version>');
+      Lines.Add('  </versions>');
+      Lines.Add('</package>');
+    finally
+      Versions.Free;
+    end;
 
     Result := Lines.Text;
   finally
@@ -334,16 +398,38 @@ end;
 function TPublishCommand.GetRegistryUrlForPublish: string;
 var
   I: Integer;
+  Settings: TSettings;
 begin
-  if (FRegistryId <> '') and (Config.Repositories.Count > 0) then
+  if FRegistryId <> '' then
   begin
     for I := 0 to Config.Repositories.Count - 1 do
       if Config.Repositories[I].Id = FRegistryId then
         Exit(Config.Repositories[I].Url);
+
+    Settings := TSettingsLoader.LoadSettings(TSettingsLoader.GetDefaultPath);
+    try
+      for I := 0 to Settings.Repositories.Count - 1 do
+        if Settings.Repositories[I].Id = FRegistryId then
+          Exit(Settings.Repositories[I].Url);
+    finally
+      Settings.Free;
+    end;
+
+    raise EPublishError.CreateFmt(
+      'Unknown registry id "%s": no matching <repository> in project.xml ' +
+      'or ~/.pasbuild/settings.xml.', [FRegistryId]);
   end;
 
   if Config.Repositories.Count > 0 then
     Exit(Config.Repositories[0].Url);
+
+  Settings := TSettingsLoader.LoadSettings(TSettingsLoader.GetDefaultPath);
+  try
+    if Settings.Repositories.Count > 0 then
+      Exit(Settings.Repositories[0].Url);
+  finally
+    Settings.Free;
+  end;
 
   Result := GetEnvironmentVariable('PASBUILD_REGISTRY_URL');
   if Result = '' then
@@ -382,9 +468,124 @@ begin
   end;
 end;
 
+function IsSha256Hex(const AValue: string): Boolean;
+var
+  I: Integer;
+begin
+  Result := False;
+  if Length(AValue) <> 64 then
+    Exit;
+  for I := 1 to 64 do
+    if not (AValue[I] in ['0'..'9', 'a'..'f', 'A'..'F']) then
+      Exit;
+  Result := True;
+end;
+
+function TPublishCommand.ResolveOriginHash(const AArchivePath: string;
+  out ASha256: string; out ASize: Int64): Boolean;
+var
+  Client: TRemoteClient;
+  TempPath, LocalSha: string;
+begin
+  Result := False;
+  LocalSha := SHA256File(AArchivePath);
+  ASize := GetFileByteSize(AArchivePath);
+  ASha256 := '';
+
+  if FSha256Override <> '' then
+  begin
+    if not IsSha256Hex(FSha256Override) then
+    begin
+      TUtils.LogError('--sha256 must be 64 hexadecimal characters.');
+      Exit;
+    end;
+    ASha256 := LowerCase(FSha256Override);
+    if ASha256 <> LowerCase(LocalSha) then
+      TUtils.LogWarning('--sha256 differs from the locally generated ' +
+        'archive; the manifest size reflects the local archive.');
+    Exit(True);
+  end;
+
+  // Consumers verify the hash against the bytes they download from the
+  // origin URL, so hash the remote file - not the locally generated one,
+  // which may legitimately differ (forge-generated archives, re-zips)
+  TempPath := IncludeTrailingPathDelimiter(GetTempDir(False)) +
+    'pasbuild-publish-verify-' + IntToStr(GetProcessID) + '.zip';
+  Client := TRemoteClient.Create;
+  try
+    try
+      TUtils.LogInfo('Downloading release archive to compute its checksum...');
+      Client.DownloadFile(FArchiveUrl, TempPath);
+      ASha256 := SHA256File(TempPath);
+      ASize := GetFileByteSize(TempPath);
+      if LowerCase(ASha256) <> LowerCase(LocalSha) then
+      begin
+        TUtils.LogWarning('The remote archive does not match the locally ' +
+          'generated source package:');
+        TUtils.LogWarning('  remote sha256: ' + LowerCase(ASha256));
+        TUtils.LogWarning('  local  sha256: ' + LowerCase(LocalSha));
+        TUtils.LogWarning('The manifest uses the remote hash. Verify the ' +
+          'URL points at the intended release archive.');
+      end;
+      Result := True;
+    except
+      on E: Exception do
+      begin
+        if FDryRun then
+        begin
+          TUtils.LogWarning('Cannot download ' + FArchiveUrl + ': ' + E.Message);
+          TUtils.LogWarning('Dry-run continues with the local archive hash; ' +
+            'a real publish must be able to fetch the release archive.');
+          ASha256 := LocalSha;
+          Result := True;
+        end
+        else
+        begin
+          TUtils.LogError('Cannot download the release archive: ' + E.Message);
+          TUtils.LogError('Fix --archive-url, or pass --sha256 <hex> if the ' +
+            'file is not reachable from this machine.');
+        end;
+      end;
+    end;
+  finally
+    if FileExists(TempPath) then
+      DeleteFile(TempPath);
+    Client.Free;
+  end;
+end;
+
+function TPublishCommand.FetchExistingVersions(
+  const ARegistryUrl: string): TStringList;
+var
+  Client: TRemoteClient;
+  Base, Url, Xml: string;
+begin
+  Result := nil;
+  Base := ARegistryUrl;
+  if (Base <> '') and (Base[Length(Base)] <> '/') then
+    Base := Base + '/';
+  Url := Base + 'packages/' + TRegistryManager.GetNamePrefix(Config.Name) +
+    '/' + Config.Name + '/package.xml';
+
+  Client := TRemoteClient.Create;
+  try
+    try
+      Xml := Client.FetchText(Url);
+      Result := ExtractVersionsFromPackageXml(Xml);
+    except
+      // Not found or unreachable: treated as the first publish
+      on ENetworkError do
+        Result := nil;
+    end;
+  finally
+    Client.Free;
+  end;
+end;
+
 function TPublishCommand.Execute: Integer;
 var
   Errors: TStringList;
+  ExistingVersions: TStringList;
   I: Integer;
   ArchivePath, EffectiveUrl, Sha256: string;
   ArchiveSize: Int64;
@@ -424,13 +625,15 @@ begin
 
   TUtils.LogInfo('Source archive: ' + ArchivePath);
 
-  Sha256 := SHA256File(ArchivePath);
-  TUtils.LogInfo('SHA-256: ' + Sha256);
-
-  ArchiveSize := GetFileByteSize(ArchivePath);
-
   if FArchiveUrl <> '' then
     EffectiveUrl := FArchiveUrl
+  else if FDryRun then
+  begin
+    TUtils.LogWarning('No --archive-url given; the dry-run manifest uses a ' +
+      'placeholder URL and the local archive hash.');
+    EffectiveUrl := 'https://example.invalid/' + Config.Name + '-' +
+      Config.Version + '-src.zip';
+  end
   else
   begin
     TUtils.LogError('No --archive-url provided.');
@@ -440,9 +643,21 @@ begin
     Exit;
   end;
 
+  if FArchiveUrl = '' then
+  begin
+    // Dry-run placeholder: nothing to download
+    Sha256 := SHA256File(ArchivePath);
+    ArchiveSize := GetFileByteSize(ArchivePath);
+  end
+  else if not ResolveOriginHash(ArchivePath, Sha256, ArchiveSize) then
+  begin
+    Result := 1;
+    Exit;
+  end;
+  TUtils.LogInfo('SHA-256: ' + Sha256);
+
   try
-    VersionManifest := GenerateVersionManifest(Config, EffectiveUrl, Sha256,
-      ArchiveSize, FModuleRegistry);
+    RegistryUrl := GetRegistryUrlForPublish;
   except
     on E: EPublishError do
     begin
@@ -451,7 +666,26 @@ begin
       Exit;
     end;
   end;
-  PackageManifest := GeneratePackageManifest(Config);
+
+  // Merge with the registry's existing version history so publishing a
+  // new release never removes earlier versions from package.xml
+  ExistingVersions := FetchExistingVersions(RegistryUrl);
+  try
+    try
+      VersionManifest := GenerateVersionManifest(Config, EffectiveUrl, Sha256,
+        ArchiveSize, FModuleRegistry);
+    except
+      on E: EPublishError do
+      begin
+        TUtils.LogError(E.Message);
+        Result := 1;
+        Exit;
+      end;
+    end;
+    PackageManifest := GeneratePackageManifest(Config, ExistingVersions);
+  finally
+    ExistingVersions.Free;
+  end;
 
   ManifestPath := GetRegistryManifestPath(Config.Name, Config.Version);
   PackagePath := 'packages/' + TRegistryManager.GetNamePrefix(Config.Name) +
@@ -487,7 +721,6 @@ begin
     Exit;
   end;
 
-  RegistryUrl := GetRegistryUrlForPublish;
   Forge := TForgeDetector.DetectForge(RegistryUrl);
   Token := TForgeDetector.LookupToken(Forge);
   BranchName := TForgeDetector.GetPublishBranchName(Config.Name,

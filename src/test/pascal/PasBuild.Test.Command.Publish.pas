@@ -15,7 +15,7 @@ unit PasBuild.Test.Command.Publish;
 interface
 
 uses
-  Classes, SysUtils, fpcunit, testregistry,
+  Classes, SysUtils, DateUtils, fpcunit, testregistry,
   PasBuild.Types,
   PasBuild.CLI,
   PasBuild.Command.Publish;
@@ -61,6 +61,18 @@ type
     procedure TestGeneratePackageManifestXml;
     procedure TestGeneratePackageManifestIncludesKeywords;
     procedure TestManifestPathUsesNamePrefix;
+  end;
+
+  { Manifest correctness: UTC timestamps and version-history merging }
+  TTestPublishManifestCorrectness = class(TTestCase)
+  private
+    function CreateLibConfig: TProjectConfig;
+  published
+    procedure TestPublishedAtIsUtc;
+    procedure TestExtractVersionsFromPackageXml;
+    procedure TestExtractVersionsFromInvalidXml;
+    procedure TestPackageManifestMergesExistingVersions;
+    procedure TestPackageManifestDeduplicatesCurrentVersion;
   end;
 
   { Publishing a module out of a multi-module aggregator must operate in
@@ -515,6 +527,137 @@ begin
     'packages/st/string-utils/1.0.0.xml', Path);
 end;
 
+{ TTestPublishManifestCorrectness }
+
+function TTestPublishManifestCorrectness.CreateLibConfig: TProjectConfig;
+begin
+  Result := TProjectConfig.Create;
+  Result.Name := 'utc-lib';
+  Result.Version := '1.0.0';
+  Result.BuildConfig.ProjectType := ptLibrary;
+end;
+
+procedure TTestPublishManifestCorrectness.TestPublishedAtIsUtc;
+var
+  Config: TProjectConfig;
+  Manifest, Stamp: string;
+  P: Integer;
+  Y, Mo, D, H, N: Integer;
+  ManifestTime, NowUtc: TDateTime;
+begin
+  Config := CreateLibConfig;
+  try
+    Manifest := TPublishCommand.GenerateVersionManifest(Config,
+      'https://example.org/a.zip', 'abc', 10);
+
+    P := Pos('<publishedAt>', Manifest);
+    AssertTrue('publishedAt present', P > 0);
+    Stamp := Copy(Manifest, P + Length('<publishedAt>'), 19);
+
+    // Parse yyyy-mm-ddThh:nn:ss and compare against UTC now; a local
+    // timestamp mislabelled 'Z' would be off by the timezone offset
+    Y := StrToInt(Copy(Stamp, 1, 4));
+    Mo := StrToInt(Copy(Stamp, 6, 2));
+    D := StrToInt(Copy(Stamp, 9, 2));
+    H := StrToInt(Copy(Stamp, 12, 2));
+    N := StrToInt(Copy(Stamp, 15, 2));
+    ManifestTime := EncodeDate(Y, Mo, D) + EncodeTime(H, N, 0, 0);
+    NowUtc := LocalTimeToUniversal(Now);
+
+    AssertTrue('publishedAt must be UTC (was ' + Stamp + ')',
+      Abs(NowUtc - ManifestTime) < (5.0 / (24.0 * 60.0)));
+  finally
+    Config.Free;
+  end;
+end;
+
+procedure TTestPublishManifestCorrectness.TestExtractVersionsFromPackageXml;
+var
+  Versions: TStringList;
+begin
+  Versions := TPublishCommand.ExtractVersionsFromPackageXml(
+    '<?xml version="1.0" encoding="UTF-8"?>' + LineEnding +
+    '<package>' + LineEnding +
+    '  <name>mylib</name>' + LineEnding +
+    '  <versions>' + LineEnding +
+    '    <version>1.0.0</version>' + LineEnding +
+    '    <version>1.1.0</version>' + LineEnding +
+    '  </versions>' + LineEnding +
+    '</package>');
+  try
+    AssertEquals('Version count', 2, Versions.Count);
+    AssertEquals('1.0.0', Versions[0]);
+    AssertEquals('1.1.0', Versions[1]);
+  finally
+    Versions.Free;
+  end;
+end;
+
+procedure TTestPublishManifestCorrectness.TestExtractVersionsFromInvalidXml;
+var
+  Versions: TStringList;
+begin
+  // A registry serving an HTML error page must not crash the publish
+  Versions := TPublishCommand.ExtractVersionsFromPackageXml('<html>404');
+  try
+    AssertEquals('No versions from invalid XML', 0, Versions.Count);
+  finally
+    Versions.Free;
+  end;
+end;
+
+procedure TTestPublishManifestCorrectness.TestPackageManifestMergesExistingVersions;
+var
+  Config: TProjectConfig;
+  Existing: TStringList;
+  Manifest: string;
+begin
+  Config := CreateLibConfig;
+  Config.Version := '2.0.0';
+  Existing := TStringList.Create;
+  try
+    Existing.Add('1.0.0');
+    Existing.Add('1.1.0');
+
+    Manifest := TPublishCommand.GeneratePackageManifest(Config, Existing);
+
+    AssertTrue('Keeps 1.0.0', Pos('<version>1.0.0</version>', Manifest) > 0);
+    AssertTrue('Keeps 1.1.0', Pos('<version>1.1.0</version>', Manifest) > 0);
+    AssertTrue('Adds 2.0.0', Pos('<version>2.0.0</version>', Manifest) > 0);
+  finally
+    Existing.Free;
+    Config.Free;
+  end;
+end;
+
+procedure TTestPublishManifestCorrectness.TestPackageManifestDeduplicatesCurrentVersion;
+var
+  Config: TProjectConfig;
+  Existing: TStringList;
+  Manifest: string;
+  FirstPos: Integer;
+begin
+  // Re-publishing an existing version must not duplicate it in the list
+  Config := CreateLibConfig;
+  Config.Version := '1.1.0';
+  Existing := TStringList.Create;
+  try
+    Existing.Add('1.0.0');
+    Existing.Add('1.1.0');
+
+    Manifest := TPublishCommand.GeneratePackageManifest(Config, Existing);
+
+    FirstPos := Pos('<version>1.1.0</version>', Manifest);
+    AssertTrue('Contains 1.1.0', FirstPos > 0);
+    AssertEquals('1.1.0 appears exactly once', 0,
+      Pos('<version>1.1.0</version>',
+        Copy(Manifest, FirstPos + 10, MaxInt)));
+  finally
+    Existing.Free;
+    Config.Free;
+  end;
+end;
+
 { TTestPublishForModule }
 
 function TTestPublishForModule.AddModule(const AModuleName, APackageName,
@@ -704,6 +847,7 @@ initialization
   RegisterTest(TTestPublishCLIFlags);
   RegisterTest(TTestPublishValidation);
   RegisterTest(TTestPublishManifestGeneration);
+  RegisterTest(TTestPublishManifestCorrectness);
   RegisterTest(TTestPublishForModule);
 
 end.

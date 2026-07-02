@@ -40,6 +40,7 @@ type
     ArchiveUrl: string;  // Source archive URL for publish goal
     RegistryId: string;  // Target registry id for publish goal
     DryRun: Boolean;  // Generate output without submitting (publish goal)
+    Sha256Override: string;  // Explicit archive checksum for publish goal
     ShowHelp: Boolean;
     ShowVersion: Boolean;
     ShowLicense: Boolean;
@@ -123,6 +124,7 @@ begin
   Result.ArchiveUrl := '';  // Default: no archive URL
   Result.RegistryId := '';  // Default: use central registry
   Result.DryRun := False;  // Default: submit to registry
+  Result.Sha256Override := '';  // Default: download the archive and hash it
   Result.ShowHelp := False;
   Result.ShowVersion := False;
   Result.ShowLicense := False;
@@ -272,6 +274,17 @@ begin
     begin
       Result.DryRun := True;
     end
+    // Explicit archive checksum for publish goal (skips download-and-hash)
+    else if (Arg = '--sha256') then
+    begin
+      Inc(I);
+      if I > ParamCount then
+      begin
+        Result.ErrorMessage := 'Option ' + Arg + ' requires a 64-character hex checksum';
+        Exit;
+      end;
+      Result.Sha256Override := ParamStr(I);
+    end
     // Compiler executable flag
     else if (Arg = '--compiler') then
     begin
@@ -356,6 +369,7 @@ begin
   WriteLn('  --archive-url <url>          Source archive URL for publish goal');
   WriteLn('  --registry <id>              Target registry for publish goal (default: central)');
   WriteLn('  --dry-run                    Generate output without submitting (publish goal)');
+  WriteLn('  --sha256 <hex>               Archive checksum for publish goal (skips download)');
   WriteLn('  -v, --verbose                Show full compiler output');
   WriteLn('  -h, --help                   Show this help message');
   WriteLn('  --version                    Show version information');
