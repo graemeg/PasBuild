@@ -295,9 +295,18 @@ begin
                 ExitCode := 1;
                 Exit;
               end;
-              Command := TPublishCommand.CreateForModule(Config,
-                Args.ProfileIds, Registry, Args.SelectedModule,
-                Args.ArchiveUrl, Args.RegistryId, Args.DryRun);
+              try
+                Command := TPublishCommand.CreateForModule(
+                  Args.ProfileIds, Registry, Args.SelectedModule,
+                  Args.ArchiveUrl, Args.RegistryId, Args.DryRun);
+              except
+                on E: EPublishError do
+                begin
+                  TUtils.LogError(E.Message);
+                  ExitCode := 1;
+                  Exit;
+                end;
+              end;
             end;
 
             else

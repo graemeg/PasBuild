@@ -20,11 +20,16 @@ uses
   PasBuild.Command;
 
 type
+  { Raised for publish-specific configuration problems (module lookup,
+    unresolvable module dependencies, ...) }
+  EPublishError = class(Exception);
+
   TPublishCommand = class(TBuildCommand)
   private
     FArchiveUrl: string;
     FRegistryId: string;
     FDryRun: Boolean;
+    FModuleRegistry: TModuleRegistry; // borrowed; nil for single-module
     function GetSourceArchivePath: string;
     function GetRegistryUrlForPublish: string;
     function WriteManifestFile(const ADir, AFileName, AContent: string): string;
@@ -33,8 +38,11 @@ type
   public
     constructor Create(AConfig: TProjectConfig; AProfileIds: TStringList;
       const AArchiveUrl, ARegistryId: string; ADryRun: Boolean);
-    constructor CreateForModule(AAggregatorConfig: TProjectConfig;
-      AProfileIds: TStringList; ARegistry: TModuleRegistry;
+    { Publish a library module of a multi-module project. Changes the
+      current directory to the module directory so the source-package
+      dependency and all relative output paths operate on the module. }
+    constructor CreateForModule(AProfileIds: TStringList;
+      ARegistry: TModuleRegistry;
       const AModuleName, AArchiveUrl, ARegistryId: string; ADryRun: Boolean);
 
     function Execute: Integer; override;
@@ -42,7 +50,8 @@ type
 
     class function ValidateForPublish(AConfig: TProjectConfig): TStringList;
     class function GenerateVersionManifest(AConfig: TProjectConfig;
-      const AArchiveUrl, ASha256: string; ASize: Int64): string;
+      const AArchiveUrl, ASha256: string; ASize: Int64;
+      ARegistry: TModuleRegistry = nil): string;
     class function GeneratePackageManifest(AConfig: TProjectConfig): string;
     class function GetRegistryManifestPath(const AName, AVersion: string): string;
 
@@ -70,38 +79,48 @@ begin
   FArchiveUrl := AArchiveUrl;
   FRegistryId := ARegistryId;
   FDryRun := ADryRun;
+  FModuleRegistry := nil;
 end;
 
-constructor TPublishCommand.CreateForModule(AAggregatorConfig: TProjectConfig;
-  AProfileIds: TStringList; ARegistry: TModuleRegistry;
+constructor TPublishCommand.CreateForModule(AProfileIds: TStringList;
+  ARegistry: TModuleRegistry;
   const AModuleName, AArchiveUrl, ARegistryId: string; ADryRun: Boolean);
 var
   Module: TModuleInfo;
 begin
   Module := ARegistry.FindModuleByName(AModuleName);
   if not Assigned(Module) then
-    raise Exception.CreateFmt('Module not found: %s', [AModuleName]);
+    raise EPublishError.CreateFmt('Module not found: %s', [AModuleName]);
 
   if Module.Config.BuildConfig.ProjectType <> ptLibrary then
   begin
     case Module.Config.BuildConfig.ProjectType of
-      ptApplication: raise Exception.CreateFmt(
+      ptApplication: raise EPublishError.CreateFmt(
         'Only library modules can be published. Module "%s" has packaging: application.',
         [AModuleName]);
-      ptPom: raise Exception.CreateFmt(
+      ptPom: raise EPublishError.CreateFmt(
         'Only library modules can be published. Module "%s" has packaging: pom.',
         [AModuleName]);
     else
-      raise Exception.CreateFmt(
+      raise EPublishError.CreateFmt(
         'Only library modules can be published. Module "%s" is not a library.',
         [AModuleName]);
     end;
   end;
 
+  // The source-package dependency and every relative path (target/,
+  // target/publish/) resolve against the current directory; without this
+  // the aggregator's tree would be archived under the module's name
+  if not SetCurrentDir(Module.Path) then
+    raise EPublishError.CreateFmt(
+      'Cannot change to module directory: %s', [Module.Path]);
+  TUtils.LogInfo('Publishing module ' + AModuleName + ' from ' + Module.Path);
+
   inherited Create(Module.Config, AProfileIds);
   FArchiveUrl := AArchiveUrl;
   FRegistryId := ARegistryId;
   FDryRun := ADryRun;
+  FModuleRegistry := ARegistry;
 end;
 
 function TPublishCommand.GetName: string;
@@ -157,64 +176,107 @@ end;
 
 class function TPublishCommand.GenerateVersionManifest(
   AConfig: TProjectConfig; const AArchiveUrl, ASha256: string;
-  ASize: Int64): string;
+  ASize: Int64; ARegistry: TModuleRegistry): string;
 var
   Lines: TStringList;
+  DepNames, DepVersions: TStringList;
+  Module: TModuleInfo;
   I: Integer;
   Timestamp: string;
 begin
   Timestamp := FormatDateTime('yyyy-mm-dd"T"hh:nn:ss"Z"', Now);
 
-  Lines := TStringList.Create;
+  // Collect the full dependency list up front: external registry
+  // dependencies plus inter-module dependencies translated to their
+  // published package names and versions
+  DepNames := TStringList.Create;
+  DepVersions := TStringList.Create;
   try
-    Lines.Add('<?xml version="1.0" encoding="UTF-8"?>');
-    Lines.Add('<release>');
-    Lines.Add('  <name>' + TUtils.XmlEscapeText(AConfig.Name) + '</name>');
-    Lines.Add('  <version>' + TUtils.XmlEscapeText(AConfig.Version) + '</version>');
-    Lines.Add('  <author>' + TUtils.XmlEscapeText(AConfig.Author) + '</author>');
-    Lines.Add('  <license>' + TUtils.XmlEscapeText(AConfig.License) + '</license>');
-
-    if AConfig.Description <> '' then
-      Lines.Add('  <description>' + TUtils.XmlEscapeText(AConfig.Description) + '</description>');
-
-    Lines.Add('');
-    Lines.Add('  <origin>');
-    Lines.Add('    <url>' + TUtils.XmlEscapeText(AArchiveUrl) + '</url>');
-    Lines.Add('    <sha256>' + ASha256 + '</sha256>');
-    Lines.Add('    <size>' + IntToStr(ASize) + '</size>');
-    Lines.Add('  </origin>');
-
-    Lines.Add('');
-    Lines.Add('  <compilers>');
-    Lines.Add('    <compiler>');
-    Lines.Add('      <name>' + TUtils.DetectCompilerName + '</name>');
-    Lines.Add('      <minimumVersion>' + TUtils.DetectCompilerVersion + '</minimumVersion>');
-    Lines.Add('    </compiler>');
-    Lines.Add('  </compilers>');
-
-    Lines.Add('');
-    if AConfig.Dependencies.Count > 0 then
+    for I := 0 to AConfig.Dependencies.Count - 1 do
     begin
-      Lines.Add('  <dependencies>');
-      for I := 0 to AConfig.Dependencies.Count - 1 do
+      DepNames.Add(AConfig.Dependencies[I].Name);
+      DepVersions.Add(AConfig.Dependencies[I].Version);
+    end;
+
+    for I := 0 to AConfig.ModuleDependencies.Count - 1 do
+    begin
+      if not Assigned(ARegistry) then
+        raise EPublishError.CreateFmt(
+          'Cannot publish "%s": it declares module dependency "%s" but no ' +
+          'module registry is available to resolve it.',
+          [AConfig.Name, AConfig.ModuleDependencies[I]]);
+
+      Module := ARegistry.FindModuleByName(AConfig.ModuleDependencies[I]);
+      if not Assigned(Module) then
+        raise EPublishError.CreateFmt(
+          'Cannot publish "%s": module dependency "%s" was not found in ' +
+          'this project.',
+          [AConfig.Name, AConfig.ModuleDependencies[I]]);
+
+      if Module.Config.BuildConfig.ProjectType <> ptLibrary then
+        raise EPublishError.CreateFmt(
+          'Cannot publish "%s": module dependency "%s" is not a library ' +
+          'module, so consumers could never resolve it from a registry.',
+          [AConfig.Name, AConfig.ModuleDependencies[I]]);
+
+      DepNames.Add(Module.Config.Name);
+      DepVersions.Add(Module.Config.Version);
+    end;
+
+    Lines := TStringList.Create;
+    try
+      Lines.Add('<?xml version="1.0" encoding="UTF-8"?>');
+      Lines.Add('<release>');
+      Lines.Add('  <name>' + TUtils.XmlEscapeText(AConfig.Name) + '</name>');
+      Lines.Add('  <version>' + TUtils.XmlEscapeText(AConfig.Version) + '</version>');
+      Lines.Add('  <author>' + TUtils.XmlEscapeText(AConfig.Author) + '</author>');
+      Lines.Add('  <license>' + TUtils.XmlEscapeText(AConfig.License) + '</license>');
+
+      if AConfig.Description <> '' then
+        Lines.Add('  <description>' + TUtils.XmlEscapeText(AConfig.Description) + '</description>');
+
+      Lines.Add('');
+      Lines.Add('  <origin>');
+      Lines.Add('    <url>' + TUtils.XmlEscapeText(AArchiveUrl) + '</url>');
+      Lines.Add('    <sha256>' + ASha256 + '</sha256>');
+      Lines.Add('    <size>' + IntToStr(ASize) + '</size>');
+      Lines.Add('  </origin>');
+
+      Lines.Add('');
+      Lines.Add('  <compilers>');
+      Lines.Add('    <compiler>');
+      Lines.Add('      <name>' + TUtils.DetectCompilerName + '</name>');
+      Lines.Add('      <minimumVersion>' + TUtils.DetectCompilerVersion + '</minimumVersion>');
+      Lines.Add('    </compiler>');
+      Lines.Add('  </compilers>');
+
+      Lines.Add('');
+      if DepNames.Count > 0 then
       begin
-        Lines.Add('    <dependency>');
-        Lines.Add('      <name>' + TUtils.XmlEscapeText(AConfig.Dependencies[I].Name) + '</name>');
-        Lines.Add('      <version>' + TUtils.XmlEscapeText(AConfig.Dependencies[I].Version) + '</version>');
-        Lines.Add('    </dependency>');
-      end;
-      Lines.Add('  </dependencies>');
-    end
-    else
-      Lines.Add('  <dependencies/>');
+        Lines.Add('  <dependencies>');
+        for I := 0 to DepNames.Count - 1 do
+        begin
+          Lines.Add('    <dependency>');
+          Lines.Add('      <name>' + TUtils.XmlEscapeText(DepNames[I]) + '</name>');
+          Lines.Add('      <version>' + TUtils.XmlEscapeText(DepVersions[I]) + '</version>');
+          Lines.Add('    </dependency>');
+        end;
+        Lines.Add('  </dependencies>');
+      end
+      else
+        Lines.Add('  <dependencies/>');
 
-    Lines.Add('');
-    Lines.Add('  <publishedAt>' + Timestamp + '</publishedAt>');
-    Lines.Add('</release>');
+      Lines.Add('');
+      Lines.Add('  <publishedAt>' + Timestamp + '</publishedAt>');
+      Lines.Add('</release>');
 
-    Result := Lines.Text;
+      Result := Lines.Text;
+    finally
+      Lines.Free;
+    end;
   finally
-    Lines.Free;
+    DepVersions.Free;
+    DepNames.Free;
   end;
 end;
 
@@ -378,8 +440,17 @@ begin
     Exit;
   end;
 
-  VersionManifest := GenerateVersionManifest(Config, EffectiveUrl, Sha256,
-    ArchiveSize);
+  try
+    VersionManifest := GenerateVersionManifest(Config, EffectiveUrl, Sha256,
+      ArchiveSize, FModuleRegistry);
+  except
+    on E: EPublishError do
+    begin
+      TUtils.LogError(E.Message);
+      Result := 1;
+      Exit;
+    end;
+  end;
   PackageManifest := GeneratePackageManifest(Config);
 
   ManifestPath := GetRegistryManifestPath(Config.Name, Config.Version);
