@@ -135,25 +135,30 @@ begin
 
   Doc := nil;
   try
-    ReadXMLFile(Doc, AFilePath);
+    try
+      ReadXMLFile(Doc, AFilePath);
 
-    RootNode := Doc.DocumentElement;
-    if not Assigned(RootNode) then
-      Exit;
+      RootNode := Doc.DocumentElement;
+      if not Assigned(RootNode) then
+        Exit;
 
-    Node := RootNode.FindNode('repositories');
-    if Assigned(Node) then
-      ParseRepositories(Node, Result);
+      Node := RootNode.FindNode('repositories');
+      if Assigned(Node) then
+        ParseRepositories(Node, Result);
 
-    OfflineStr := LowerCase(GetNodeText(RootNode, 'offlineMode'));
-    if OfflineStr = 'true' then
-      Result.OfflineMode := True;
+      OfflineStr := LowerCase(GetNodeText(RootNode, 'offlineMode'));
+      if OfflineStr = 'true' then
+        Result.OfflineMode := True;
 
-    Node := RootNode.FindNode('http');
-    if Assigned(Node) then
-      ParseHttp(Node, Result);
-  finally
-    Doc.Free;
+      Node := RootNode.FindNode('http');
+      if Assigned(Node) then
+        ParseHttp(Node, Result);
+    finally
+      Doc.Free;
+    end;
+  except
+    Result.Free;
+    raise;
   end;
 end;
 

@@ -29,9 +29,13 @@ type
   { Resolves external dependencies from the local repository, with remote fallback }
   TDependencyResolver = class
   private
+    class var GOfflineMode: Boolean;
+    class var GForceFetch: Boolean;
+  private
     FVerbose: Boolean;
     FOfflineMode: Boolean;
     FForceFetch: Boolean;
+    FOwnsSettings: Boolean;
     FVisited: TStringList;
     FRepository: TLocalRepository;
     FSettings: TSettings;
@@ -44,6 +48,18 @@ type
   public
     constructor Create;
     destructor Destroy; override;
+
+    { Set once at startup from parsed CLI arguments; every resolver created
+      via CreateConfigured picks these up }
+    class procedure ConfigureGlobal(AOfflineMode, AForceFetch: Boolean);
+
+    { Create a resolver wired with the global CLI flags, user settings.xml
+      and the project's <repositories>. The resolver owns the loaded settings.
+      AProjectRepositories is a borrowed reference (owned by TProjectConfig). }
+    class function CreateConfigured(
+      AProjectRepositories: TRepositoryList): TDependencyResolver;
+    class function CreateConfigured(AProjectRepositories: TRepositoryList;
+      const ASettingsPath: string): TDependencyResolver;
 
     procedure ResolveDependencies(AConfig: TProjectConfig);
 
@@ -72,6 +88,7 @@ begin
   FVerbose := False;
   FOfflineMode := False;
   FForceFetch := False;
+  FOwnsSettings := False;
   FRepository := TLocalRepository.Create;
   FSettings := nil;
   FProjectRepositories := nil;
@@ -79,9 +96,47 @@ end;
 
 destructor TDependencyResolver.Destroy;
 begin
+  if FOwnsSettings then
+    FSettings.Free;
   FRepository.Free;
   FVisited.Free;
   inherited Destroy;
+end;
+
+class procedure TDependencyResolver.ConfigureGlobal(AOfflineMode,
+  AForceFetch: Boolean);
+begin
+  GOfflineMode := AOfflineMode;
+  GForceFetch := AForceFetch;
+end;
+
+class function TDependencyResolver.CreateConfigured(
+  AProjectRepositories: TRepositoryList): TDependencyResolver;
+begin
+  Result := CreateConfigured(AProjectRepositories, TSettingsLoader.GetDefaultPath);
+end;
+
+class function TDependencyResolver.CreateConfigured(
+  AProjectRepositories: TRepositoryList;
+  const ASettingsPath: string): TDependencyResolver;
+begin
+  Result := TDependencyResolver.Create;
+  try
+    try
+      Result.FSettings := TSettingsLoader.LoadSettings(ASettingsPath);
+    except
+      on E: Exception do
+        raise EDependencyError.CreateFmt(
+          'Failed to load settings file %s: %s', [ASettingsPath, E.Message]);
+    end;
+    Result.FOwnsSettings := True;
+    Result.FProjectRepositories := AProjectRepositories;
+    Result.FOfflineMode := GOfflineMode or Result.FSettings.OfflineMode;
+    Result.FForceFetch := GForceFetch;
+  except
+    Result.Free;
+    raise;
+  end;
 end;
 
 function TDependencyResolver.FetchManifestFromRegistries(

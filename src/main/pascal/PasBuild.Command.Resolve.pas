@@ -455,9 +455,11 @@ begin
   { Resolve external dependencies from local repository }
   if Assigned(AModule.Config) and (AModule.Config.Dependencies.Count > 0) then
   begin
-    Resolver := TDependencyResolver.Create;
+    Resolver := nil;
     try
       try
+        Resolver := TDependencyResolver.CreateConfigured(
+          AModule.Config.Repositories);
         Resolver.ResolveDependencies(AModule.Config);
       except
         on E: EDependencyError do

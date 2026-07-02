@@ -259,10 +259,12 @@ begin
       { Resolve external dependencies from local repository }
       if Assigned(Module.Config) and (Module.Config.Dependencies.Count > 0) then
       begin
-        DepResolver := TDependencyResolver.Create;
+        DepResolver := nil;
         try
-          DepResolver.Verbose := FVerbose;
           try
+            DepResolver := TDependencyResolver.CreateConfigured(
+              Module.Config.Repositories);
+            DepResolver.Verbose := FVerbose;
             DepResolver.ResolveDependencies(Module.Config);
           except
             on E: EDependencyError do

@@ -206,14 +206,19 @@ begin
       end;
     end;
 
+    // Make CLI resolution flags visible to every resolver created later,
+    // including those inside reactor and resolve commands
+    TDependencyResolver.ConfigureGlobal(Args.OfflineMode, Args.ForceFetch);
+
     // Resolve external dependencies (for non-aggregator projects with <dependencies>)
     if (Args.Goal <> bgInit) and (Config.BuildConfig.ProjectType <> ptPom) and
        (Config.Dependencies.Count > 0) then
     begin
-      Resolver := TDependencyResolver.Create;
+      Resolver := nil;
       try
-        Resolver.Verbose := Args.Verbose;
         try
+          Resolver := TDependencyResolver.CreateConfigured(Config.Repositories);
+          Resolver.Verbose := Args.Verbose;
           Resolver.ResolveDependencies(Config);
         except
           on E: EDependencyError do

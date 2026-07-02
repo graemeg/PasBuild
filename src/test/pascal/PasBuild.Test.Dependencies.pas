@@ -18,6 +18,7 @@ uses
   Classes, SysUtils, fpcunit, testregistry,
   PasBuild.Types,
   PasBuild.Repository,
+  PasBuild.Settings,
   PasBuild.Dependencies;
 
 type
@@ -40,6 +41,25 @@ type
     procedure TestResolveTargetMismatch;
     procedure TestResolveNoDependencies;
     procedure TestResolveCyclicDependency;
+  end;
+
+  { Test the CreateConfigured factory that wires CLI flags, settings.xml and
+    project repositories into new resolver instances }
+  TTestResolverConfiguration = class(TTestCase)
+  private
+    FSettingsPath: string;
+    procedure WriteSettingsFile(const AContent: string);
+  protected
+    procedure SetUp; override;
+    procedure TearDown; override;
+  published
+    procedure TestConfiguredDefaults;
+    procedure TestGlobalOfflineMode;
+    procedure TestGlobalForceFetch;
+    procedure TestSettingsOfflineMode;
+    procedure TestSettingsRepositoriesLoaded;
+    procedure TestProjectRepositoriesWired;
+    procedure TestOfflineMissingDepFailsWithoutNetwork;
   end;
 
 implementation
@@ -400,7 +420,187 @@ begin
   end;
 end;
 
+{ TTestResolverConfiguration }
+
+procedure TTestResolverConfiguration.WriteSettingsFile(const AContent: string);
+var
+  F: TextFile;
+begin
+  AssignFile(F, FSettingsPath);
+  Rewrite(F);
+  Write(F, AContent);
+  CloseFile(F);
+end;
+
+procedure TTestResolverConfiguration.SetUp;
+begin
+  FSettingsPath := IncludeTrailingPathDelimiter(GetTempDir) +
+    'pasbuild_test_settings_' + IntToStr(GetProcessID) + '.xml';
+  TDependencyResolver.ConfigureGlobal(False, False);
+end;
+
+procedure TTestResolverConfiguration.TearDown;
+begin
+  TDependencyResolver.ConfigureGlobal(False, False);
+  if FileExists(FSettingsPath) then
+    DeleteFile(FSettingsPath);
+end;
+
+procedure TTestResolverConfiguration.TestConfiguredDefaults;
+var
+  Resolver: TDependencyResolver;
+begin
+  // No settings file, no global flags: everything off, settings defaulted
+  Resolver := TDependencyResolver.CreateConfigured(nil, FSettingsPath);
+  try
+    AssertFalse('OfflineMode should default to off', Resolver.OfflineMode);
+    AssertFalse('ForceFetch should default to off', Resolver.ForceFetch);
+    AssertNotNull('Settings should always be assigned', Resolver.Settings);
+    AssertEquals('Default connect timeout', 30, Resolver.Settings.ConnectTimeout);
+    AssertEquals('Default read timeout', 60, Resolver.Settings.ReadTimeout);
+  finally
+    Resolver.Free;
+  end;
+end;
+
+procedure TTestResolverConfiguration.TestGlobalOfflineMode;
+var
+  Resolver: TDependencyResolver;
+begin
+  TDependencyResolver.ConfigureGlobal(True, False);
+  Resolver := TDependencyResolver.CreateConfigured(nil, FSettingsPath);
+  try
+    AssertTrue('Global offline flag should reach resolver', Resolver.OfflineMode);
+    AssertFalse('ForceFetch should stay off', Resolver.ForceFetch);
+  finally
+    Resolver.Free;
+  end;
+end;
+
+procedure TTestResolverConfiguration.TestGlobalForceFetch;
+var
+  Resolver: TDependencyResolver;
+begin
+  TDependencyResolver.ConfigureGlobal(False, True);
+  Resolver := TDependencyResolver.CreateConfigured(nil, FSettingsPath);
+  try
+    AssertTrue('Global force-fetch flag should reach resolver', Resolver.ForceFetch);
+    AssertFalse('OfflineMode should stay off', Resolver.OfflineMode);
+  finally
+    Resolver.Free;
+  end;
+end;
+
+procedure TTestResolverConfiguration.TestSettingsOfflineMode;
+var
+  Resolver: TDependencyResolver;
+begin
+  WriteSettingsFile(
+    '<?xml version="1.0" encoding="UTF-8"?>' + LineEnding +
+    '<settings>' + LineEnding +
+    '  <offlineMode>true</offlineMode>' + LineEnding +
+    '</settings>');
+
+  // Global flag off; settings.xml alone should switch offline on
+  Resolver := TDependencyResolver.CreateConfigured(nil, FSettingsPath);
+  try
+    AssertTrue('settings.xml offlineMode should reach resolver',
+      Resolver.OfflineMode);
+  finally
+    Resolver.Free;
+  end;
+end;
+
+procedure TTestResolverConfiguration.TestSettingsRepositoriesLoaded;
+var
+  Resolver: TDependencyResolver;
+begin
+  WriteSettingsFile(
+    '<?xml version="1.0" encoding="UTF-8"?>' + LineEnding +
+    '<settings>' + LineEnding +
+    '  <repositories>' + LineEnding +
+    '    <repository>' + LineEnding +
+    '      <id>mirror</id>' + LineEnding +
+    '      <url>https://mirror.example.org/registry/</url>' + LineEnding +
+    '    </repository>' + LineEnding +
+    '  </repositories>' + LineEnding +
+    '</settings>');
+
+  Resolver := TDependencyResolver.CreateConfigured(nil, FSettingsPath);
+  try
+    AssertEquals('settings.xml repositories should be loaded', 1,
+      Resolver.Settings.Repositories.Count);
+    AssertEquals('mirror', Resolver.Settings.Repositories[0].Id);
+  finally
+    Resolver.Free;
+  end;
+end;
+
+procedure TTestResolverConfiguration.TestProjectRepositoriesWired;
+var
+  Resolver: TDependencyResolver;
+  Repos: TRepositoryList;
+begin
+  Repos := TRepositoryList.Create;
+  try
+    Repos.FreeObjects := True;
+    Repos.Add(TRepositoryInfo.Create('project-repo', 'https://example.org/reg/'));
+
+    Resolver := TDependencyResolver.CreateConfigured(Repos, FSettingsPath);
+    try
+      AssertSame('Project repositories should be wired through',
+        Repos, Resolver.ProjectRepositories);
+    finally
+      Resolver.Free;
+    end;
+  finally
+    Repos.Free;
+  end;
+end;
+
+procedure TTestResolverConfiguration.TestOfflineMissingDepFailsWithoutNetwork;
+var
+  Config: TProjectConfig;
+  Resolver: TDependencyResolver;
+  ExceptionRaised: Boolean;
+begin
+  // In offline mode a missing dependency must fail fast on the local
+  // repository check; the remote-resolve path (network) is never reached
+  ExceptionRaised := False;
+  TDependencyResolver.ConfigureGlobal(True, False);
+
+  Config := TProjectConfig.Create;
+  try
+    Config.Dependencies.Add(
+      TDependencyInfo.Create('nonexistent-offline-lib', '1.0.0'));
+
+    Resolver := TDependencyResolver.CreateConfigured(nil, FSettingsPath);
+    try
+      try
+        Resolver.ResolveDependencies(Config);
+      except
+        on E: EDependencyError do
+        begin
+          ExceptionRaised := True;
+          AssertTrue('Offline error should mention local repository',
+            Pos('local repository', E.Message) > 0);
+          AssertTrue('Offline error should not claim a registry was consulted',
+            Pos('registry', LowerCase(E.Message)) = 0);
+        end;
+      end;
+    finally
+      Resolver.Free;
+    end;
+
+    AssertTrue('Missing dependency in offline mode should raise',
+      ExceptionRaised);
+  finally
+    Config.Free;
+  end;
+end;
+
 initialization
   RegisterTest(TTestDependencyResolver);
+  RegisterTest(TTestResolverConfiguration);
 
 end.
