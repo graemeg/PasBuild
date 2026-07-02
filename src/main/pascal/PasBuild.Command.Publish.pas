@@ -510,24 +510,37 @@ begin
     GitHub := TGitHubForge.Create(Token, Owner, Repo);
     try
       TUtils.LogInfo('  Forking repository...');
-      GitHub.ForkRepository;
+      if not GitHub.ForkRepository then
+      begin
+        TUtils.LogError('Could not fork the registry repository.');
+        Result := 1;
+        Exit;
+      end;
 
       TUtils.LogInfo('  Creating branch: ' + BranchName);
       if not GitHub.CreateBranch(BranchName) then
       begin
-        TUtils.LogWarning('Could not create branch via API. ' +
-          'It may already exist or require manual creation.');
+        Result := 1;
+        Exit;
       end;
 
       TUtils.LogInfo('  Uploading version manifest...');
-      GitHub.CreateOrUpdateFile(BranchName, ManifestPath,
+      if not GitHub.CreateOrUpdateFile(BranchName, ManifestPath,
         VersionManifest,
-        'publish: ' + Config.Name + ' ' + Config.Version);
+        'publish: ' + Config.Name + ' ' + Config.Version) then
+      begin
+        Result := 1;
+        Exit;
+      end;
 
       TUtils.LogInfo('  Uploading package manifest...');
-      GitHub.CreateOrUpdateFile(BranchName, PackagePath,
+      if not GitHub.CreateOrUpdateFile(BranchName, PackagePath,
         PackageManifest,
-        'publish: update package.xml for ' + Config.Name);
+        'publish: update package.xml for ' + Config.Name) then
+      begin
+        Result := 1;
+        Exit;
+      end;
 
       TUtils.LogInfo('  Creating pull request...');
       PrUrl := GitHub.CreatePullRequest(BranchName,
@@ -543,8 +556,11 @@ begin
       end
       else
       begin
-        TUtils.LogWarning('Could not create pull request automatically.');
-        TUtils.LogInfo('Create it manually from branch: ' + BranchName);
+        TUtils.LogError('Could not create the pull request. The manifest ' +
+          'files are on branch "' + BranchName + '" of your fork; you can ' +
+          'open the pull request manually.');
+        Result := 1;
+        Exit;
       end;
     finally
       GitHub.Free;

@@ -32,14 +32,35 @@ type
     class function GetPublishBranchName(const AName, AVersion: string): string;
   end;
 
+  { Automates the fork -> branch -> commit -> pull-request workflow against
+    the GitHub REST API. All branch and file operations happen on the
+    authenticated user's fork; only the pull request targets the upstream
+    registry repository. }
   TGitHubForge = class
   private
     FToken: string;
-    FOwner: string;
+    FOwner: string;         // upstream registry owner
     FRepo: string;
+    FForkOwner: string;     // authenticated user; set by ForkRepository
+    FDefaultBranch: string; // upstream default branch, cached
+    function ApiRequest(const AMethod, AUrl, ABody: string;
+      out AResponse: string): Integer;
   public
     constructor Create(const AToken, AOwner, ARepo: string);
 
+    { Request-body builders, exposed for unit testing. Bodies are built
+      with fpjson so quoting/newline escaping is always correct. }
+    class function BuildCreateRefBody(const ABranchName, ASha: string): string;
+    class function BuildContentsBody(const AMessage, AContent, ABranch,
+      AExistingSha: string): string;
+    class function BuildPullRequestBody(const ATitle, ABody, AHead,
+      ABase: string): string;
+
+    function GetAuthenticatedUser: string;
+    function GetDefaultBranch: string;
+    { Fork the upstream repo to the authenticated user's account and wait
+      until the fork is ready. No-op (but still resolves the user) when
+      the authenticated user owns the upstream repository. }
     function ForkRepository: Boolean;
     function CreateBranch(const ABranchName: string): Boolean;
     function CreateOrUpdateFile(const ABranchName, AFilePath,
@@ -49,31 +70,92 @@ type
     property Token: string read FToken;
     property Owner: string read FOwner;
     property Repo: string read FRepo;
+    property ForkOwner: string read FForkOwner;
   end;
 
 implementation
 
 uses
-  fphttpclient, fpjson, jsonparser, opensslsockets,
+  fphttpclient, ssockets, fpjson, jsonparser, base64, opensslsockets,
   PasBuild.Utils;
+
+const
+  GITHUB_API = 'https://api.github.com';
+  FORK_POLL_ATTEMPTS = 10;
+  FORK_POLL_DELAY_MS = 1500;
+
+{ Extract the host component of a URL (no scheme, path or port). }
+function ExtractUrlHost(const AUrl: string): string;
+var
+  P: Integer;
+begin
+  Result := AUrl;
+  P := Pos('://', Result);
+  if P > 0 then
+    Delete(Result, 1, P + 2);
+  P := Pos('/', Result);
+  if P > 0 then
+    Result := Copy(Result, 1, P - 1);
+  P := Pos(':', Result);
+  if P > 0 then
+    Result := Copy(Result, 1, P - 1);
+  Result := LowerCase(Result);
+end;
+
+function HostMatches(const AHost, ADomain: string): Boolean;
+begin
+  Result := (AHost = ADomain) or
+    ((Length(AHost) > Length(ADomain)) and
+     (Copy(AHost, Length(AHost) - Length(ADomain), Length(ADomain) + 1) =
+      '.' + ADomain));
+end;
+
+{ Parse AJson and return the string at APath. False when the document is
+  not valid JSON or the path is absent - never dereferences nil. }
+function TryGetJsonString(const AJson, APath: string;
+  out AValue: string): Boolean;
+var
+  Doc, Node: TJSONData;
+begin
+  Result := False;
+  AValue := '';
+  if AJson = '' then
+    Exit;
+  try
+    Doc := GetJSON(AJson);
+  except
+    Exit;
+  end;
+  try
+    Node := Doc.FindPath(APath);
+    if Assigned(Node) and not Node.IsNull then
+    begin
+      AValue := Node.AsString;
+      Result := True;
+    end;
+  finally
+    Doc.Free;
+  end;
+end;
 
 { TForgeDetector }
 
 class function TForgeDetector.DetectForge(const AUrl: string): TForgeType;
 var
-  LowerUrl: string;
+  Host: string;
 begin
-  LowerUrl := LowerCase(AUrl);
+  Host := ExtractUrlHost(AUrl);
 
-  if (Pos('github.com', LowerUrl) > 0) or
-     (Pos('raw.githubusercontent.com', LowerUrl) > 0) then
+  if (Host = 'github.com') or (Host = 'raw.githubusercontent.com') or
+     HostMatches(Host, 'github.com') or
+     HostMatches(Host, 'githubusercontent.com') then
     Exit(ftGitHub);
 
-  if (Pos('codeberg.org', LowerUrl) > 0) or
-     (Pos('gitea.', LowerUrl) > 0) then
+  if (Host = 'codeberg.org') or HostMatches(Host, 'codeberg.org') or
+     (Copy(Host, 1, 6) = 'gitea.') then
     Exit(ftGitea);
 
-  if Pos('sr.ht', LowerUrl) > 0 then
+  if (Host = 'sr.ht') or HostMatches(Host, 'sr.ht') then
     Exit(ftSourceHut);
 
   Result := ftUnknown;
@@ -82,7 +164,6 @@ end;
 class procedure TForgeDetector.ParseGitHubRepo(const AUrl: string;
   out AOwner, ARepo: string);
 var
-  Parts: TStringList;
   Path, CleanUrl: string;
   SlashPos: Integer;
 begin
@@ -90,8 +171,10 @@ begin
   ARepo := '';
 
   CleanUrl := AUrl;
-  if CleanUrl[Length(CleanUrl)] = '/' then
+  if (CleanUrl <> '') and (CleanUrl[Length(CleanUrl)] = '/') then
     Delete(CleanUrl, Length(CleanUrl), 1);
+  if CleanUrl = '' then
+    Exit;
 
   if Pos('raw.githubusercontent.com', CleanUrl) > 0 then
   begin
@@ -142,8 +225,10 @@ begin
   if SlashPos = 0 then Exit;
   Path := Copy(Path, SlashPos + 1, MaxInt);
 
-  if Path[Length(Path)] = '/' then
+  if (Path <> '') and (Path[Length(Path)] = '/') then
     Delete(Path, Length(Path), 1);
+  if Path = '' then
+    Exit;
 
   SlashPos := Pos('/', Path);
   if SlashPos > 0 then
@@ -194,192 +279,310 @@ begin
   FToken := AToken;
   FOwner := AOwner;
   FRepo := ARepo;
+  FForkOwner := '';
+  FDefaultBranch := '';
 end;
 
-function TGitHubForge.ForkRepository: Boolean;
+class function TGitHubForge.BuildCreateRefBody(const ABranchName,
+  ASha: string): string;
+var
+  Obj: TJSONObject;
+begin
+  Obj := TJSONObject.Create;
+  try
+    Obj.Add('ref', 'refs/heads/' + ABranchName);
+    Obj.Add('sha', ASha);
+    Result := Obj.AsJSON;
+  finally
+    Obj.Free;
+  end;
+end;
+
+class function TGitHubForge.BuildContentsBody(const AMessage, AContent,
+  ABranch, AExistingSha: string): string;
+var
+  Obj: TJSONObject;
+begin
+  Obj := TJSONObject.Create;
+  try
+    Obj.Add('message', AMessage);
+    Obj.Add('content', EncodeStringBase64(AContent));
+    Obj.Add('branch', ABranch);
+    if AExistingSha <> '' then
+      Obj.Add('sha', AExistingSha);
+    Result := Obj.AsJSON;
+  finally
+    Obj.Free;
+  end;
+end;
+
+class function TGitHubForge.BuildPullRequestBody(const ATitle, ABody, AHead,
+  ABase: string): string;
+var
+  Obj: TJSONObject;
+begin
+  Obj := TJSONObject.Create;
+  try
+    Obj.Add('title', ATitle);
+    Obj.Add('body', ABody);
+    Obj.Add('head', AHead);
+    Obj.Add('base', ABase);
+    Result := Obj.AsJSON;
+  finally
+    Obj.Free;
+  end;
+end;
+
+function TGitHubForge.ApiRequest(const AMethod, AUrl, ABody: string;
+  out AResponse: string): Integer;
 var
   Client: TFPHTTPClient;
-  Response: string;
+  BodyStream: TStringStream;
+  RespStream: TStringStream;
 begin
-  Result := False;
+  Result := 0;
+  AResponse := '';
+
   Client := TFPHTTPClient.Create(nil);
+  BodyStream := nil;
+  RespStream := TStringStream.Create('');
   try
     Client.AddHeader('Authorization', 'Bearer ' + FToken);
     Client.AddHeader('Accept', 'application/vnd.github+json');
     Client.AddHeader('User-Agent', 'PasBuild/1.0');
     Client.AllowRedirect := True;
 
+    if ABody <> '' then
+    begin
+      Client.AddHeader('Content-Type', 'application/json');
+      BodyStream := TStringStream.Create(ABody);
+      Client.RequestBody := BodyStream;
+    end;
+
     try
-      Response := Client.FormPost(
-        'https://api.github.com/repos/' + FOwner + '/' + FRepo + '/forks',
-        '');
-      Result := (Client.ResponseStatusCode >= 200) and
-                (Client.ResponseStatusCode < 300);
+      // Empty allowed-codes list: never raise on HTTP status, so the
+      // caller always gets the real status code and error body
+      Client.HTTPMethod(AMethod, AUrl, RespStream, []);
+      Result := Client.ResponseStatusCode;
+      AResponse := RespStream.DataString;
     except
-      on E: Exception do
-        TUtils.LogError('Failed to fork repository: ' + E.Message);
+      on E: ESocketError do
+        TUtils.LogError('GitHub API connection failed: ' + E.Message);
+      on E: EHTTPClient do
+      begin
+        Result := Client.ResponseStatusCode;
+        AResponse := RespStream.DataString;
+        if Result = 0 then
+          TUtils.LogError('GitHub API request failed: ' + E.Message);
+      end;
     end;
   finally
+    RespStream.Free;
+    BodyStream.Free;
     Client.Free;
   end;
 end;
 
-function TGitHubForge.CreateBranch(const ABranchName: string): Boolean;
+function TGitHubForge.GetAuthenticatedUser: string;
 var
-  Client: TFPHTTPClient;
-  RequestBody, Response, MainSha: string;
-  JsonData: TJSONData;
-  Stream: TStringStream;
+  Status: Integer;
+  Response: string;
+begin
+  Result := '';
+  Status := ApiRequest('GET', GITHUB_API + '/user', '', Response);
+  if Status <> 200 then
+  begin
+    TUtils.LogError(Format(
+      'Cannot resolve the authenticated GitHub user (HTTP %d). ' +
+      'Check that the token is valid.', [Status]));
+    Exit;
+  end;
+  if not TryGetJsonString(Response, 'login', Result) then
+    TUtils.LogError('Unexpected response from GitHub /user endpoint.');
+end;
+
+function TGitHubForge.GetDefaultBranch: string;
+var
+  Status: Integer;
+  Response: string;
+begin
+  if FDefaultBranch <> '' then
+    Exit(FDefaultBranch);
+
+  Result := '';
+  Status := ApiRequest('GET',
+    GITHUB_API + '/repos/' + FOwner + '/' + FRepo, '', Response);
+  if Status <> 200 then
+  begin
+    TUtils.LogError(Format(
+      'Cannot read repository %s/%s (HTTP %d).', [FOwner, FRepo, Status]));
+    Exit;
+  end;
+  if TryGetJsonString(Response, 'default_branch', FDefaultBranch) then
+    Result := FDefaultBranch
+  else
+    TUtils.LogError('Unexpected repository response from GitHub API.');
+end;
+
+function TGitHubForge.ForkRepository: Boolean;
+var
+  Status, Attempt: Integer;
+  Response: string;
 begin
   Result := False;
-  Client := TFPHTTPClient.Create(nil);
-  try
-    Client.AddHeader('Authorization', 'Bearer ' + FToken);
-    Client.AddHeader('Accept', 'application/vnd.github+json');
-    Client.AddHeader('User-Agent', 'PasBuild/1.0');
 
-    try
-      Response := Client.Get(
-        'https://api.github.com/repos/' + FOwner + '/' + FRepo +
-        '/git/ref/heads/main');
-      JsonData := GetJSON(Response);
-      try
-        MainSha := JsonData.FindPath('object.sha').AsString;
-      finally
-        JsonData.Free;
-      end;
-    except
-      on E: Exception do
-      begin
-        TUtils.LogError('Failed to get main branch SHA: ' + E.Message);
-        Exit;
-      end;
-    end;
+  FForkOwner := GetAuthenticatedUser;
+  if FForkOwner = '' then
+    Exit;
 
-    RequestBody := '{"ref":"refs/heads/' + ABranchName +
-      '","sha":"' + MainSha + '"}';
+  // Publishing to a registry the user owns: no fork involved
+  if SameText(FForkOwner, FOwner) then
+    Exit(True);
 
-    Stream := TStringStream.Create(RequestBody);
-    try
-      Client.RequestBody := Stream;
-      Client.AddHeader('Content-Type', 'application/json');
-      try
-        Response := Client.Post(
-          'https://api.github.com/repos/' + FOwner + '/' + FRepo +
-          '/git/refs');
-        Result := (Client.ResponseStatusCode >= 200) and
-                  (Client.ResponseStatusCode < 300);
-      except
-        on E: Exception do
-          TUtils.LogError('Failed to create branch: ' + E.Message);
-      end;
-    finally
-      Stream.Free;
-    end;
-  finally
-    Client.Free;
+  Status := ApiRequest('POST',
+    GITHUB_API + '/repos/' + FOwner + '/' + FRepo + '/forks', '', Response);
+  // 202 = fork queued (asynchronous); 200/201 possible when it already exists
+  if (Status < 200) or (Status >= 300) then
+  begin
+    TUtils.LogError(Format('Fork request failed (HTTP %d): %s',
+      [Status, Response]));
+    Exit;
   end;
+
+  // Forking is asynchronous - poll until the fork repository responds
+  for Attempt := 1 to FORK_POLL_ATTEMPTS do
+  begin
+    Status := ApiRequest('GET',
+      GITHUB_API + '/repos/' + FForkOwner + '/' + FRepo, '', Response);
+    if Status = 200 then
+      Exit(True);
+    Sleep(FORK_POLL_DELAY_MS);
+  end;
+
+  TUtils.LogError(Format(
+    'Fork of %s/%s did not become ready in time. Retry in a moment.',
+    [FOwner, FRepo]));
+end;
+
+function TGitHubForge.CreateBranch(const ABranchName: string): Boolean;
+var
+  Status: Integer;
+  Response, BaseBranch, BaseSha, BranchOwner: string;
+begin
+  Result := False;
+
+  BranchOwner := FForkOwner;
+  if BranchOwner = '' then
+    BranchOwner := FOwner;
+
+  BaseBranch := GetDefaultBranch;
+  if BaseBranch = '' then
+    Exit;
+
+  Status := ApiRequest('GET',
+    GITHUB_API + '/repos/' + BranchOwner + '/' + FRepo +
+    '/git/ref/heads/' + BaseBranch, '', Response);
+  if Status <> 200 then
+  begin
+    TUtils.LogError(Format(
+      'Cannot read %s branch of %s/%s (HTTP %d).',
+      [BaseBranch, BranchOwner, FRepo, Status]));
+    Exit;
+  end;
+  if not TryGetJsonString(Response, 'object.sha', BaseSha) then
+  begin
+    TUtils.LogError('Unexpected git-ref response from GitHub API.');
+    Exit;
+  end;
+
+  Status := ApiRequest('POST',
+    GITHUB_API + '/repos/' + BranchOwner + '/' + FRepo + '/git/refs',
+    BuildCreateRefBody(ABranchName, BaseSha), Response);
+
+  if (Status >= 200) and (Status < 300) then
+    Exit(True);
+
+  // 422: reference already exists - reuse it (e.g. a retried publish)
+  if Status = 422 then
+  begin
+    Status := ApiRequest('GET',
+      GITHUB_API + '/repos/' + BranchOwner + '/' + FRepo +
+      '/git/ref/heads/' + ABranchName, '', Response);
+    if Status = 200 then
+    begin
+      TUtils.LogWarning('Branch ' + ABranchName + ' already exists; reusing it.');
+      Exit(True);
+    end;
+  end;
+
+  TUtils.LogError(Format('Cannot create branch %s (HTTP %d): %s',
+    [ABranchName, Status, Response]));
 end;
 
 function TGitHubForge.CreateOrUpdateFile(const ABranchName, AFilePath,
   AContent, AMessage: string): Boolean;
 var
-  Client: TFPHTTPClient;
-  RequestBody, Response, EncodedContent: string;
-  Stream: TStringStream;
-  I: Integer;
-  Ch: Char;
+  Status: Integer;
+  Response, ExistingSha, FileOwner: string;
 begin
   Result := False;
 
-  EncodedContent := '';
-  Stream := TStringStream.Create(AContent);
-  try
-    // Base64 encode using simple implementation
-    // FPC's base64 unit handles this properly
-  finally
-    Stream.Free;
-  end;
+  FileOwner := FForkOwner;
+  if FileOwner = '' then
+    FileOwner := FOwner;
 
-  Client := TFPHTTPClient.Create(nil);
-  try
-    Client.AddHeader('Authorization', 'Bearer ' + FToken);
-    Client.AddHeader('Accept', 'application/vnd.github+json');
-    Client.AddHeader('User-Agent', 'PasBuild/1.0');
-    Client.AddHeader('Content-Type', 'application/json');
+  // The contents API requires the current blob sha when updating an
+  // existing file (404 simply means the file is new)
+  ExistingSha := '';
+  Status := ApiRequest('GET',
+    GITHUB_API + '/repos/' + FileOwner + '/' + FRepo + '/contents/' +
+    AFilePath + '?ref=' + ABranchName, '', Response);
+  if Status = 200 then
+    TryGetJsonString(Response, 'sha', ExistingSha);
 
-    RequestBody := '{"message":"' + AMessage +
-      '","content":"' + EncodedContent +
-      '","branch":"' + ABranchName + '"}';
+  Status := ApiRequest('PUT',
+    GITHUB_API + '/repos/' + FileOwner + '/' + FRepo + '/contents/' +
+    AFilePath,
+    BuildContentsBody(AMessage, AContent, ABranchName, ExistingSha),
+    Response);
 
-    Stream := TStringStream.Create(RequestBody);
-    try
-      Client.RequestBody := Stream;
-      try
-        Response := Client.Put(
-          'https://api.github.com/repos/' + FOwner + '/' + FRepo +
-          '/contents/' + AFilePath);
-        Result := (Client.ResponseStatusCode >= 200) and
-                  (Client.ResponseStatusCode < 300);
-      except
-        on E: Exception do
-          TUtils.LogError('Failed to create file ' + AFilePath + ': ' + E.Message);
-      end;
-    finally
-      Stream.Free;
-    end;
-  finally
-    Client.Free;
-  end;
+  if (Status >= 200) and (Status < 300) then
+    Exit(True);
+
+  TUtils.LogError(Format('Cannot upload %s (HTTP %d): %s',
+    [AFilePath, Status, Response]));
 end;
 
 function TGitHubForge.CreatePullRequest(const ABranchName, ATitle,
   ABody: string): string;
 var
-  Client: TFPHTTPClient;
-  RequestBody, Response: string;
-  JsonData: TJSONData;
-  Stream: TStringStream;
+  Status: Integer;
+  Response, Head, BaseBranch: string;
 begin
   Result := '';
-  Client := TFPHTTPClient.Create(nil);
-  try
-    Client.AddHeader('Authorization', 'Bearer ' + FToken);
-    Client.AddHeader('Accept', 'application/vnd.github+json');
-    Client.AddHeader('User-Agent', 'PasBuild/1.0');
-    Client.AddHeader('Content-Type', 'application/json');
 
-    RequestBody := '{"title":"' + ATitle +
-      '","body":"' + ABody +
-      '","head":"' + ABranchName +
-      '","base":"main"}';
+  BaseBranch := GetDefaultBranch;
+  if BaseBranch = '' then
+    Exit;
 
-    Stream := TStringStream.Create(RequestBody);
-    try
-      Client.RequestBody := Stream;
-      try
-        Response := Client.Post(
-          'https://api.github.com/repos/' + FOwner + '/' + FRepo + '/pulls');
-        if (Client.ResponseStatusCode >= 200) and
-           (Client.ResponseStatusCode < 300) then
-        begin
-          JsonData := GetJSON(Response);
-          try
-            Result := JsonData.FindPath('html_url').AsString;
-          finally
-            JsonData.Free;
-          end;
-        end;
-      except
-        on E: Exception do
-          TUtils.LogError('Failed to create pull request: ' + E.Message);
-      end;
-    finally
-      Stream.Free;
-    end;
-  finally
-    Client.Free;
-  end;
+  // Cross-fork pull requests must qualify the head with the fork owner
+  if (FForkOwner <> '') and (not SameText(FForkOwner, FOwner)) then
+    Head := FForkOwner + ':' + ABranchName
+  else
+    Head := ABranchName;
+
+  Status := ApiRequest('POST',
+    GITHUB_API + '/repos/' + FOwner + '/' + FRepo + '/pulls',
+    BuildPullRequestBody(ATitle, ABody, Head, BaseBranch), Response);
+
+  if (Status >= 200) and (Status < 300) then
+  begin
+    if not TryGetJsonString(Response, 'html_url', Result) then
+      TUtils.LogWarning('Pull request created but no URL was returned.');
+  end
+  else
+    TUtils.LogError(Format('Cannot create pull request (HTTP %d): %s',
+      [Status, Response]));
 end;
 
 end.
