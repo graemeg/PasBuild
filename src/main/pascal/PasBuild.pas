@@ -286,6 +286,20 @@ begin
               Command := TResolveCommand.CreateMultiModule(
                 Config, Args.ProfileIds, Registry, Args.SelectedModule);
 
+            bgPublish:
+            begin
+              if Args.SelectedModule = '' then
+              begin
+                TUtils.LogError('Cannot publish an aggregator project. ' +
+                  'Use -m <module> to select a library module to publish.');
+                ExitCode := 1;
+                Exit;
+              end;
+              Command := TPublishCommand.CreateForModule(Config,
+                Args.ProfileIds, Registry, Args.SelectedModule,
+                Args.ArchiveUrl, Args.RegistryId, Args.DryRun);
+            end;
+
             else
             begin
               // Not a built-in multi-module goal — try plugin resolution

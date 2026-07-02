@@ -33,6 +33,9 @@ type
   public
     constructor Create(AConfig: TProjectConfig; AProfileIds: TStringList;
       const AArchiveUrl, ARegistryId: string; ADryRun: Boolean);
+    constructor CreateForModule(AAggregatorConfig: TProjectConfig;
+      AProfileIds: TStringList; ARegistry: TModuleRegistry;
+      const AModuleName, AArchiveUrl, ARegistryId: string; ADryRun: Boolean);
 
     function Execute: Integer; override;
     function GetDependencies: TBuildCommandList; override;
@@ -64,6 +67,38 @@ constructor TPublishCommand.Create(AConfig: TProjectConfig;
   ADryRun: Boolean);
 begin
   inherited Create(AConfig, AProfileIds);
+  FArchiveUrl := AArchiveUrl;
+  FRegistryId := ARegistryId;
+  FDryRun := ADryRun;
+end;
+
+constructor TPublishCommand.CreateForModule(AAggregatorConfig: TProjectConfig;
+  AProfileIds: TStringList; ARegistry: TModuleRegistry;
+  const AModuleName, AArchiveUrl, ARegistryId: string; ADryRun: Boolean);
+var
+  Module: TModuleInfo;
+begin
+  Module := ARegistry.FindModuleByName(AModuleName);
+  if not Assigned(Module) then
+    raise Exception.CreateFmt('Module not found: %s', [AModuleName]);
+
+  if Module.Config.BuildConfig.ProjectType <> ptLibrary then
+  begin
+    case Module.Config.BuildConfig.ProjectType of
+      ptApplication: raise Exception.CreateFmt(
+        'Only library modules can be published. Module "%s" has packaging: application.',
+        [AModuleName]);
+      ptPom: raise Exception.CreateFmt(
+        'Only library modules can be published. Module "%s" has packaging: pom.',
+        [AModuleName]);
+    else
+      raise Exception.CreateFmt(
+        'Only library modules can be published. Module "%s" is not a library.',
+        [AModuleName]);
+    end;
+  end;
+
+  inherited Create(Module.Config, AProfileIds);
   FArchiveUrl := AArchiveUrl;
   FRegistryId := ARegistryId;
   FDryRun := ADryRun;
