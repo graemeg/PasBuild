@@ -31,6 +31,7 @@ type
     procedure TestParseMissingDepName;
     procedure TestParseMissingDepVersion;
     procedure TestParseDuplicateDependency;
+    procedure TestParseInvalidDepNameCharacters;
   end;
 
 implementation
@@ -149,6 +150,31 @@ begin
   end;
 
   AssertTrue('Duplicate dependency should raise exception', ExceptionRaised);
+  if Assigned(Config) then
+    Config.Free;
+end;
+
+procedure TTestConfigDependencies.TestParseInvalidDepNameCharacters;
+var
+  Config: TProjectConfig;
+  ExceptionRaised: Boolean;
+begin
+  // A dependency name is used to build filesystem paths and registry URLs,
+  // so path separators and traversal sequences must be rejected at parse time
+  ExceptionRaised := False;
+  Config := nil;
+  try
+    Config := TConfigLoader.LoadProjectXML(GetFixturePath('invalid-dep-name.xml'));
+  except
+    on E: EProjectConfigError do
+    begin
+      ExceptionRaised := True;
+      AssertTrue('Error should mention the invalid name',
+        Pos('evil-lib', E.Message) > 0);
+    end;
+  end;
+
+  AssertTrue('Invalid dependency name should raise exception', ExceptionRaised);
   if Assigned(Config) then
     Config.Free;
 end;

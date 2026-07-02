@@ -19,6 +19,7 @@ uses
   PasBuild.Types,
   PasBuild.Repository,
   PasBuild.Settings,
+  PasBuild.Remote.Manifest,
   PasBuild.Dependencies;
 
 type
@@ -60,6 +61,15 @@ type
     procedure TestSettingsRepositoriesLoaded;
     procedure TestProjectRepositoriesWired;
     procedure TestOfflineMissingDepFailsWithoutNetwork;
+  end;
+
+  { A fetched manifest must declare exactly the package that was requested;
+    anything else indicates a corrupt or hostile registry entry }
+  TTestManifestIdentity = class(TTestCase)
+  published
+    procedure TestMatchingIdentityPasses;
+    procedure TestNameMismatchRaises;
+    procedure TestVersionMismatchRaises;
   end;
 
 implementation
@@ -599,8 +609,75 @@ begin
   end;
 end;
 
+{ TTestManifestIdentity }
+
+procedure TTestManifestIdentity.TestMatchingIdentityPasses;
+var
+  Manifest: TReleaseManifest;
+begin
+  Manifest := TReleaseManifest.Create;
+  try
+    Manifest.Name := 'good-lib';
+    Manifest.Version := '1.2.3';
+    // Must not raise
+    TDependencyResolver.VerifyManifestIdentity(Manifest, 'good-lib', '1.2.3');
+  finally
+    Manifest.Free;
+  end;
+end;
+
+procedure TTestManifestIdentity.TestNameMismatchRaises;
+var
+  Manifest: TReleaseManifest;
+  Raised: Boolean;
+begin
+  Raised := False;
+  Manifest := TReleaseManifest.Create;
+  try
+    Manifest.Name := 'impostor-lib';
+    Manifest.Version := '1.2.3';
+    try
+      TDependencyResolver.VerifyManifestIdentity(Manifest, 'good-lib', '1.2.3');
+    except
+      on E: EDependencyError do
+      begin
+        Raised := True;
+        AssertTrue('Error should name both packages',
+          (Pos('good-lib', E.Message) > 0) and
+          (Pos('impostor-lib', E.Message) > 0));
+      end;
+    end;
+    AssertTrue('Name mismatch should raise', Raised);
+  finally
+    Manifest.Free;
+  end;
+end;
+
+procedure TTestManifestIdentity.TestVersionMismatchRaises;
+var
+  Manifest: TReleaseManifest;
+  Raised: Boolean;
+begin
+  Raised := False;
+  Manifest := TReleaseManifest.Create;
+  try
+    Manifest.Name := 'good-lib';
+    Manifest.Version := '9.9.9';
+    try
+      TDependencyResolver.VerifyManifestIdentity(Manifest, 'good-lib', '1.2.3');
+    except
+      on E: EDependencyError do
+        Raised := True;
+    end;
+    AssertTrue('Version mismatch should raise', Raised);
+  finally
+    Manifest.Free;
+  end;
+end;
+
 initialization
   RegisterTest(TTestDependencyResolver);
   RegisterTest(TTestResolverConfiguration);
+  RegisterTest(TTestManifestIdentity);
 
 end.

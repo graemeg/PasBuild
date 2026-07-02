@@ -20,6 +20,10 @@ uses
   PasBuild.Repository;
 
 type
+  { Raised when a fetched manifest contains structurally invalid or
+    potentially hostile data (bad package names, versions, etc.) }
+  EManifestError = class(Exception);
+
   TCompilerRequirement = record
     Name: string;
     MinimumVersion: string;
@@ -63,12 +67,16 @@ type
     class procedure ParseOrigin(AOriginNode: TDOMNode; AManifest: TReleaseManifest);
     class procedure ParseCompilers(ACompilersNode: TDOMNode; AManifest: TReleaseManifest);
     class procedure ParseDependencies(ADepsNode: TDOMNode; AManifest: TReleaseManifest);
+    class procedure ValidateManifest(AManifest: TReleaseManifest);
   public
     class function ParseVersionManifest(const AFilePath: string): TReleaseManifest;
     class function ParseVersionManifestFromString(const AXml: string): TReleaseManifest;
   end;
 
 implementation
+
+uses
+  PasBuild.Utils;
 
 { TReleaseManifest }
 
@@ -199,6 +207,33 @@ begin
   AManifest.Dependencies := Arr;
 end;
 
+class procedure TManifestParser.ValidateManifest(AManifest: TReleaseManifest);
+var
+  I: Integer;
+begin
+  if not TUtils.IsValidPackageName(AManifest.Name) then
+    raise EManifestError.CreateFmt(
+      'Manifest contains an invalid package name: "%s"', [AManifest.Name]);
+
+  if not TUtils.IsValidPackageVersion(AManifest.Version) then
+    raise EManifestError.CreateFmt(
+      'Manifest for "%s" contains an invalid version: "%s"',
+      [AManifest.Name, AManifest.Version]);
+
+  for I := 0 to High(AManifest.Dependencies) do
+  begin
+    if not TUtils.IsValidPackageName(AManifest.Dependencies[I].Name) then
+      raise EManifestError.CreateFmt(
+        'Manifest for "%s" declares a dependency with an invalid name: "%s"',
+        [AManifest.Name, AManifest.Dependencies[I].Name]);
+    if not TUtils.IsValidPackageVersion(AManifest.Dependencies[I].Version) then
+      raise EManifestError.CreateFmt(
+        'Manifest for "%s" declares dependency "%s" with an invalid version: "%s"',
+        [AManifest.Name, AManifest.Dependencies[I].Name,
+         AManifest.Dependencies[I].Version]);
+  end;
+end;
+
 class function TManifestParser.ParseVersionManifest(
   const AFilePath: string): TReleaseManifest;
 var
@@ -225,6 +260,7 @@ begin
     finally
       Doc.Free;
     end;
+    ValidateManifest(Result);
   except
     Result.Free;
     raise;
@@ -260,6 +296,7 @@ begin
       finally
         Doc.Free;
       end;
+      ValidateManifest(Result);
     except
       Result.Free;
       raise;

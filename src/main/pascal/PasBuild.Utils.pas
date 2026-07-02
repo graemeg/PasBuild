@@ -16,6 +16,9 @@ interface
 
 uses
   Classes, SysUtils, StrUtils, Process,
+  {$IFDEF UNIX}
+  BaseUnix,
+  {$ENDIF}
   PasBuild.Types,
   PasBuild.Compiler.Backend,
   PasBuild.Utils.Console;
@@ -55,6 +58,20 @@ type
     class function ExecuteProcess(const ACommand: string; AShowOutput: Boolean): Integer;
     class function ExecuteProcessWithCapture(const ACommand: string; out AOutput: string): Integer;
     class function ExecuteProcessWithLog(const ACommand: string; const ALogFile: string; AShowErrors: Boolean): Integer;
+    { Run an executable with an argument array in a given working directory,
+      capturing combined stdout/stderr. No shell is involved, so arguments
+      and paths need no quoting and cannot be used for command injection. }
+    class function ExecuteProcessInDirWithCapture(const AExecutable: string;
+      const AArgs: array of string; const AWorkDir: string;
+      out AOutput: string): Integer;
+    { Absolute path of the running pasbuild binary (safe against relative
+      argv[0] and a later working-directory change). }
+    class function GetSelfExePath: string;
+
+    { Package identifier validation — names/versions feed filesystem paths,
+      registry URLs and subprocess arguments }
+    class function IsValidPackageName(const AName: string): Boolean;
+    class function IsValidPackageVersion(const AVersion: string): Boolean;
 
     { Compiler detection — delegate to the active backend. }
     class function DetectCompilerVersion: string;
@@ -396,6 +413,120 @@ begin
   finally
     AProcess.Free;
   end;
+end;
+
+class function TUtils.ExecuteProcessInDirWithCapture(const AExecutable: string;
+  const AArgs: array of string; const AWorkDir: string;
+  out AOutput: string): Integer;
+var
+  AProcess: TProcess;
+  Buffer: array[0..4095] of Char;
+  BytesRead, I: Integer;
+  OutputStr, ExePath: string;
+begin
+  AOutput := '';
+
+  // TProcess does not search PATH for bare executable names on all
+  // platforms; resolve explicitly so 'pwd'-style names work uniformly
+  ExePath := AExecutable;
+  if ExtractFilePath(ExePath) = '' then
+  begin
+    ExePath := ExeSearch(AExecutable, GetEnvironmentVariable('PATH'));
+    if ExePath = '' then
+      ExePath := AExecutable;
+  end;
+
+  AProcess := TProcess.Create(nil);
+  try
+    AProcess.Executable := ExePath;
+    for I := Low(AArgs) to High(AArgs) do
+      AProcess.Parameters.Add(AArgs[I]);
+    AProcess.CurrentDirectory := AWorkDir;
+    AProcess.Options := [poUsePipes, poStderrToOutPut];
+
+    try
+      AProcess.Execute;
+
+      // Drain output while the process is running (see the WEXITSTATUS
+      // note in ExecuteProcessWithCapture for why poWaitOnExit is avoided)
+      OutputStr := '';
+      while AProcess.Running or (AProcess.Output.NumBytesAvailable > 0) do
+      begin
+        if AProcess.Output.NumBytesAvailable > 0 then
+        begin
+          BytesRead := AProcess.Output.Read(Buffer, SizeOf(Buffer) - 1);
+          if BytesRead > 0 then
+          begin
+            Buffer[BytesRead] := #0;
+            OutputStr := OutputStr + StrPas(Buffer);
+          end;
+        end
+        else
+          Sleep(10);
+      end;
+      AProcess.WaitOnExit;
+      AOutput := OutputStr;
+      Result := AProcess.ExitCode;
+    except
+      on E: Exception do
+      begin
+        LogError('Failed to execute: ' + AExecutable);
+        LogError('Error: ' + E.Message);
+        Result := 1;
+      end;
+    end;
+  finally
+    AProcess.Free;
+  end;
+end;
+
+class function TUtils.GetSelfExePath: string;
+{$IFDEF LINUX}
+var
+  LinkTarget: string;
+begin
+  LinkTarget := fpReadLink('/proc/self/exe');
+  if LinkTarget <> '' then
+    Result := LinkTarget
+  else
+    Result := ExpandFileName(ParamStr(0));
+end;
+{$ELSE}
+begin
+  Result := ExpandFileName(ParamStr(0));
+end;
+{$ENDIF}
+
+class function TUtils.IsValidPackageName(const AName: string): Boolean;
+var
+  I: Integer;
+begin
+  Result := False;
+  if AName = '' then
+    Exit;
+  // First character must be alphanumeric: forbids leading '.', '-'
+  // (hidden files, traversal, option injection)
+  if not (AName[1] in ['a'..'z', 'A'..'Z', '0'..'9']) then
+    Exit;
+  for I := 2 to Length(AName) do
+    if not (AName[I] in ['a'..'z', 'A'..'Z', '0'..'9', '.', '-', '_']) then
+      Exit;
+  Result := True;
+end;
+
+class function TUtils.IsValidPackageVersion(const AVersion: string): Boolean;
+var
+  I: Integer;
+begin
+  Result := False;
+  if AVersion = '' then
+    Exit;
+  if not (AVersion[1] in ['0'..'9']) then
+    Exit;
+  for I := 2 to Length(AVersion) do
+    if not (AVersion[I] in ['a'..'z', 'A'..'Z', '0'..'9', '.', '-', '_', '+']) then
+      Exit;
+  Result := True;
 end;
 
 class function TUtils.ExecuteProcessWithLog(const ACommand: string; const ALogFile: string; AShowErrors: Boolean): Integer;

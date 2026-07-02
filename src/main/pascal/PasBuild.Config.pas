@@ -53,7 +53,8 @@ type
 implementation
 
 uses
-  RegExpr;
+  RegExpr,
+  PasBuild.Utils;
 
 { TConfigLoader }
 
@@ -373,6 +374,11 @@ begin
 
       if DepName = '' then
         raise EProjectConfigError.Create('Dependency missing required <name>');
+      if not TUtils.IsValidPackageName(DepName) then
+        raise EProjectConfigError.CreateFmt(
+          'Dependency name "%s" contains invalid characters. Names must ' +
+          'start with a letter or digit and may only contain letters, ' +
+          'digits, ".", "-" and "_".', [DepName]);
       if DepVersion = '' then
         raise EProjectConfigError.CreateFmt('Dependency "%s" missing required <version>', [DepName]);
       if not ValidateSemanticVersion(DepVersion) then

