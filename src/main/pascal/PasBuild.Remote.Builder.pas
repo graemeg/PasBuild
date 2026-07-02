@@ -107,15 +107,53 @@ begin
     AName + '-' + AVersion;
 end;
 
+{ True when an archive entry name could write outside the extraction
+  directory: absolute paths, drive letters, or '..' path segments.
+  FPC 3.2.2's TUnZipper performs no such checks itself (zip-slip). }
+function IsUnsafeArchiveEntryName(const AEntryName: string): Boolean;
+var
+  Normalized: string;
+begin
+  Result := True;
+
+  Normalized := StringReplace(AEntryName, '\', '/', [rfReplaceAll]);
+  if Normalized = '' then
+    Exit;
+  if Normalized[1] = '/' then
+    Exit;
+  if (Length(Normalized) >= 2) and (Normalized[2] = ':') then
+    Exit;
+  if (Normalized = '..') or
+     (Copy(Normalized, 1, 3) = '../') or
+     (Pos('/../', Normalized) > 0) or
+     (Copy(Normalized, Length(Normalized) - 2, 3) = '/..') then
+    Exit;
+
+  Result := False;
+end;
+
 class procedure TRemoteBuilder.ExtractArchive(const AZipPath, ADestDir: string);
 var
   Unzip: TUnZipper;
+  I: Integer;
+  EntryName: string;
 begin
   Unzip := TUnZipper.Create;
   try
     Unzip.FileName := AZipPath;
     Unzip.OutputPath := ADestDir;
     Unzip.Examine;
+
+    for I := 0 to Unzip.Entries.Count - 1 do
+    begin
+      EntryName := Unzip.Entries[I].ArchiveFileName;
+      if IsUnsafeArchiveEntryName(EntryName) then
+        raise EBuildPipelineError.CreateFmt(
+          'Archive "%s" contains an entry with an unsafe path: "%s". ' +
+          'Extraction aborted to prevent writing outside the target directory.',
+          [AZipPath, EntryName]);
+    end;
+
     Unzip.UnZipAllFiles;
   finally
     Unzip.Free;
@@ -200,6 +238,11 @@ begin
   if not TUtils.IsValidPackageVersion(AManifest.Version) then
     raise EBuildPipelineError.CreateFmt(
       'Refusing to build package "%s" with invalid version: "%s"',
+      [AManifest.Name, AManifest.Version]);
+  if AManifest.OriginSHA256 = '' then
+    raise EBuildPipelineError.CreateFmt(
+      'Refusing to build package "%s:%s": the manifest provides no ' +
+      '<sha256> checksum, so the download cannot be verified',
       [AManifest.Name, AManifest.Version]);
 
   DownloadPath := GetDownloadCachePath(AManifest.Name, AManifest.Version);

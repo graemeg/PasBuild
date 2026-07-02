@@ -33,6 +33,12 @@ type
     constructor Create(AConnectTimeout: Integer = 30;
       AReadTimeout: Integer = 60);
 
+    { Raise ENetworkError unless the URL uses https://, or http:// to a
+      loopback address (local test registries). Manifests and archives
+      must not travel over cleartext HTTP where they can be rewritten
+      on-path. }
+    class procedure ValidateUrlScheme(const AUrl: string);
+
     function FetchText(const AUrl: string): string;
     procedure DownloadFile(const AUrl, ADestPath: string;
       const AExpectedSHA256: string = '');
@@ -56,6 +62,52 @@ begin
   FReadTimeout := AReadTimeout;
 end;
 
+class procedure TRemoteClient.ValidateUrlScheme(const AUrl: string);
+var
+  LowerUrl, Host: string;
+  SlashPos, ColonPos: Integer;
+begin
+  LowerUrl := LowerCase(AUrl);
+
+  if Copy(LowerUrl, 1, 8) = 'https://' then
+    Exit;
+
+  if Copy(LowerUrl, 1, 7) = 'http://' then
+  begin
+    // Extract the host component (up to the next '/', stripping any port)
+    Host := Copy(LowerUrl, 8, MaxInt);
+    SlashPos := Pos('/', Host);
+    if SlashPos > 0 then
+      Host := Copy(Host, 1, SlashPos - 1);
+    if (Host <> '') and (Host[1] = '[') then
+    begin
+      // Bracketed IPv6 literal, e.g. [::1]:9000
+      ColonPos := Pos(']', Host);
+      if ColonPos > 0 then
+        Host := Copy(Host, 1, ColonPos);
+    end
+    else
+    begin
+      ColonPos := Pos(':', Host);
+      if ColonPos > 0 then
+        Host := Copy(Host, 1, ColonPos - 1);
+    end;
+
+    if (Host = 'localhost') or (Host = '[::1]') or
+       (Copy(Host, 1, 4) = '127.') then
+      Exit;
+
+    raise ENetworkError.CreateFmt(
+      'Refusing cleartext HTTP URL "%s". Registries and package origins ' +
+      'must use https:// (http:// is only allowed for loopback addresses).',
+      [AUrl]);
+  end;
+
+  raise ENetworkError.CreateFmt(
+    'Unsupported URL scheme in "%s". Only https:// is allowed ' +
+    '(http:// for loopback addresses).', [AUrl]);
+end;
+
 function TRemoteClient.CreateHttpClient: TFPHTTPClient;
 begin
   Result := TFPHTTPClient.Create(nil);
@@ -71,6 +123,8 @@ var
   ResponseCode: Integer;
   Retried: Boolean;
 begin
+  ValidateUrlScheme(AUrl);
+
   Retried := False;
   Client := CreateHttpClient;
   try
@@ -89,6 +143,7 @@ begin
           Retried := True;
           Sleep(2000);
           Client.Free;
+          Client := nil; // guard the outer finally if the next line raises
           Client := CreateHttpClient;
           try
             Result := Client.Get(AUrl);
@@ -126,48 +181,57 @@ var
   Client: TFPHTTPClient;
   FS: TFileStream;
   ResponseCode: Integer;
-  DestDir: string;
+  DestDir, TempPath: string;
 begin
+  ValidateUrlScheme(AUrl);
+
   DestDir := ExtractFileDir(ADestPath);
   if (DestDir <> '') and (not DirectoryExists(DestDir)) then
     ForceDirectories(DestDir);
 
+  // Download to a process-unique temp name and rename into place only
+  // after the checksum verifies: an interrupted download can never be
+  // mistaken for a valid cached archive, and concurrent pasbuild
+  // processes cannot truncate each other's in-progress downloads
+  TempPath := ADestPath + '.tmp.' + IntToStr(GetProcessID);
+
   Client := CreateHttpClient;
   try
-    FS := TFileStream.Create(ADestPath, fmCreate);
     try
+      FS := TFileStream.Create(TempPath, fmCreate);
       try
-        Client.Get(AUrl, FS);
-        ResponseCode := Client.ResponseStatusCode;
-      except
-        on E: ESocketError do
-        begin
-          FreeAndNil(FS);
-          DeleteFile(ADestPath);
-          raise ENetworkError.CreateFmt(
-            'Cannot connect to %s: %s', [AUrl, E.Message]);
+        try
+          Client.Get(AUrl, FS);
+          ResponseCode := Client.ResponseStatusCode;
+        except
+          on E: ESocketError do
+            raise ENetworkError.CreateFmt(
+              'Cannot connect to %s: %s', [AUrl, E.Message]);
+          on E: EHTTPClient do
+            raise ENetworkError.CreateFmt(
+              'HTTP error downloading %s: %s', [AUrl, E.Message]);
         end;
-        on E: EHTTPClient do
-        begin
-          FreeAndNil(FS);
-          DeleteFile(ADestPath);
-          raise ENetworkError.CreateFmt(
-            'HTTP error downloading %s: %s', [AUrl, E.Message]);
-        end;
+      finally
+        FS.Free;
       end;
-    finally
-      FS.Free;
-    end;
 
-    if ResponseCode >= 400 then
-    begin
-      DeleteFile(ADestPath);
-      raise ENetworkError.CreateFmt(
-        'HTTP %d downloading %s', [ResponseCode, AUrl]);
-    end;
+      if ResponseCode >= 400 then
+        raise ENetworkError.CreateFmt(
+          'HTTP %d downloading %s', [ResponseCode, AUrl]);
 
-    if AExpectedSHA256 <> '' then
-      ValidateChecksum(ADestPath, AExpectedSHA256);
+      if AExpectedSHA256 <> '' then
+        ValidateChecksum(TempPath, AExpectedSHA256);
+
+      if FileExists(ADestPath) then
+        DeleteFile(ADestPath);
+      if not RenameFile(TempPath, ADestPath) then
+        raise ENetworkError.CreateFmt(
+          'Cannot move downloaded file into place: %s', [ADestPath]);
+    except
+      if FileExists(TempPath) then
+        DeleteFile(TempPath);
+      raise;
+    end;
   finally
     Client.Free;
   end;

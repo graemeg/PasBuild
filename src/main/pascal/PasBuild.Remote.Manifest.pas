@@ -207,6 +207,19 @@ begin
   AManifest.Dependencies := Arr;
 end;
 
+function IsValidSha256Hex(const AValue: string): Boolean;
+var
+  I: Integer;
+begin
+  Result := False;
+  if Length(AValue) <> 64 then
+    Exit;
+  for I := 1 to 64 do
+    if not (AValue[I] in ['0'..'9', 'a'..'f', 'A'..'F']) then
+      Exit;
+  Result := True;
+end;
+
 class procedure TManifestParser.ValidateManifest(AManifest: TReleaseManifest);
 var
   I: Integer;
@@ -232,6 +245,19 @@ begin
         [AManifest.Name, AManifest.Dependencies[I].Name,
          AManifest.Dependencies[I].Version]);
   end;
+
+  if AManifest.OriginUrl = '' then
+    raise EManifestError.CreateFmt(
+      'Manifest for "%s:%s" has no <origin><url> - the package cannot be fetched',
+      [AManifest.Name, AManifest.Version]);
+
+  // Without a checksum the downloaded archive would be used with no
+  // integrity verification at all, so sha256 is mandatory
+  if not IsValidSha256Hex(AManifest.OriginSHA256) then
+    raise EManifestError.CreateFmt(
+      'Manifest for "%s:%s" has a missing or malformed <origin><sha256> ' +
+      '(must be 64 hexadecimal characters)',
+      [AManifest.Name, AManifest.Version]);
 end;
 
 class function TManifestParser.ParseVersionManifest(

@@ -44,6 +44,17 @@ type
     procedure TestDownloadFileChecksumMatchSucceeds;
   end;
 
+  { Registry and origin URLs must use HTTPS; cleartext HTTP is only
+    acceptable for loopback addresses (local test registries) }
+  TTestUrlSchemeEnforcement = class(TTestCase)
+  published
+    procedure TestHttpsAccepted;
+    procedure TestPlainHttpRejected;
+    procedure TestLoopbackHttpAllowed;
+    procedure TestOtherSchemesRejected;
+    procedure TestEmptyUrlRejected;
+  end;
+
 implementation
 
 uses
@@ -200,9 +211,73 @@ begin
     'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad', Hash);
 end;
 
+{ TTestUrlSchemeEnforcement }
+
+procedure TTestUrlSchemeEnforcement.TestHttpsAccepted;
+begin
+  // Must not raise
+  TRemoteClient.ValidateUrlScheme('https://example.org/registry/pkg.xml');
+  TRemoteClient.ValidateUrlScheme('HTTPS://EXAMPLE.ORG/PKG.XML');
+end;
+
+procedure TTestUrlSchemeEnforcement.TestPlainHttpRejected;
+var
+  Raised: Boolean;
+begin
+  Raised := False;
+  try
+    TRemoteClient.ValidateUrlScheme('http://example.org/registry/pkg.xml');
+  except
+    on E: ENetworkError do
+    begin
+      Raised := True;
+      AssertTrue('Error should mention https',
+        Pos('https', LowerCase(E.Message)) > 0);
+    end;
+  end;
+  AssertTrue('Plain HTTP should be rejected', Raised);
+end;
+
+procedure TTestUrlSchemeEnforcement.TestLoopbackHttpAllowed;
+begin
+  // Must not raise - local test registries are legitimate
+  TRemoteClient.ValidateUrlScheme('http://localhost:8080/registry/');
+  TRemoteClient.ValidateUrlScheme('http://127.0.0.1/registry/');
+  TRemoteClient.ValidateUrlScheme('http://[::1]:9000/registry/');
+end;
+
+procedure TTestUrlSchemeEnforcement.TestOtherSchemesRejected;
+var
+  Raised: Boolean;
+begin
+  Raised := False;
+  try
+    TRemoteClient.ValidateUrlScheme('ftp://example.org/pkg.zip');
+  except
+    on E: ENetworkError do
+      Raised := True;
+  end;
+  AssertTrue('ftp scheme should be rejected', Raised);
+end;
+
+procedure TTestUrlSchemeEnforcement.TestEmptyUrlRejected;
+var
+  Raised: Boolean;
+begin
+  Raised := False;
+  try
+    TRemoteClient.ValidateUrlScheme('');
+  except
+    on E: ENetworkError do
+      Raised := True;
+  end;
+  AssertTrue('Empty URL should be rejected', Raised);
+end;
+
 initialization
   RegisterTest(TTestRemoteClientCreate);
   RegisterTest(TTestRemoteExceptionTypes);
   RegisterTest(TTestRemoteChecksumValidation);
+  RegisterTest(TTestUrlSchemeEnforcement);
 
 end.

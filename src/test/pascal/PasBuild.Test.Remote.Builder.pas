@@ -16,6 +16,7 @@ interface
 
 uses
   Classes, SysUtils, Zipper, fpcunit, testregistry,
+  PasBuild.Remote.Manifest,
   PasBuild.Remote.Builder;
 
 type
@@ -57,6 +58,26 @@ type
   published
     procedure TestDownloadCachePath;
     procedure TestBuildExtractPath;
+  end;
+
+  { Archives come from attacker-controllable origins; entry names must not
+    be able to write outside the extraction directory (zip-slip) }
+  TTestExtractionSafety = class(TTestCase)
+  private
+    FTempDir: string;
+    procedure CreateZipWithEntryName(const AZipPath, AEntryName: string);
+  protected
+    procedure SetUp; override;
+    procedure TearDown; override;
+  published
+    procedure TestTraversalEntryRejected;
+    procedure TestBackslashTraversalEntryRejected;
+    procedure TestAbsolutePathEntryRejected;
+  end;
+
+  TTestBuilderChecksumGuard = class(TTestCase)
+  published
+    procedure TestMissingChecksumRejectedBeforeDownload;
   end;
 
 implementation
@@ -355,10 +376,157 @@ begin
     Pos('mylib-1.0.0', Result) > 0);
 end;
 
+{ TTestExtractionSafety }
+
+procedure TTestExtractionSafety.SetUp;
+begin
+  FTempDir := IncludeTrailingPathDelimiter(GetTempDir(False)) +
+    'pasbuild-test-zipslip-' + IntToStr(GetProcessID);
+  ForceDirectories(FTempDir);
+end;
+
+procedure TTestExtractionSafety.TearDown;
+begin
+  if DirectoryExists(FTempDir) then
+    DeleteDirectoryRecursive(FTempDir);
+end;
+
+procedure TTestExtractionSafety.CreateZipWithEntryName(const AZipPath,
+  AEntryName: string);
+var
+  Zip: TZipper;
+  Content: TStringStream;
+begin
+  Content := TStringStream.Create('malicious payload');
+  try
+    Zip := TZipper.Create;
+    try
+      Zip.FileName := AZipPath;
+      Zip.Entries.AddFileEntry(Content, AEntryName);
+      Zip.ZipAllFiles;
+    finally
+      Zip.Free;
+    end;
+  finally
+    Content.Free;
+  end;
+end;
+
+procedure TTestExtractionSafety.TestTraversalEntryRejected;
+var
+  ZipPath, ExtractDir, EscapeTarget: string;
+  Raised: Boolean;
+begin
+  ZipPath := IncludeTrailingPathDelimiter(FTempDir) + 'slip.zip';
+  ExtractDir := IncludeTrailingPathDelimiter(FTempDir) + 'extract';
+  ForceDirectories(ExtractDir);
+  EscapeTarget := IncludeTrailingPathDelimiter(FTempDir) + 'escaped.txt';
+
+  CreateZipWithEntryName(ZipPath, '../escaped.txt');
+
+  Raised := False;
+  try
+    TRemoteBuilder.ExtractArchive(ZipPath, ExtractDir);
+  except
+    on E: EBuildPipelineError do
+    begin
+      Raised := True;
+      AssertTrue('Error should name the offending entry',
+        Pos('escaped.txt', E.Message) > 0);
+    end;
+  end;
+  AssertTrue('Traversal entry should be rejected', Raised);
+  AssertFalse('File must not escape the extraction directory',
+    FileExists(EscapeTarget));
+end;
+
+procedure TTestExtractionSafety.TestBackslashTraversalEntryRejected;
+var
+  ZipPath, ExtractDir: string;
+  Raised: Boolean;
+begin
+  ZipPath := IncludeTrailingPathDelimiter(FTempDir) + 'slip-bs.zip';
+  ExtractDir := IncludeTrailingPathDelimiter(FTempDir) + 'extract-bs';
+  ForceDirectories(ExtractDir);
+
+  CreateZipWithEntryName(ZipPath, '..\escaped-bs.txt');
+
+  Raised := False;
+  try
+    TRemoteBuilder.ExtractArchive(ZipPath, ExtractDir);
+  except
+    on E: EBuildPipelineError do
+      Raised := True;
+  end;
+  AssertTrue('Backslash traversal entry should be rejected', Raised);
+end;
+
+procedure TTestExtractionSafety.TestAbsolutePathEntryRejected;
+var
+  ZipPath, ExtractDir: string;
+  Raised: Boolean;
+begin
+  ZipPath := IncludeTrailingPathDelimiter(FTempDir) + 'slip-abs.zip';
+  ExtractDir := IncludeTrailingPathDelimiter(FTempDir) + 'extract-abs';
+  ForceDirectories(ExtractDir);
+
+  CreateZipWithEntryName(ZipPath,
+    '/tmp/pasbuild-zipslip-abs-' + IntToStr(GetProcessID) + '.txt');
+
+  Raised := False;
+  try
+    TRemoteBuilder.ExtractArchive(ZipPath, ExtractDir);
+  except
+    on E: EBuildPipelineError do
+      Raised := True;
+  end;
+  AssertTrue('Absolute path entry should be rejected', Raised);
+  AssertFalse('File must not be written to the absolute path',
+    FileExists('/tmp/pasbuild-zipslip-abs-' + IntToStr(GetProcessID) + '.txt'));
+end;
+
+{ TTestBuilderChecksumGuard }
+
+procedure TTestBuilderChecksumGuard.TestMissingChecksumRejectedBeforeDownload;
+var
+  Builder: TRemoteBuilder;
+  Manifest: TReleaseManifest;
+  Raised: Boolean;
+begin
+  // A manifest without a checksum must be refused outright - otherwise a
+  // download would be used with no integrity verification at all
+  Manifest := TReleaseManifest.Create;
+  Builder := TRemoteBuilder.Create;
+  try
+    Manifest.Name := 'no-such-pkg-checksum-guard';
+    Manifest.Version := '9.9.9';
+    Manifest.OriginUrl := 'https://example.invalid/pkg.zip';
+    Manifest.OriginSHA256 := '';
+
+    Raised := False;
+    try
+      Builder.BuildAndInstall(Manifest);
+    except
+      on E: EBuildPipelineError do
+      begin
+        Raised := True;
+        AssertTrue('Error should mention the missing checksum',
+          Pos('sha256', LowerCase(E.Message)) > 0);
+      end;
+    end;
+    AssertTrue('Missing checksum should be rejected', Raised);
+  finally
+    Builder.Free;
+    Manifest.Free;
+  end;
+end;
+
 initialization
   RegisterTest(TTestRemoteBuilderCreate);
   RegisterTest(TTestDetectProjectRoot);
   RegisterTest(TTestCreateArchive);
   RegisterTest(TTestBuildCacheFilename);
+  RegisterTest(TTestExtractionSafety);
+  RegisterTest(TTestBuilderChecksumGuard);
 
 end.

@@ -50,6 +50,8 @@ type
   private
     function BuildManifestXml(const AName, AVersion: string;
       const ADepName: string = ''; const ADepVersion: string = ''): string;
+    function BuildManifestXmlOrigin(const AName, AVersion, AUrl,
+      ASha256: string): string;
   published
     procedure TestValidManifestPasses;
     procedure TestPathTraversalNameRejected;
@@ -58,6 +60,9 @@ type
     procedure TestShellMetacharVersionRejected;
     procedure TestInvalidDependencyNameRejected;
     procedure TestInvalidDependencyVersionRejected;
+    procedure TestMissingOriginUrlRejected;
+    procedure TestMissingSha256Rejected;
+    procedure TestMalformedSha256Rejected;
   end;
 
 implementation
@@ -407,6 +412,71 @@ begin
       Raised := True;
   end;
   AssertTrue('Invalid transitive dependency name should be rejected', Raised);
+end;
+
+function TTestManifestValidation.BuildManifestXmlOrigin(const AName, AVersion,
+  AUrl, ASha256: string): string;
+begin
+  Result :=
+    '<?xml version="1.0" encoding="UTF-8"?>' + LineEnding +
+    '<release>' + LineEnding +
+    '  <name>' + AName + '</name>' + LineEnding +
+    '  <version>' + AVersion + '</version>' + LineEnding +
+    '  <origin>' + LineEnding +
+    '    <url>' + AUrl + '</url>' + LineEnding +
+    '    <sha256>' + ASha256 + '</sha256>' + LineEnding +
+    '  </origin>' + LineEnding +
+    '</release>';
+end;
+
+procedure TTestManifestValidation.TestMissingOriginUrlRejected;
+var
+  Raised: Boolean;
+begin
+  Raised := False;
+  try
+    TManifestParser.ParseVersionManifestFromString(
+      BuildManifestXmlOrigin('good-lib', '1.0.0', '',
+        'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855')).Free;
+  except
+    on E: EManifestError do
+      Raised := True;
+  end;
+  AssertTrue('Missing origin URL should be rejected', Raised);
+end;
+
+procedure TTestManifestValidation.TestMissingSha256Rejected;
+var
+  Raised: Boolean;
+begin
+  Raised := False;
+  try
+    TManifestParser.ParseVersionManifestFromString(
+      BuildManifestXmlOrigin('good-lib', '1.0.0',
+        'https://example.org/pkg.zip', '')).Free;
+  except
+    on E: EManifestError do
+      Raised := True;
+  end;
+  AssertTrue('Missing sha256 should be rejected - without it a download ' +
+    'runs with no integrity verification', Raised);
+end;
+
+procedure TTestManifestValidation.TestMalformedSha256Rejected;
+var
+  Raised: Boolean;
+begin
+  Raised := False;
+  try
+    TManifestParser.ParseVersionManifestFromString(
+      BuildManifestXmlOrigin('good-lib', '1.0.0',
+        'https://example.org/pkg.zip', 'deadbeef')).Free;
+  except
+    on E: EManifestError do
+      Raised := True;
+  end;
+  AssertTrue('A sha256 that is not 64 hex characters should be rejected',
+    Raised);
 end;
 
 procedure TTestManifestValidation.TestInvalidDependencyVersionRejected;
