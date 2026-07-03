@@ -125,6 +125,26 @@ type
     procedure TestReturnsExitCode;
   end;
 
+  { Version comparison must be numeric per component - lexicographic
+    string comparison wrongly rejects 3.10.0 against a 3.2.2 minimum }
+  TTestCompareVersions = class(TTestCase)
+  published
+    procedure TestEqual;
+    procedure TestSimpleOrdering;
+    procedure TestMultiDigitComponents;
+    procedure TestDifferentLengths;
+  end;
+
+  { The cross-process resolve stack guards against package-graph cycles
+    that would otherwise fork subprocesses without bound }
+  TTestResolveStack = class(TTestCase)
+  published
+    procedure TestEmptyStackContainsNothing;
+    procedure TestContainsExactEntry;
+    procedure TestNoSubstringFalsePositives;
+    procedure TestAppendToStack;
+  end;
+
 implementation
 
 { TTestQuotePath }
@@ -715,6 +735,64 @@ begin
 end;
 {$ENDIF}
 
+{ TTestCompareVersions }
+
+procedure TTestCompareVersions.TestEqual;
+begin
+  AssertEquals('3.2.2 = 3.2.2', 0, TUtils.CompareVersions('3.2.2', '3.2.2'));
+  AssertEquals('1.0 = 1.0.0', 0, TUtils.CompareVersions('1.0', '1.0.0'));
+end;
+
+procedure TTestCompareVersions.TestSimpleOrdering;
+begin
+  AssertTrue('3.2.0 < 3.2.2', TUtils.CompareVersions('3.2.0', '3.2.2') < 0);
+  AssertTrue('3.2.2 > 3.2.0', TUtils.CompareVersions('3.2.2', '3.2.0') > 0);
+  AssertTrue('2.9.9 < 3.0.0', TUtils.CompareVersions('2.9.9', '3.0.0') < 0);
+end;
+
+procedure TTestCompareVersions.TestMultiDigitComponents;
+begin
+  // The lexicographic trap: '3.10.0' < '3.2.2' as strings
+  AssertTrue('3.10.0 > 3.2.2', TUtils.CompareVersions('3.10.0', '3.2.2') > 0);
+  AssertTrue('10.0 > 9.0', TUtils.CompareVersions('10.0', '9.0') > 0);
+end;
+
+procedure TTestCompareVersions.TestDifferentLengths;
+begin
+  AssertTrue('3.2 < 3.2.1', TUtils.CompareVersions('3.2', '3.2.1') < 0);
+  AssertTrue('3.2.1 > 3.2', TUtils.CompareVersions('3.2.1', '3.2') > 0);
+end;
+
+{ TTestResolveStack }
+
+procedure TTestResolveStack.TestEmptyStackContainsNothing;
+begin
+  AssertFalse(TUtils.ResolveStackContains('', 'mylib:1.0.0'));
+end;
+
+procedure TTestResolveStack.TestContainsExactEntry;
+begin
+  AssertTrue(TUtils.ResolveStackContains('a:1.0.0,mylib:1.0.0,b:2.0.0',
+    'mylib:1.0.0'));
+  AssertTrue(TUtils.ResolveStackContains('mylib:1.0.0', 'mylib:1.0.0'));
+end;
+
+procedure TTestResolveStack.TestNoSubstringFalsePositives;
+begin
+  AssertFalse('entry name is a substring of another',
+    TUtils.ResolveStackContains('mylib-extra:1.0.0', 'mylib:1.0.0'));
+  AssertFalse('version prefix must not match',
+    TUtils.ResolveStackContains('mylib:1.0.10', 'mylib:1.0.1'));
+end;
+
+procedure TTestResolveStack.TestAppendToStack;
+begin
+  AssertEquals('mylib:1.0.0',
+    TUtils.AppendToResolveStack('', 'mylib:1.0.0'));
+  AssertEquals('a:1.0.0,mylib:1.0.0',
+    TUtils.AppendToResolveStack('a:1.0.0', 'mylib:1.0.0'));
+end;
+
 initialization
   RegisterTest(TTestQuotePath);
   RegisterTest(TTestFPCExecutable);
@@ -726,5 +804,7 @@ initialization
   RegisterTest(TTestCLIOfflineFlag);
   RegisterTest(TTestPackageIdentifierValidation);
   RegisterTest(TTestExecuteInDir);
+  RegisterTest(TTestCompareVersions);
+  RegisterTest(TTestResolveStack);
 
 end.

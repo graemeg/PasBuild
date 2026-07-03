@@ -20,7 +20,17 @@ uses
   PasBuild.Crypto.SHA256;
 
 type
-  ENetworkError = class(EDependencyError);
+  { StatusCode carries the HTTP status (0 for transport-level failures
+    such as DNS errors or connection refusals) so callers can tell
+    "package not in this registry" (404) from "registry unreachable" }
+  ENetworkError = class(EDependencyError)
+  private
+    FStatusCode: Integer;
+  public
+    constructor CreateWithStatus(AStatusCode: Integer; const AMessage: string);
+    property StatusCode: Integer read FStatusCode write FStatusCode;
+  end;
+
   EChecksumError = class(EDependencyError);
 
   TRemoteClient = class
@@ -47,10 +57,84 @@ type
     property ReadTimeout: Integer read FReadTimeout write FReadTimeout;
   end;
 
+{ Enable TLS certificate verification on an HTTP client when a system CA
+  bundle can be located (FPC 3.2.2 performs no peer verification by
+  default). Logs a one-time warning and leaves verification off when no
+  CA bundle is found, rather than breaking every HTTPS fetch. }
+procedure AttachTlsVerification(AClient: TFPHTTPClient);
+
 implementation
 
 uses
-  opensslsockets;
+  sslsockets, opensslsockets,
+  PasBuild.Utils;
+
+type
+  TTlsVerificationHelper = class
+    procedure HandleGetSocketHandler(Sender: TObject; const UseSSL: Boolean;
+      out AHandler: TSocketHandler);
+  end;
+
+var
+  GTlsHelper: TTlsVerificationHelper;
+  GWarnedNoCABundle: Boolean;
+
+function FindSystemCABundle: string;
+const
+  Candidates: array[0..3] of string = (
+    '/etc/ssl/certs/ca-certificates.crt', // Debian/Ubuntu
+    '/etc/pki/tls/certs/ca-bundle.crt',   // RHEL/Fedora
+    '/etc/ssl/ca-bundle.pem',             // openSUSE
+    '/etc/ssl/cert.pem'                   // FreeBSD/OpenBSD/macOS/Alpine
+  );
+var
+  I: Integer;
+begin
+  Result := '';
+  for I := Low(Candidates) to High(Candidates) do
+    if FileExists(Candidates[I]) then
+      Exit(Candidates[I]);
+end;
+
+procedure TTlsVerificationHelper.HandleGetSocketHandler(Sender: TObject;
+  const UseSSL: Boolean; out AHandler: TSocketHandler);
+var
+  CABundle: string;
+begin
+  AHandler := nil; // non-SSL: let the client create its default handler
+  if not UseSSL then
+    Exit;
+
+  AHandler := TSSLSocketHandler.GetDefaultHandler;
+  CABundle := FindSystemCABundle;
+  if CABundle <> '' then
+  begin
+    TSSLSocketHandler(AHandler).VerifyPeerCert := True;
+    TSSLSocketHandler(AHandler).CertificateData.CertCA.FileName := CABundle;
+  end
+  else if not GWarnedNoCABundle then
+  begin
+    GWarnedNoCABundle := True;
+    TUtils.LogWarning('No system CA certificate bundle found; TLS ' +
+      'certificate verification is disabled for this run.');
+  end;
+end;
+
+procedure AttachTlsVerification(AClient: TFPHTTPClient);
+begin
+  if GTlsHelper = nil then
+    GTlsHelper := TTlsVerificationHelper.Create;
+  AClient.OnGetSocketHandler := @GTlsHelper.HandleGetSocketHandler;
+end;
+
+{ ENetworkError }
+
+constructor ENetworkError.CreateWithStatus(AStatusCode: Integer;
+  const AMessage: string);
+begin
+  inherited Create(AMessage);
+  FStatusCode := AStatusCode;
+end;
 
 { TRemoteClient }
 
@@ -115,6 +199,7 @@ begin
   Result.IOTimeout := FReadTimeout * 1000;
   Result.AllowRedirect := True;
   Result.AddHeader('User-Agent', 'PasBuild/1.0');
+  AttachTlsVerification(Result);
 end;
 
 function TRemoteClient.FetchText(const AUrl: string): string;
@@ -150,26 +235,26 @@ begin
             ResponseCode := Client.ResponseStatusCode;
           except
             on E2: Exception do
-              raise ENetworkError.CreateFmt(
+              raise ENetworkError.CreateWithStatus(ResponseCode, Format(
                 'Registry returned server error (%d) at %s: %s',
-                [ResponseCode, AUrl, E2.Message]);
+                [ResponseCode, AUrl, E2.Message]));
           end;
         end
         else
-          raise ENetworkError.CreateFmt(
+          raise ENetworkError.CreateWithStatus(ResponseCode, Format(
             'HTTP error %d fetching %s: %s',
-            [ResponseCode, AUrl, E.Message]);
+            [ResponseCode, AUrl, E.Message]));
       end;
     end;
 
     if (ResponseCode >= 400) and (ResponseCode < 500) then
-      raise ENetworkError.CreateFmt(
-        'HTTP %d: Resource not found at %s', [ResponseCode, AUrl]);
+      raise ENetworkError.CreateWithStatus(ResponseCode, Format(
+        'HTTP %d: Resource not found at %s', [ResponseCode, AUrl]));
 
     if ResponseCode >= 500 then
-      raise ENetworkError.CreateFmt(
+      raise ENetworkError.CreateWithStatus(ResponseCode, Format(
         'Registry returned server error (%d) at %s',
-        [ResponseCode, AUrl]);
+        [ResponseCode, AUrl]));
   finally
     Client.Free;
   end;
@@ -252,5 +337,8 @@ begin
       [LowerCase(AExpectedSHA256), LowerCase(Actual)]);
   end;
 end;
+
+finalization
+  GTlsHelper.Free;
 
 end.

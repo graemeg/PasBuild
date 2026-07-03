@@ -77,7 +77,8 @@ implementation
 
 uses
   fphttpclient, ssockets, fpjson, jsonparser, base64, opensslsockets,
-  PasBuild.Utils;
+  PasBuild.Utils,
+  PasBuild.Remote;
 
 const
   GITHUB_API = 'https://api.github.com';
@@ -351,6 +352,9 @@ begin
     Client.AddHeader('Accept', 'application/vnd.github+json');
     Client.AddHeader('User-Agent', 'PasBuild/1.0');
     Client.AllowRedirect := True;
+    // The Authorization header carries the user's token; without peer
+    // verification an on-path attacker could intercept it
+    AttachTlsVerification(Client);
 
     if ABody <> '' then
     begin

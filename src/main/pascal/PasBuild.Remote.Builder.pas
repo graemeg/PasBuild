@@ -31,7 +31,7 @@ type
     constructor Create(AConnectTimeout: Integer = 30;
       AReadTimeout: Integer = 60);
 
-    function BuildAndInstall(AManifest: TReleaseManifest): string;
+    procedure BuildAndInstall(AManifest: TReleaseManifest);
 
     class function DetectProjectRoot(const AExtractDir: string): string;
     class procedure ExtractArchive(const AZipPath, ADestDir: string);
@@ -204,13 +204,13 @@ begin
     'top-level directory.', [AExtractDir]);
 end;
 
-function TRemoteBuilder.BuildAndInstall(
-  AManifest: TReleaseManifest): string;
+procedure TRemoteBuilder.BuildAndInstall(AManifest: TReleaseManifest);
 var
   DownloadPath, ExtractDir, ProjectRoot: string;
   Client: TRemoteClient;
   PasBuildExe, CompilerExe, Output: string;
   SubArgs: array of string;
+  SubEnv: TStringList;
   ExitCode: Integer;
 
   procedure BuildSubprocessArgs(const AGoal: string);
@@ -300,44 +300,55 @@ begin
   if Assigned(TUtils.GetCompilerBackend) then
     CompilerExe := TUtils.GetCompilerBackend.Executable;
 
-  TUtils.LogInfo('  Compiling ' + AManifest.Name + ':' +
-    AManifest.Version + '...');
-  BuildSubprocessArgs('compile');
-  ExitCode := TUtils.ExecuteProcessInDirWithCapture(
-    PasBuildExe, SubArgs, ProjectRoot, Output);
-  if ExitCode <> 0 then
-  begin
-    TUtils.LogError('  Compile output:');
-    TUtils.LogError(Output);
-    raise EBuildPipelineError.CreateFmt(
-      'Failed to compile remote dependency "%s:%s" (exit code %d)',
-      [AManifest.Name, AManifest.Version, ExitCode]);
+  // Extend the cross-process resolve stack so the subprocess can detect
+  // dependency cycles that span package boundaries (A needs B needs A
+  // would otherwise fork subprocesses without bound)
+  SubEnv := TStringList.Create;
+  try
+    SubEnv.Add('PASBUILD_RESOLVE_STACK=' + TUtils.AppendToResolveStack(
+      GetEnvironmentVariable('PASBUILD_RESOLVE_STACK'),
+      AManifest.Name + ':' + AManifest.Version));
+
+    TUtils.LogInfo('  Compiling ' + AManifest.Name + ':' +
+      AManifest.Version + '...');
+    BuildSubprocessArgs('compile');
+    ExitCode := TUtils.ExecuteProcessInDirWithCapture(
+      PasBuildExe, SubArgs, ProjectRoot, Output, SubEnv);
+    if ExitCode <> 0 then
+    begin
+      TUtils.LogError('  Compile output:');
+      TUtils.LogError(Output);
+      raise EBuildPipelineError.CreateFmt(
+        'Failed to compile remote dependency "%s:%s" (exit code %d)',
+        [AManifest.Name, AManifest.Version, ExitCode]);
+    end;
+
+    if FVerbose then
+      TUtils.LogInfo('  Compile output: ' + Output);
+
+    TUtils.LogInfo('  Installing ' + AManifest.Name + ':' +
+      AManifest.Version + '...');
+    BuildSubprocessArgs('install');
+    ExitCode := TUtils.ExecuteProcessInDirWithCapture(
+      PasBuildExe, SubArgs, ProjectRoot, Output, SubEnv);
+    if ExitCode <> 0 then
+    begin
+      TUtils.LogError('  Install output:');
+      TUtils.LogError(Output);
+      raise EBuildPipelineError.CreateFmt(
+        'Failed to install remote dependency "%s:%s" (exit code %d)',
+        [AManifest.Name, AManifest.Version, ExitCode]);
+    end;
+
+    if FVerbose then
+      TUtils.LogInfo('  Install output: ' + Output);
+  finally
+    SubEnv.Free;
   end;
-
-  if FVerbose then
-    TUtils.LogInfo('  Compile output: ' + Output);
-
-  TUtils.LogInfo('  Installing ' + AManifest.Name + ':' +
-    AManifest.Version + '...');
-  BuildSubprocessArgs('install');
-  ExitCode := TUtils.ExecuteProcessInDirWithCapture(
-    PasBuildExe, SubArgs, ProjectRoot, Output);
-  if ExitCode <> 0 then
-  begin
-    TUtils.LogError('  Install output:');
-    TUtils.LogError(Output);
-    raise EBuildPipelineError.CreateFmt(
-      'Failed to install remote dependency "%s:%s" (exit code %d)',
-      [AManifest.Name, AManifest.Version, ExitCode]);
-  end;
-
-  if FVerbose then
-    TUtils.LogInfo('  Install output: ' + Output);
 
   TUtils.LogInfo('  Cleaning up build directory...');
   DeleteDirectoryRecursive(ExtractDir);
 
-  Result := TUtils.GetDownloadCacheDir;
   TUtils.LogInfo('  Installed ' + AManifest.Name + ':' +
     AManifest.Version + ' successfully');
 end;

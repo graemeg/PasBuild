@@ -60,10 +60,12 @@ type
     class function ExecuteProcessWithLog(const ACommand: string; const ALogFile: string; AShowErrors: Boolean): Integer;
     { Run an executable with an argument array in a given working directory,
       capturing combined stdout/stderr. No shell is involved, so arguments
-      and paths need no quoting and cannot be used for command injection. }
+      and paths need no quoting and cannot be used for command injection.
+      AExtraEnv ('NAME=value' entries) overrides/extends the inherited
+      environment. }
     class function ExecuteProcessInDirWithCapture(const AExecutable: string;
       const AArgs: array of string; const AWorkDir: string;
-      out AOutput: string): Integer;
+      out AOutput: string; AExtraEnv: TStringList = nil): Integer;
     { Absolute path of the running pasbuild binary (safe against relative
       argv[0] and a later working-directory change). }
     class function GetSelfExePath: string;
@@ -72,6 +74,17 @@ type
       registry URLs and subprocess arguments }
     class function IsValidPackageName(const AName: string): Boolean;
     class function IsValidPackageVersion(const AVersion: string): Boolean;
+
+    { Numeric component-wise version comparison: negative when A < B,
+      zero when equal, positive when A > B. Missing components count as 0,
+      non-numeric suffixes are ignored. }
+    class function CompareVersions(const AVersionA, AVersionB: string): Integer;
+
+    { Cross-process remote-resolve stack (comma-separated name:version
+      entries carried in the PASBUILD_RESOLVE_STACK environment variable)
+      used to detect dependency cycles across pasbuild subprocesses }
+    class function ResolveStackContains(const AStack, AEntry: string): Boolean;
+    class function AppendToResolveStack(const AStack, AEntry: string): string;
 
     { Compiler detection — delegate to the active backend. }
     class function DetectCompilerVersion: string;
@@ -417,12 +430,13 @@ end;
 
 class function TUtils.ExecuteProcessInDirWithCapture(const AExecutable: string;
   const AArgs: array of string; const AWorkDir: string;
-  out AOutput: string): Integer;
+  out AOutput: string; AExtraEnv: TStringList): Integer;
 var
   AProcess: TProcess;
   Buffer: array[0..4095] of Char;
-  BytesRead, I: Integer;
-  OutputStr, ExePath: string;
+  BytesRead, I, J: Integer;
+  OutputStr, ExePath, EnvStr, VarName: string;
+  Keep: Boolean;
 begin
   AOutput := '';
 
@@ -443,6 +457,31 @@ begin
       AProcess.Parameters.Add(AArgs[I]);
     AProcess.CurrentDirectory := AWorkDir;
     AProcess.Options := [poUsePipes, poStderrToOutPut];
+
+    if Assigned(AExtraEnv) and (AExtraEnv.Count > 0) then
+    begin
+      // Copy the inherited environment, dropping variables that the
+      // extras override (getenv returns the FIRST match, so appending
+      // a duplicate name would not take effect)
+      for I := 1 to GetEnvironmentVariableCount do
+      begin
+        EnvStr := GetEnvironmentString(I);
+        Keep := True;
+        for J := 0 to AExtraEnv.Count - 1 do
+        begin
+          VarName := Copy(AExtraEnv[J], 1, Pos('=', AExtraEnv[J]));
+          if (VarName <> '') and (Copy(EnvStr, 1, Length(VarName)) = VarName) then
+          begin
+            Keep := False;
+            Break;
+          end;
+        end;
+        if Keep then
+          AProcess.Environment.Add(EnvStr);
+      end;
+      for J := 0 to AExtraEnv.Count - 1 do
+        AProcess.Environment.Add(AExtraEnv[J]);
+    end;
 
     try
       AProcess.Execute;
@@ -527,6 +566,69 @@ begin
     if not (AVersion[I] in ['a'..'z', 'A'..'Z', '0'..'9', '.', '-', '_', '+']) then
       Exit;
   Result := True;
+end;
+
+class function TUtils.CompareVersions(const AVersionA,
+  AVersionB: string): Integer;
+
+  { Next numeric component from AVersion starting at APos (1-based).
+    Stops at '.' or any non-digit; advances APos past the separator. }
+  function NextComponent(const AVersion: string; var APos: Integer): Integer;
+  begin
+    Result := 0;
+    while (APos <= Length(AVersion)) and (AVersion[APos] in ['0'..'9']) do
+    begin
+      Result := Result * 10 + (Ord(AVersion[APos]) - Ord('0'));
+      Inc(APos);
+    end;
+    // Skip everything up to and including the next dot (ignores
+    // pre-release/build suffixes like '-rc.1')
+    while (APos <= Length(AVersion)) and (AVersion[APos] <> '.') do
+      Inc(APos);
+    if APos <= Length(AVersion) then
+      Inc(APos);
+  end;
+
+var
+  PosA, PosB, CompA, CompB: Integer;
+begin
+  PosA := 1;
+  PosB := 1;
+  while (PosA <= Length(AVersionA)) or (PosB <= Length(AVersionB)) do
+  begin
+    CompA := NextComponent(AVersionA, PosA);
+    CompB := NextComponent(AVersionB, PosB);
+    if CompA <> CompB then
+      Exit(CompA - CompB);
+  end;
+  Result := 0;
+end;
+
+class function TUtils.ResolveStackContains(const AStack,
+  AEntry: string): Boolean;
+var
+  Parts: TStringList;
+begin
+  Result := False;
+  if (AStack = '') or (AEntry = '') then
+    Exit;
+  Parts := TStringList.Create;
+  try
+    Parts.StrictDelimiter := True;
+    Parts.CommaText := AStack;
+    Result := Parts.IndexOf(AEntry) >= 0;
+  finally
+    Parts.Free;
+  end;
+end;
+
+class function TUtils.AppendToResolveStack(const AStack,
+  AEntry: string): string;
+begin
+  if AStack = '' then
+    Result := AEntry
+  else
+    Result := AStack + ',' + AEntry;
 end;
 
 class function TUtils.ExecuteProcessWithLog(const ACommand: string; const ALogFile: string; AShowErrors: Boolean): Integer;

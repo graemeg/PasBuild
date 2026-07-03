@@ -200,8 +200,19 @@ begin
           except
             on E: ENetworkError do
             begin
-              if FVerbose then
-                TUtils.LogInfo('  Not found in "' + Repos[I].Id + '": ' + E.Message);
+              // 404/410 means "this registry does not have the package";
+              // anything else (transport failure, 5xx, auth) means the
+              // registry could not be consulted at all - say so, or a
+              // network outage masquerades as "package does not exist"
+              if (E.StatusCode = 404) or (E.StatusCode = 410) then
+              begin
+                if FVerbose then
+                  TUtils.LogInfo('  Not found in "' + Repos[I].Id + '": ' +
+                    E.Message);
+              end
+              else
+                TUtils.LogWarning('Registry "' + Repos[I].Id +
+                  '" could not be consulted: ' + E.Message);
             end;
           end;
         end;
@@ -235,9 +246,21 @@ var
   Manifest: TReleaseManifest;
   Builder: TRemoteBuilder;
   CompilerName, CompilerVersion, MinVer, UnitsPath: string;
+  CompilerList, ResolveStack, StackEntry: string;
   ConnTimeout, ReadTimeout, I: Integer;
 begin
   Result := False;
+
+  // Cycle guard across pasbuild subprocesses: if an ancestor process is
+  // already building this exact package, fetching it again would fork
+  // subprocesses without bound
+  StackEntry := AName + ':' + AVersion;
+  ResolveStack := GetEnvironmentVariable('PASBUILD_RESOLVE_STACK');
+  if TUtils.ResolveStackContains(ResolveStack, StackEntry) then
+    raise EDependencyError.CreateFmt(
+      'Dependency cycle detected across remote packages: %s -> %s. ' +
+      'Break the cycle in the packages'' declared dependencies.',
+      [ResolveStack, StackEntry]);
 
   Manifest := FetchManifestFromRegistries(AName, AVersion);
   if not Assigned(Manifest) then
@@ -250,13 +273,25 @@ begin
     CompilerVersion := TUtils.DetectCompilerVersion;
 
     if not Manifest.IsCompatibleWith(CompilerName) then
+    begin
+      CompilerList := '';
+      for I := 0 to High(Manifest.Compilers) do
+      begin
+        if CompilerList <> '' then
+          CompilerList := CompilerList + ', ';
+        CompilerList := CompilerList + Manifest.Compilers[I].Name;
+      end;
+      if CompilerList = '' then
+        CompilerList := '(none declared)';
       raise EDependencyError.CreateFmt(
         'Package "%s:%s" is not compatible with compiler "%s". ' +
         'Compatible compilers: %s',
-        [AName, AVersion, CompilerName, 'see registry manifest']);
+        [AName, AVersion, CompilerName, CompilerList]);
+    end;
 
     MinVer := Manifest.MinVersionFor(CompilerName);
-    if (MinVer <> '') and (CompilerVersion < MinVer) then
+    if (MinVer <> '') and
+       (TUtils.CompareVersions(CompilerVersion, MinVer) < 0) then
       raise EDependencyError.CreateFmt(
         'Package "%s:%s" requires %s >= %s, but found %s',
         [AName, AVersion, CompilerName, MinVer, CompilerVersion]);
@@ -360,7 +395,8 @@ begin
           [AName, AVersion, ATargetId, Targets.CommaText])
       else
         raise EDependencyError.CreateFmt(
-          'Dependency "%s:%s" not found in local repository. ' +
+          'Dependency "%s:%s" not found in local repository and remote ' +
+          'fetching is disabled (--offline or offlineMode in settings.xml). ' +
           'Run "pasbuild install" in the dependency project first.',
           [AName, AVersion]);
     finally
