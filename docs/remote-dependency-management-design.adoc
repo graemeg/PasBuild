@@ -224,7 +224,7 @@ The registry is a Git repository with this layout:
 [source]
 ----
 pasbuild-registry/
-  registry.json                           <1>
+  registry.json                           <1> (future work; not yet used)
   packages/
     fp/                                   <2>
       fpgui-framework/
@@ -249,7 +249,8 @@ pasbuild-registry/
 
 * **Two-letter prefix:** The first two characters of the package name, lowercased. This
   prevents any single directory from containing thousands of entries (the same sharding
-  strategy used by Alire and crates.io). Package names must be at least two characters long.
+  strategy used by Alire and crates.io). Single-character names are padded with `_`
+  for the prefix (e.g. package `x` shards under `x_/`).
 
 * **Package directory name:** The full package name, lowercased, using only `[a-z0-9_-]`
   characters. Must match `<name>` in the package's `project.xml`.
@@ -257,7 +258,12 @@ pasbuild-registry/
 * **Version manifest filename:** `<version>.xml` where `<version>` is a valid semantic
   version string (e.g. `1.0.0`, `2.1.0-beta.1`).
 
-=== `registry.json` -- Global Metadata
+=== `registry.json` -- Global Metadata (future work)
+
+NOTE: Not implemented. Neither PasBuild nor the live registry repository
+currently uses `registry.json`; packages are addressed directly by their
+manifest paths. The design below is retained for a future registry-format
+versioning mechanism.
 
 [source,json]
 ----
@@ -270,10 +276,9 @@ pasbuild-registry/
 }
 ----
 
-This file serves two purposes: it allows PasBuild to validate that a URL points to a genuine
-registry before attempting to fetch packages, and the `formatVersion` field enables future
-schema evolution. JSON is used here (rather than XML) because it is trivially small and
-`fpjson` is already available in the codebase.
+This file would serve two purposes: it would allow PasBuild to validate that a URL points
+to a genuine registry before attempting to fetch packages, and the `formatVersion` field
+would enable future schema evolution.
 
 === `package.xml` -- Package-Level Metadata
 
@@ -523,13 +528,6 @@ and prevents a compromised archive from injecting unexpected dependencies.
 ~/.pasbuild/
   repository/                   # Existing binary repository (unchanged)
   cache/
-    registry/                   # Cached registry manifests
-      default/
-        packages/
-          fp/
-            fpgui-framework/
-              package.xml
-              1.0.0.xml
     downloads/                  # Downloaded source archives
       fpgui-framework-1.0.0-src.zip
     builds/                     # Temporary compilation workspace
@@ -538,18 +536,26 @@ and prevents a compromised archive from injecting unexpected dependencies.
         src/
 ----
 
+NOTE: An on-disk registry manifest cache (`cache/registry/<id>/packages/...`)
+was designed but is not implemented; version manifests are small and are
+fetched per run. This remains future work.
+
 === HTTP Fetching
 
 The implementation uses FPC's built-in `fphttpclient` unit (`TFPHTTPClient`). For HTTPS
 support, the `opensslsockets` unit must be included in the uses clause -- this registers
 the OpenSSL socket handler automatically.
 
-Before the first remote fetch, PasBuild probes for OpenSSL availability by attempting to
-load `libssl`. If unavailable, a clear error is raised immediately:
+All registry and origin URLs must use `https://`; cleartext `http://` is
+rejected except for loopback addresses (local test registries). When a
+system CA certificate bundle is found (the common Linux and BSD locations
+are searched), TLS peer verification is enabled; otherwise a one-time
+warning is logged and verification is skipped.
 
-`ERROR: Remote dependency fetching requires OpenSSL. Install libssl-dev (Debian/Ubuntu),
-openssl-devel (Fedora/RHEL), or the equivalent for your platform. Use --offline to skip
-remote fetching.`
+NOTE: A dedicated OpenSSL pre-flight probe with an actionable install hint
+was designed but is not implemented; a missing OpenSSL library currently
+surfaces as a socket-handler error from the first fetch. This remains
+future work.
 
 ==== Timeout and Retry
 
@@ -584,13 +590,13 @@ Examples for different forges:
 [source]
 ----
 # GitHub (raw.githubusercontent.com)
-https://raw.githubusercontent.com/pasbuild/registry/main/packages/fp/fpgui-framework/1.0.0.xml
+https://raw.githubusercontent.com/graemeg/pasbuild-registry/main/packages/fp/fpgui-framework/1.0.0.xml
 
 # Codeberg (raw file access)
-https://codeberg.org/pasbuild/registry/raw/branch/main/packages/fp/fpgui-framework/1.0.0.xml
+https://codeberg.org/graemeg/pasbuild-registry/raw/branch/main/packages/fp/fpgui-framework/1.0.0.xml
 
 # SourceHut
-https://git.sr.ht/~pasbuild/registry/blob/main/packages/fp/fpgui-framework/1.0.0.xml
+https://git.sr.ht/~graemeg/pasbuild-registry/blob/main/packages/fp/fpgui-framework/1.0.0.xml
 
 # Self-hosted static server
 https://registry.example.com/packages/fp/fpgui-framework/1.0.0.xml
@@ -673,7 +679,7 @@ From highest to lowest priority:
     <!-- Checked second; 'central' is the built-in default -->
     <repository>
       <id>central</id>
-      <url>https://raw.githubusercontent.com/pasbuild/registry/main/</url>
+      <url>https://raw.githubusercontent.com/graemeg/pasbuild-registry/main/</url>
     </repository>
   </repositories>
 
@@ -702,7 +708,7 @@ From highest to lowest priority:
   <repositories>
     <repository>
       <id>central</id>
-      <url>https://raw.githubusercontent.com/pasbuild/registry/main/</url>
+      <url>https://raw.githubusercontent.com/graemeg/pasbuild-registry/main/</url>
     </repository>
   </repositories>
 
@@ -719,7 +725,7 @@ This file is analogous to Maven's `~/.m2/settings.xml`. If both `settings.xml` a
 
 [source,bash]
 ----
-export PASBUILD_REGISTRY_URL=https://raw.githubusercontent.com/pasbuild/registry/main/
+export PASBUILD_REGISTRY_URL=https://raw.githubusercontent.com/graemeg/pasbuild-registry/main/
 ----
 
 When set, this is treated as a single-repository configuration with id `env`. It is
@@ -756,17 +762,21 @@ pasbuild publish --archive-url <url>   # Specify pre-uploaded archive URL
    - Execute 'pasbuild source-package' to generate <name>-<version>-src.zip
    - This ensures the archive is well-formed
 
-3. Compute SHA-256 of the generated archive
-
-4. Determine archive hosting URL
+3. Determine archive hosting URL
    - If --archive-url is provided, use that
-   - Otherwise, prompt the user to upload the archive as a release asset
-     and provide the download URL
-   - Validate the URL is reachable (HTTP HEAD request)
+   - Otherwise fail with instructions to upload the archive and re-run
+     (a dry-run continues with a placeholder URL)
+
+4. Compute the origin SHA-256
+   - Download the archive at --archive-url and hash those exact bytes
+     (also proves the URL is reachable); warn when it differs from the
+     locally generated archive
+   - --sha256 <hex> overrides the download for unreachable hosts
 
 5. Generate version manifest (<version>.xml)
    - Populate from project.xml fields + computed SHA-256
-   - Include dependencies from project.xml
+   - Include dependencies from project.xml (module dependencies are
+     translated to their published package names and versions)
 
 6. Generate or update package.xml
    - Create new or update existing with the new version
@@ -892,7 +902,7 @@ Running `pasbuild publish --archive-url https://github.com/example/string-utils/
 <repositories>
   <repository>
     <id>central</id>
-    <url>https://raw.githubusercontent.com/pasbuild/registry/main/</url>
+    <url>https://raw.githubusercontent.com/graemeg/pasbuild-registry/main/</url>
   </repository>
 </repositories>
 ----
@@ -950,8 +960,8 @@ system's OpenSSL installation.
 During `pasbuild publish`:
 
 * The origin URL must use HTTPS.
-* The URL must be reachable (HTTP HEAD returns 200).
-* The downloaded file must match the declared SHA-256.
+* The archive is downloaded and hashed, which also proves the URL is
+  reachable (unless --sha256 is supplied explicitly).
 
 During `pasbuild compile` (remote fetch):
 
@@ -1018,8 +1028,23 @@ Options:
   --archive-url <url>    URL where the source archive is hosted
   --registry <id>        Target registry id (default: central)
   --dry-run              Generate manifest files without submitting
-  --token <token>        Authentication token for forge API
+  --sha256 <hex>         Archive checksum override (skips download-and-hash)
+  -m <module>            Publish a library module of a multi-module project
 ----
+
+NOTE: A `--token` flag was considered and deliberately not implemented:
+command-line arguments are visible in process listings and shell history.
+Authentication tokens are read only from the `PASBUILD_GITHUB_TOKEN`,
+`GITHUB_TOKEN`, or `PASBUILD_GITEA_TOKEN` environment variables.
+
+By default `publish` downloads the archive at `--archive-url` and records
+the hash and size of those exact bytes in the manifest (warning when they
+differ from the locally generated source package). The existing registry
+`package.xml` is fetched and its version list merged so earlier releases
+are never removed. Publishing a module of a multi-module project runs in
+the module's directory and translates its `<moduleDependencies>` into
+registry `<dependency>` entries using each sibling's package name and
+version.
 
 === New Flag: `--offline`
 
@@ -1150,23 +1175,34 @@ dependencies and proceeds directly to the fetch-build-install pipeline. Local
 |Unit |Responsibility
 
 |`PasBuild.Remote.pas`
-|`TRemoteRepository` class: HTTP fetching, manifest parsing, archive downloading
+|`TRemoteClient` class: HTTPS fetching and archive downloading with
+mandatory URL-scheme validation, TLS peer verification (when a system CA
+bundle is present) and atomic temp-file downloads
 
 |`PasBuild.Remote.Registry.pas`
-|`TRegistryConfig` class: loads and manages registry configurations from
-settings.xml, project.xml, and environment variables
+|`TRegistryManager` class: resolves the effective repository list from
+project.xml, settings.xml, and environment variables
 
 |`PasBuild.Remote.Manifest.pas`
-|`TReleaseManifest` class: parse `<version>.xml` and `package.xml` files
+|`TManifestParser`/`TReleaseManifest`: parse and validate `<version>.xml`
+manifests (package-name/version charset validation, mandatory origin URL
+and 64-hex sha256)
 
 |`PasBuild.Remote.Builder.pas`
-|`TRemotePackageBuilder` class: orchestrates extract-compile-install pipeline
+|`TRemoteBuilder` class: orchestrates the extract-compile-install pipeline
+with zip-slip entry validation and a cross-process dependency-cycle guard
+
+|`PasBuild.Remote.Forge.pas`
+|`TForgeDetector` (forge detection, repo-URL parsing, token lookup) and
+`TGitHubForge` (fork -> branch -> commit -> pull-request automation via the
+GitHub REST API)
 
 |`PasBuild.Crypto.SHA256.pas`
 |Pure Pascal SHA-256 implementation
 
 |`PasBuild.Command.Publish.pas`
-|`TPublishCommand` class: the `publish` goal implementation
+|`TPublishCommand` class: the `publish` goal implementation, including
+multi-module support via `CreateForModule`
 
 |`PasBuild.Settings.pas`
 |`TSettingsLoader` class: loads `~/.pasbuild/settings.xml`
@@ -1186,9 +1222,10 @@ elements (with `<fpcVersion>` read fallback); update path construction to use qu
 |`PasBuild.Utils.pas`
 |Rename `DetectFPCVersion` to `DetectCompilerVersion`; rename `IsFPCAvailable` to
 `IsCompilerAvailable`; rename `GetTargetTriplet` to `GetTargetQuadruplet` (returns
-`<compiler>-<cpu>-<os>-<version>`); keep old names as deprecated aliases; add cache
-directory helpers: `GetCacheRoot`, `GetDownloadsCacheDir`, `GetBuildsCacheDir`,
-`GetRegistryCacheDir`
+`<compiler>-<cpu>-<os>-<version>`); no deprecated aliases are kept; add cache
+directory helpers: `GetCacheRoot`, `GetDownloadCacheDir`, `GetBuildCacheDir`
+(no registry manifest cache -- manifests are fetched per run; an on-disk
+manifest cache remains future work)
 
 |`PasBuild.Dependencies.pas`
 |`TDependencyResolver.ResolveOne` gains remote fallback logic; new `FRemoteRepo`
@@ -1273,10 +1310,12 @@ public
   property PublishedAt: string read FPublishedAt write FPublishedAt;
 end;
 
-{ Exceptions }
-ERemoteDependencyError = class(EDependencyError);
-EChecksumError = class(ERemoteDependencyError);
-ENetworkError = class(ERemoteDependencyError);
+{ Exceptions (as implemented -- no ERemoteDependencyError intermediate) }
+ENetworkError = class(EDependencyError);       // carries HTTP StatusCode
+EChecksumError = class(EDependencyError);
+EBuildPipelineError = class(EDependencyError); // PasBuild.Remote.Builder
+EManifestError = class(Exception);             // PasBuild.Remote.Manifest
+EPublishError = class(Exception);              // PasBuild.Command.Publish
 ----
 
 
@@ -1290,9 +1329,11 @@ Prerequisite for remote resolution. No network operations.
 * Update `WriteMetadata` to write `<compiler>` and `<compilerVersion>` elements
 * Update `ReadMetadata` with backwards-compatible fallback for `<fpcVersion>`
 * Update `GetTargetTriplet` to `GetTargetQuadruplet` (`<compiler>-<cpu>-<os>-<version>`)
-* Update `ArtifactExists` to check quadruplet path first, then fall back to old triplet
+* Update `ArtifactExists` to check the quadruplet path (the old-triplet
+  fallback was not implemented -- pre-quadruplet artifacts require a
+  one-time reinstall)
 * Rename `DetectFPCVersion` to `DetectCompilerVersion`, `IsFPCAvailable` to
-  `IsCompilerAvailable` (keep old names as deprecated aliases)
+  `IsCompilerAvailable` (no deprecated aliases kept)
 * Update all callers across the codebase
 * Update error messages in `PasBuild.Dependencies.pas` to be compiler-neutral
 * Tests verifying backwards compatibility with old triplet-path artifacts
