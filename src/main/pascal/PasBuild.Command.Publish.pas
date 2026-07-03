@@ -141,10 +141,20 @@ begin
 end;
 
 function TPublishCommand.GetDependencies: TBuildCommandList;
+var
+  Errors: TStringList;
 begin
   Result := TBuildCommandList.Create(False);
   try
-    Result.Add(TSourcePackageCommand.Create(Config, ProfileIds));
+    // Skip the source-package build when validation will reject the
+    // project anyway; Execute reports the validation errors
+    Errors := ValidateForPublish(Config);
+    try
+      if Errors.Count = 0 then
+        Result.Add(TSourcePackageCommand.Create(Config, ProfileIds));
+    finally
+      Errors.Free;
+    end;
   except
     Result.Free;
     raise;
@@ -439,16 +449,16 @@ end;
 function TPublishCommand.WriteManifestFile(
   const ADir, AFileName, AContent: string): string;
 var
-  F: TextFile;
+  FS: TFileStream;
 begin
   Result := IncludeTrailingPathDelimiter(ADir) + AFileName;
   ForceDirectories(ExtractFileDir(Result));
-  AssignFile(F, Result);
-  Rewrite(F);
+  FS := TFileStream.Create(Result, fmCreate);
   try
-    Write(F, AContent);
+    if AContent <> '' then
+      FS.WriteBuffer(AContent[1], Length(AContent));
   finally
-    CloseFile(F);
+    FS.Free;
   end;
 end;
 

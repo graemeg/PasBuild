@@ -149,11 +149,11 @@ begin
         Exit;
       end;
     end;
-
-    // Free dependency commands (they're not owned by the list)
+  finally
+    // Free dependency commands here (the list does not own them) so a
+    // failed dependency's early Exit cannot leak them
     for I := 0 to Dependencies.Count - 1 do
       Dependencies[I].Free;
-  finally
     Dependencies.Free;
   end;
 

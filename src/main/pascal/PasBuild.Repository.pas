@@ -338,7 +338,9 @@ begin
     raise Exception.CreateFmt('Metadata file not found: %s', [MetadataPath]);
 
   Result := TArtifactMetadata.Create;
-  Doc := TXMLDocument.Create;
+  // ReadXMLFile's first parameter is 'out' - pre-creating a document here
+  // would leak it on every call
+  Doc := nil;
   try
     ReadXMLFile(Doc, MetadataPath);
     RootNode := Doc.DocumentElement;
@@ -395,9 +397,12 @@ begin
         ChildNode := ChildNode.NextSibling;
       end;
     end;
-  finally
+  except
     Doc.Free;
+    Result.Free;
+    raise;
   end;
+  Doc.Free;
 end;
 
 end.
