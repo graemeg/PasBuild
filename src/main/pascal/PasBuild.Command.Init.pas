@@ -160,10 +160,15 @@ function TInitCommand.GenerateTestRunnerPas(const AProjectName: string): string;
 begin
   Result := 'program TestRunner;' + LineEnding +
             '' + LineEnding +
+            '{$IFDEF FPC}' + LineEnding +
             '{$mode objfpc}{$H+}' + LineEnding +
-            '' + LineEnding +
             'uses' + LineEnding +
             '  Classes, SysUtils, fpcunit, testregistry, consoletestrunner;' + LineEnding +
+            '{$ENDIF}' + LineEnding +
+            '' + LineEnding +
+            '{$IFDEF BLAISE}' + LineEnding +
+            'uses blaise.testing, blaise.testing.runner.text;' + LineEnding +
+            '{$ENDIF}' + LineEnding +
             '' + LineEnding +
             'type' + LineEnding +
             '  { Sample test case - replace with your actual tests }' + LineEnding +
@@ -177,6 +182,7 @@ begin
             '  AssertEquals(''Sample test'', 2, 1 + 1);' + LineEnding +
             'end;' + LineEnding +
             '' + LineEnding +
+            '{$IFDEF FPC}' + LineEnding +
             'var' + LineEnding +
             '  Application: TTestRunner;' + LineEnding +
             '' + LineEnding +
@@ -189,7 +195,16 @@ begin
             '  finally' + LineEnding +
             '    Application.Free;' + LineEnding +
             '  end;' + LineEnding +
-            'end.' + LineEnding;
+            'end.' + LineEnding +
+            '{$ENDIF}' + LineEnding +
+            '' + LineEnding +
+            '{$IFDEF BLAISE}' + LineEnding +
+            'begin' + LineEnding +
+            '  RegisterTest(TSampleTest);  ' + LineEnding +
+            '  Halt(RunAll());' + LineEnding +
+            'end.' + LineEnding +
+            '{$ENDIF}' + LineEnding +
+            '' + LineEnding;
 end;
 
 function TInitCommand.GenerateLicenseFile(const ALicense: string): string;
