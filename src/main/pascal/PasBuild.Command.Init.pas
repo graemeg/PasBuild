@@ -104,78 +104,61 @@ begin
   ExeName := LowerCase(StringReplace(AName, ' ', '', [rfReplaceAll]));
 
   Result := '<?xml version="1.0" encoding="UTF-8"?>' + LineEnding +
-            '<project>' + LineEnding +
-            '  <name>' + TUtils.XmlEscapeText(AName) + '</name>' + LineEnding +
-            '  <version>' + TUtils.XmlEscapeText(AVersion) + '</version>' + LineEnding +
-            '  <author>' + TUtils.XmlEscapeText(AAuthor) + '</author>' + LineEnding +
-            '  <license>' + TUtils.XmlEscapeText(ALicense) + '</license>' + LineEnding +
-            '' + LineEnding +
-            '  <build>' + LineEnding;
+    '<project>' + LineEnding +
+    '  <name>' + TUtils.XmlEscapeText(AName) + '</name>' + LineEnding +
+    '  <version>' + TUtils.XmlEscapeText(AVersion) + '</version>' + LineEnding +
+    '  <author>' + TUtils.XmlEscapeText(AAuthor) + '</author>' + LineEnding +
+    '  <license>' + TUtils.XmlEscapeText(ALicense) + '</license>' + LineEnding +
+    '' + LineEnding +
+    '  <build>' + LineEnding;
 
   // Add project type
   if AnsiLowerCase(AProjectType) = 'library' then
-  begin
     Result := Result +
-            '    <projectType>library</projectType>' + LineEnding +
-            '    <outputDirectory>target</outputDirectory>' + LineEnding;
-  end
+      '    <projectType>library</projectType>' + LineEnding +
+      '    <outputDirectory>target</outputDirectory>' + LineEnding
   else
-  begin
-    // Application project (default)
     Result := Result +
-            '    <projectType>application</projectType>' + LineEnding +
-            '    <mainSource>Main.pas</mainSource>' + LineEnding +
-            '    <executableName>' + ExeName + '</executableName>' + LineEnding +
-            '    <outputDirectory>target</outputDirectory>' + LineEnding;
-  end;
+      '    <projectType>application</projectType>' + LineEnding +
+      '    <mainSource>Main.pas</mainSource>' + LineEnding +
+      '    <executableName>' + ExeName + '</executableName>' + LineEnding +
+      '    <outputDirectory>target</outputDirectory>' + LineEnding// Application project (default)
+  ;
 
   Result := Result +
-            '  </build>' + LineEnding +
-            '' + LineEnding +
-            '  <test>' + LineEnding +
-            '    <testSource>TestRunner.pas</testSource>' + LineEnding +
-            '    <frameworkOptions>' + LineEnding +
-            '      <option>--all --format=plain</option>' + LineEnding +
-            '    </frameworkOptions>' + LineEnding +
-            '  </test>' + LineEnding +
-            '</project>' + LineEnding;
+    '  </build>' + LineEnding +
+    '' + LineEnding +
+    '  <test>' + LineEnding +
+    '    <testSource>TestRunner.pas</testSource>' + LineEnding +
+    '    <frameworkOptions>' + LineEnding +
+    '      <option>--all --format=plain</option>' + LineEnding +
+    '    </frameworkOptions>' + LineEnding +
+    '  </test>' + LineEnding +
+    '</project>' + LineEnding;
 end;
 
 function TInitCommand.GenerateMainPas(const AProjectName: string): string;
 begin
   Result := 'program Main;' + LineEnding +
-            '' + LineEnding +
-            '{$mode objfpc}{$H+}' + LineEnding +
-            '' + LineEnding +
-            'uses' + LineEnding +
-            '  SysUtils;' + LineEnding +
-            '' + LineEnding +
-            'begin' + LineEnding +
-            '  WriteLn(''Hello from ' + AProjectName + '!'');' + LineEnding +
-            '  WriteLn(''Build tool: PasBuild'');' + LineEnding +
-            'end.' + LineEnding;
+    '' + LineEnding +
+    '{$mode objfpc}{$H+}' + LineEnding +
+    '' + LineEnding +
+    'uses' + LineEnding +
+    '  SysUtils;' + LineEnding +
+    '' + LineEnding +
+    'begin' + LineEnding +
+    '  WriteLn(''Hello from ' + AProjectName + '!'');' + LineEnding +
+    '  WriteLn(''Build tool: PasBuild'');' + LineEnding +
+    'end.' + LineEnding;
 end;
 
 function TInitCommand.GenerateTestRunnerPas(const AProjectName: string): string;
 begin
   Result := 'program TestRunner;' + LineEnding +
             '' + LineEnding +
-            '{$mode objfpc}{$H+}' + LineEnding +
-            '' + LineEnding +
-            'uses' + LineEnding +
-            '  Classes, SysUtils, fpcunit, testregistry, consoletestrunner;' + LineEnding +
-            '' + LineEnding +
-            'type' + LineEnding +
-            '  { Sample test case - replace with your actual tests }' + LineEnding +
-            '  TSampleTest = class(TTestCase)' + LineEnding +
-            '  published' + LineEnding +
-            '    procedure TestExample;' + LineEnding +
-            '  end;' + LineEnding +
-            '' + LineEnding +
-            'procedure TSampleTest.TestExample;' + LineEnding +
-            'begin' + LineEnding +
-            '  AssertEquals(''Sample test'', 2, 1 + 1);' + LineEnding +
-            'end;' + LineEnding +
+            '{$IFDEF FPC}' + LineEnding +
+            '{$MODE ObjFPC}{$H+}' + LineEnding +
+            'uses classes, sysutils, fpcunit, testregistry, consoletestrunner {, Add Test Units here , };' + LineEnding +
             '' + LineEnding +
             'var' + LineEnding +
             '  Application: TTestRunner;' + LineEnding +
@@ -183,13 +166,23 @@ begin
             'begin' + LineEnding +
             '  Application := TTestRunner.Create(nil);' + LineEnding +
             '  try' + LineEnding +
-            '    RegisterTest(TSampleTest);' + LineEnding +
             '    Application.Initialize;' + LineEnding +
+            '    Application.Title := {Add Test Unit Name if desired}''FPCUnit Test Runner'';' + LineEnding +
             '    Application.Run;' + LineEnding +
             '  finally' + LineEnding +
             '    Application.Free;' + LineEnding +
             '  end;' + LineEnding +
-            'end.' + LineEnding;
+            'end.' + LineEnding +
+            '{$ENDIF}' + LineEnding +
+            '' + LineEnding +
+            '{--TestRunner for Blaise Compiler--}' + LineEnding +
+            '' + LineEnding +
+            '{$IFDEF BLAISE}' + LineEnding +
+            'uses blaise.testing, blaise.testing.runner.text {, Add Test Units here , };' + LineEnding +
+            'begin' + LineEnding +
+            'Halt(RunAll());' + LineEnding +
+            'end.' + LineEnding +
+            '{$ENDIF}'
 end;
 
 function TInitCommand.GenerateLicenseFile(const ALicense: string): string;
@@ -201,71 +194,71 @@ begin
   case AnsiUpperCase(ALicense) of
     'MIT':
       Result := 'MIT License' + LineEnding +
-                '' + LineEnding +
-                'Copyright (c) ' + Year + LineEnding +
-                '' + LineEnding +
-                'Permission is hereby granted, free of charge, to any person obtaining a copy' + LineEnding +
-                'of this software and associated documentation files (the "Software"), to deal' + LineEnding +
-                'in the Software without restriction, including without limitation the rights' + LineEnding +
-                'to use, copy, modify, merge, publish, distribute, sublicense, and/or sell' + LineEnding +
-                'copies of the Software, and to permit persons to whom the Software is' + LineEnding +
-                'furnished to do so, subject to the following conditions:' + LineEnding +
-                '' + LineEnding +
-                'The above copyright notice and this permission notice shall be included in all' + LineEnding +
-                'copies or substantial portions of the Software.' + LineEnding +
-                '' + LineEnding +
-                'THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR' + LineEnding +
-                'IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,' + LineEnding +
-                'FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE' + LineEnding +
-                'AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER' + LineEnding +
-                'LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,' + LineEnding +
-                'OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE' + LineEnding +
-                'SOFTWARE.' + LineEnding;
+        '' + LineEnding +
+        'Copyright (c) ' + Year + LineEnding +
+        '' + LineEnding +
+        'Permission is hereby granted, free of charge, to any person obtaining a copy' + LineEnding +
+        'of this software and associated documentation files (the "Software"), to deal' + LineEnding +
+        'in the Software without restriction, including without limitation the rights' + LineEnding +
+        'to use, copy, modify, merge, publish, distribute, sublicense, and/or sell' + LineEnding +
+        'copies of the Software, and to permit persons to whom the Software is' + LineEnding +
+        'furnished to do so, subject to the following conditions:' + LineEnding +
+        '' + LineEnding +
+        'The above copyright notice and this permission notice shall be included in all' + LineEnding +
+        'copies or substantial portions of the Software.' + LineEnding +
+        '' + LineEnding +
+        'THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR' + LineEnding +
+        'IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,' + LineEnding +
+        'FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE' + LineEnding +
+        'AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER' + LineEnding +
+        'LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,' + LineEnding +
+        'OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE' + LineEnding +
+        'SOFTWARE.' + LineEnding;
 
     'BSD-3-CLAUSE':
       Result := 'BSD 3-Clause License' + LineEnding +
-                '' + LineEnding +
-                'Copyright (c) ' + Year + LineEnding +
-                '' + LineEnding +
-                'Redistribution and use in source and binary forms, with or without' + LineEnding +
-                'modification, are permitted provided that the following conditions are met:' + LineEnding +
-                '' + LineEnding +
-                '1. Redistributions of source code must retain the above copyright notice, this' + LineEnding +
-                '   list of conditions and the following disclaimer.' + LineEnding +
-                '' + LineEnding +
-                '2. Redistributions in binary form must reproduce the above copyright notice,' + LineEnding +
-                '   this list of conditions and the following disclaimer in the documentation' + LineEnding +
-                '   and/or other materials provided with the distribution.' + LineEnding +
-                '' + LineEnding +
-                '3. Neither the name of the copyright holder nor the names of its' + LineEnding +
-                '   contributors may be used to endorse or promote products derived from' + LineEnding +
-                '   this software without specific prior written permission.' + LineEnding +
-                '' + LineEnding +
-                'THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"' + LineEnding +
-                'AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE' + LineEnding +
-                'IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE' + LineEnding +
-                'DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE' + LineEnding +
-                'FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL' + LineEnding +
-                'DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR' + LineEnding +
-                'SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER' + LineEnding +
-                'CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,' + LineEnding +
-                'OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE' + LineEnding +
-                'OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.' + LineEnding;
+        '' + LineEnding +
+        'Copyright (c) ' + Year + LineEnding +
+        '' + LineEnding +
+        'Redistribution and use in source and binary forms, with or without' + LineEnding +
+        'modification, are permitted provided that the following conditions are met:' + LineEnding +
+        '' + LineEnding +
+        '1. Redistributions of source code must retain the above copyright notice, this' + LineEnding +
+        '   list of conditions and the following disclaimer.' + LineEnding +
+        '' + LineEnding +
+        '2. Redistributions in binary form must reproduce the above copyright notice,' + LineEnding +
+        '   this list of conditions and the following disclaimer in the documentation' + LineEnding +
+        '   and/or other materials provided with the distribution.' + LineEnding +
+        '' + LineEnding +
+        '3. Neither the name of the copyright holder nor the names of its' + LineEnding +
+        '   contributors may be used to endorse or promote products derived from' + LineEnding +
+        '   this software without specific prior written permission.' + LineEnding +
+        '' + LineEnding +
+        'THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"' + LineEnding +
+        'AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE' + LineEnding +
+        'IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE' + LineEnding +
+        'DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE' + LineEnding +
+        'FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL' + LineEnding +
+        'DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR' + LineEnding +
+        'SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER' + LineEnding +
+        'CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,' + LineEnding +
+        'OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE' + LineEnding +
+        'OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.' + LineEnding;
 
     'PROPRIETARY':
       Result := 'Proprietary License' + LineEnding +
-                '' + LineEnding +
-                'Copyright (c) ' + Year + '. All rights reserved.' + LineEnding +
-                '' + LineEnding +
-                'This software is proprietary and confidential.' + LineEnding;
+        '' + LineEnding +
+        'Copyright (c) ' + Year + '. All rights reserved.' + LineEnding +
+        '' + LineEnding +
+        'This software is proprietary and confidential.' + LineEnding;
 
-    else
-      // For GPL-3.0, Apache-2.0, or other licenses, create a placeholder
-      Result := ALicense + ' License' + LineEnding +
-                '' + LineEnding +
-                'Copyright (c) ' + Year + LineEnding +
-                '' + LineEnding +
-                'Please replace this file with the full license text.' + LineEnding;
+  else
+    // For GPL-3.0, Apache-2.0, or other licenses, create a placeholder
+    Result := ALicense + ' License' + LineEnding +
+      '' + LineEnding +
+      'Copyright (c) ' + Year + LineEnding +
+      '' + LineEnding +
+      'Please replace this file with the full license text.' + LineEnding;
   end;
 end;
 
@@ -348,17 +341,17 @@ var
   ModuleName: string;
 begin
   Result := '<?xml version="1.0" encoding="UTF-8"?>' + LineEnding +
-            '<project>' + LineEnding +
-            '  <name>' + TUtils.XmlEscapeText(AName) + '</name>' + LineEnding +
-            '  <version>' + TUtils.XmlEscapeText(AVersion) + '</version>' + LineEnding +
-            '  <author>' + TUtils.XmlEscapeText(AAuthor) + '</author>' + LineEnding +
-            '  <license>' + TUtils.XmlEscapeText(ALicense) + '</license>' + LineEnding +
-            '' + LineEnding +
-            '  <build>' + LineEnding +
-            '    <packaging>pom</packaging>' + LineEnding +
-            '  </build>' + LineEnding +
-            '' + LineEnding +
-            '  <modules>' + LineEnding;
+    '<project>' + LineEnding +
+    '  <name>' + TUtils.XmlEscapeText(AName) + '</name>' + LineEnding +
+    '  <version>' + TUtils.XmlEscapeText(AVersion) + '</version>' + LineEnding +
+    '  <author>' + TUtils.XmlEscapeText(AAuthor) + '</author>' + LineEnding +
+    '  <license>' + TUtils.XmlEscapeText(ALicense) + '</license>' + LineEnding +
+    '' + LineEnding +
+    '  <build>' + LineEnding +
+    '    <packaging>pom</packaging>' + LineEnding +
+    '  </build>' + LineEnding +
+    '' + LineEnding +
+    '  <modules>' + LineEnding;
 
   // Add each module
   for I := 0 to AModules.Count - 1 do
@@ -368,8 +361,8 @@ begin
   end;
 
   Result := Result +
-            '  </modules>' + LineEnding +
-            '</project>' + LineEnding;
+    '  </modules>' + LineEnding +
+    '</project>' + LineEnding;
 end;
 
 { GenerateModuleProjectXML - Generates child module project.xml }
@@ -380,39 +373,35 @@ begin
   ExeName := LowerCase(StringReplace(AName, ' ', '', [rfReplaceAll]));
 
   Result := '<?xml version="1.0" encoding="UTF-8"?>' + LineEnding +
-            '<project>' + LineEnding +
-            '  <name>' + TUtils.XmlEscapeText(AName) + '</name>' + LineEnding +
-            '  <!-- version inherited from aggregator -->' + LineEnding +
-            '  <author>' + TUtils.XmlEscapeText(AAuthor) + '</author>' + LineEnding +
-            '  <license>' + TUtils.XmlEscapeText(ALicense) + '</license>' + LineEnding +
-            '' + LineEnding +
-            '  <build>' + LineEnding;
+    '<project>' + LineEnding +
+    '  <name>' + TUtils.XmlEscapeText(AName) + '</name>' + LineEnding +
+    '  <!-- version inherited from aggregator -->' + LineEnding +
+    '  <author>' + TUtils.XmlEscapeText(AAuthor) + '</author>' + LineEnding +
+    '  <license>' + TUtils.XmlEscapeText(ALicense) + '</license>' + LineEnding +
+    '' + LineEnding +
+    '  <build>' + LineEnding;
 
   if AnsiLowerCase(AModuleType) = 'library' then
-  begin
     Result := Result +
-            '    <packaging>library</packaging>' + LineEnding +
-            '    <outputDirectory>target</outputDirectory>' + LineEnding;
-  end
+      '    <packaging>library</packaging>' + LineEnding +
+      '    <outputDirectory>target</outputDirectory>' + LineEnding
   else
-  begin
-    // Application module
     Result := Result +
-            '    <mainSource>Main.pas</mainSource>' + LineEnding +
-            '    <executableName>' + ExeName + '</executableName>' + LineEnding +
-            '    <outputDirectory>target</outputDirectory>' + LineEnding;
-  end;
+      '    <mainSource>Main.pas</mainSource>' + LineEnding +
+      '    <executableName>' + ExeName + '</executableName>' + LineEnding +
+      '    <outputDirectory>target</outputDirectory>' + LineEnding// Application module
+  ;
 
   Result := Result +
-            '  </build>' + LineEnding +
-            '' + LineEnding +
-            '  <test>' + LineEnding +
-            '    <testSource>TestRunner.pas</testSource>' + LineEnding +
-            '    <frameworkOptions>' + LineEnding +
-            '      <option>--all --format=plain</option>' + LineEnding +
-            '    </frameworkOptions>' + LineEnding +
-            '  </test>' + LineEnding +
-            '</project>' + LineEnding;
+    '  </build>' + LineEnding +
+    '' + LineEnding +
+    '  <test>' + LineEnding +
+    '    <testSource>TestRunner.pas</testSource>' + LineEnding +
+    '    <frameworkOptions>' + LineEnding +
+    '      <option>--all --format=plain</option>' + LineEnding +
+    '    </frameworkOptions>' + LineEnding +
+    '  </test>' + LineEnding +
+    '</project>' + LineEnding;
 end;
 
 { GenerateSampleLibraryUnit - Generates a sample unit file for library modules }
@@ -425,16 +414,16 @@ begin
   SampleUnitName := SampleUnitName + '.Utils';
 
   Result := 'unit ' + SampleUnitName + ';' + LineEnding +
-            '' + LineEnding +
-            '{$mode objfpc}{$H+}' + LineEnding +
-            '' + LineEnding +
-            'interface' + LineEnding +
-            '' + LineEnding +
-            '{ Add your public declarations here }' + LineEnding +
-            '' + LineEnding +
-            'implementation' + LineEnding +
-            '' + LineEnding +
-            'end.' + LineEnding;
+    '' + LineEnding +
+    '{$mode objfpc}{$H+}' + LineEnding +
+    '' + LineEnding +
+    'interface' + LineEnding +
+    '' + LineEnding +
+    '{ Add your public declarations here }' + LineEnding +
+    '' + LineEnding +
+    'implementation' + LineEnding +
+    '' + LineEnding +
+    'end.' + LineEnding;
 end;
 
 { CreateModuleDirectoryStructure - Creates directory structure for a module }
@@ -446,7 +435,7 @@ begin
 
   // Create main source directory
   MainSourceDir := AModulePath + DirectorySeparator + 'src' + DirectorySeparator +
-                   'main' + DirectorySeparator + 'pascal';
+    'main' + DirectorySeparator + 'pascal';
   if not ForceDirectories(MainSourceDir) then
   begin
     TUtils.LogError('Failed to create directory: ' + MainSourceDir);
@@ -456,7 +445,7 @@ begin
 
   // Create test source directory
   TestSourceDir := AModulePath + DirectorySeparator + 'src' + DirectorySeparator +
-                   'test' + DirectorySeparator + 'pascal';
+    'test' + DirectorySeparator + 'pascal';
   if not ForceDirectories(TestSourceDir) then
   begin
     TUtils.LogError('Failed to create directory: ' + TestSourceDir);
@@ -574,7 +563,7 @@ begin
   begin
     MainPas := GenerateMainPas(AName);
     SourceFilePath := AModulePath + DirectorySeparator + 'src' + DirectorySeparator +
-                   'main' + DirectorySeparator + 'pascal' + DirectorySeparator + 'Main.pas';
+      'main' + DirectorySeparator + 'pascal' + DirectorySeparator + 'Main.pas';
     try
       AssignFile(F, SourceFilePath);
       Rewrite(F);
@@ -594,8 +583,8 @@ begin
   begin
     // Write sample unit for library modules
     SourceFilePath := AModulePath + DirectorySeparator + 'src' + DirectorySeparator +
-                   'main' + DirectorySeparator + 'pascal' + DirectorySeparator +
-                   StringReplace(AName, '-', '.', [rfReplaceAll]) + '.Utils.pas';
+      'main' + DirectorySeparator + 'pascal' + DirectorySeparator +
+      StringReplace(AName, '-', '.', [rfReplaceAll]) + '.Utils.pas';
     try
       AssignFile(F, SourceFilePath);
       Rewrite(F);
@@ -614,7 +603,7 @@ begin
 
   // Write TestRunner.pas
   TestRunnerPath := AModulePath + DirectorySeparator + 'src' + DirectorySeparator +
-                    'test' + DirectorySeparator + 'pascal' + DirectorySeparator + 'TestRunner.pas';
+    'test' + DirectorySeparator + 'pascal' + DirectorySeparator + 'TestRunner.pas';
   try
     AssignFile(F, TestRunnerPath);
     Rewrite(F);
@@ -824,7 +813,7 @@ begin
   begin
     MainPas := GenerateMainPas(AName);
     MainPasPath := 'src' + DirectorySeparator + 'main' + DirectorySeparator +
-                   'pascal' + DirectorySeparator + 'Main.pas';
+      'pascal' + DirectorySeparator + 'Main.pas';
     try
       AssignFile(F, MainPasPath);
       Rewrite(F);
@@ -859,7 +848,7 @@ begin
 
   // Write TestRunner.pas
   TestRunnerPath := 'src' + DirectorySeparator + 'test' + DirectorySeparator +
-                    'pascal' + DirectorySeparator + 'TestRunner.pas';
+    'pascal' + DirectorySeparator + 'TestRunner.pas';
   try
     AssignFile(F, TestRunnerPath);
     Rewrite(F);
