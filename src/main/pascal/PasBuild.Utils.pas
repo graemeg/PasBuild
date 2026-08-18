@@ -86,9 +86,15 @@ type
     class function CollectSourceFiles(const ABaseDir: string): TStringList;
     class function CollectIncludeFiles(const ABaseDir: string): TStringList;
     class procedure WriteListFile(const AFilePath: string; AList: TStringList);
+
+    { Build date utilities }
+    class function GetBuildDateTime(): TDateTime;
   end;
 
 implementation
+
+uses
+  DateUtils;
 
 { Forward declaration for recursive helper }
 procedure RecursiveScanDirs(const ADir: string; AList: TStringList); forward;
@@ -887,6 +893,17 @@ begin
     on E: Exception do
       LogWarning('Failed to write list file ' + AFilePath + ': ' + E.Message);
   end;
+end;
+
+class function TUtils.GetBuildDateTime(): TDateTime;
+var
+  SourceDateEpoch: string;
+begin
+  SourceDateEpoch := GetEnvironmentVariable('SOURCE_DATE_EPOCH');
+  if Length(SourceDateEpoch) > 0 then
+    Result := UnixToDateTime(StrToInt64(SourceDateEpoch))
+  else
+    Result := SysUtils.Now()
 end;
 
 end.
