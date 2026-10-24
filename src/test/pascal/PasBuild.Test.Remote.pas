@@ -55,6 +55,24 @@ type
     procedure TestEmptyUrlRejected;
   end;
 
+  { FPC 3.2.2's OpenSSL unit only probes for libssl 1.1 and older on
+    macOS, so PasBuild locates a Homebrew/MacPorts OpenSSL itself }
+  TTestDarwinOpenSSLDiscovery = class(TTestCase)
+  private
+    FTempDir: string;
+    procedure MakeLibs(const ADir, AVersion: string);
+  protected
+    procedure SetUp; override;
+    procedure TearDown; override;
+  published
+    procedure TestFindsOpenSSL3;
+    procedure TestPrefersOpenSSL3OverOpenSSL4;
+    procedure TestFindsOpenSSL4WhenOnlyVersion;
+    procedure TestRequiresBothLibraries;
+    procedure TestSearchDirOrderWins;
+    procedure TestNothingFound;
+  end;
+
 implementation
 
 uses
@@ -274,10 +292,120 @@ begin
   AssertTrue('Empty URL should be rejected', Raised);
 end;
 
+{ TTestDarwinOpenSSLDiscovery }
+
+procedure TTestDarwinOpenSSLDiscovery.SetUp;
+begin
+  FTempDir := IncludeTrailingPathDelimiter(GetTempDir) +
+    'pasbuild_openssl_' + IntToStr(Random(1000000));
+  ForceDirectories(FTempDir + '/a');
+  ForceDirectories(FTempDir + '/b');
+end;
+
+procedure TTestDarwinOpenSSLDiscovery.TearDown;
+var
+  SR: TSearchRec;
+  Sub: string;
+begin
+  for Sub in ['/a', '/b'] do
+  begin
+    if FindFirst(FTempDir + Sub + '/*', faAnyFile, SR) = 0 then
+    begin
+      repeat
+        if (SR.Name <> '.') and (SR.Name <> '..') then
+          DeleteFile(FTempDir + Sub + '/' + SR.Name);
+      until FindNext(SR) <> 0;
+      FindClose(SR);
+    end;
+    RemoveDir(FTempDir + Sub);
+  end;
+  RemoveDir(FTempDir);
+end;
+
+procedure TTestDarwinOpenSSLDiscovery.MakeLibs(const ADir, AVersion: string);
+var
+  F: TStringList;
+begin
+  F := TStringList.Create;
+  try
+    F.SaveToFile(ADir + '/libssl' + AVersion + '.dylib');
+    F.SaveToFile(ADir + '/libcrypto' + AVersion + '.dylib');
+  finally
+    F.Free;
+  end;
+end;
+
+procedure TTestDarwinOpenSSLDiscovery.TestFindsOpenSSL3;
+var
+  LibDir, Version: string;
+begin
+  MakeLibs(FTempDir + '/a', '.3');
+  AssertTrue('Found', FindDarwinOpenSSL([FTempDir + '/a'], LibDir, Version));
+  AssertEquals('Dir', FTempDir + '/a/', LibDir);
+  AssertEquals('Version', '.3', Version);
+end;
+
+procedure TTestDarwinOpenSSLDiscovery.TestPrefersOpenSSL3OverOpenSSL4;
+var
+  LibDir, Version: string;
+begin
+  MakeLibs(FTempDir + '/a', '.4');
+  MakeLibs(FTempDir + '/a', '.3');
+  AssertTrue('Found', FindDarwinOpenSSL([FTempDir + '/a'], LibDir, Version));
+  AssertEquals('Version', '.3', Version);
+end;
+
+procedure TTestDarwinOpenSSLDiscovery.TestFindsOpenSSL4WhenOnlyVersion;
+var
+  LibDir, Version: string;
+begin
+  MakeLibs(FTempDir + '/a', '.4');
+  AssertTrue('Found', FindDarwinOpenSSL([FTempDir + '/a'], LibDir, Version));
+  AssertEquals('Version', '.4', Version);
+end;
+
+procedure TTestDarwinOpenSSLDiscovery.TestRequiresBothLibraries;
+var
+  LibDir, Version: string;
+  F: TStringList;
+begin
+  F := TStringList.Create;
+  try
+    F.SaveToFile(FTempDir + '/a/libssl.3.dylib');
+  finally
+    F.Free;
+  end;
+  AssertFalse('libcrypto missing',
+    FindDarwinOpenSSL([FTempDir + '/a'], LibDir, Version));
+end;
+
+procedure TTestDarwinOpenSSLDiscovery.TestSearchDirOrderWins;
+var
+  LibDir, Version: string;
+begin
+  MakeLibs(FTempDir + '/a', '.4');
+  MakeLibs(FTempDir + '/b', '.3');
+  AssertTrue('Found', FindDarwinOpenSSL([FTempDir + '/a', FTempDir + '/b'],
+    LibDir, Version));
+  AssertEquals('Dir', FTempDir + '/a/', LibDir);
+  AssertEquals('Version', '.4', Version);
+end;
+
+procedure TTestDarwinOpenSSLDiscovery.TestNothingFound;
+var
+  LibDir, Version: string;
+begin
+  AssertFalse('Nothing installed',
+    FindDarwinOpenSSL([FTempDir + '/a', FTempDir + '/b'], LibDir, Version));
+  AssertEquals('Dir', '', LibDir);
+  AssertEquals('Version', '', Version);
+end;
+
 initialization
   RegisterTest(TTestRemoteClientCreate);
   RegisterTest(TTestRemoteExceptionTypes);
   RegisterTest(TTestRemoteChecksumValidation);
   RegisterTest(TTestUrlSchemeEnforcement);
+  RegisterTest(TTestDarwinOpenSSLDiscovery);
 
 end.

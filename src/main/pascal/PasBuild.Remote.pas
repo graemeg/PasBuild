@@ -63,11 +63,64 @@ type
   CA bundle is found, rather than breaking every HTTPS fetch. }
 procedure AttachTlsVerification(AClient: TFPHTTPClient);
 
+{ Search ASearchDirs in order for a matching libssl/libcrypto dylib pair,
+  preferring OpenSSL 3 over 4 within a directory. On success ALibDir is
+  the directory with a trailing slash and AVersion the dylib version
+  suffix (e.g. '.3'). FPC 3.2.2's OpenSSL unit only probes for 1.1 and
+  older on macOS, and Homebrew/MacPorts locations are not on the dyld
+  search path, so PasBuild has to point it at a modern install. }
+function FindDarwinOpenSSL(const ASearchDirs: array of string;
+  out ALibDir, AVersion: string): Boolean;
+
 implementation
 
 uses
-  sslsockets, opensslsockets,
+  sslsockets, opensslsockets, openssl,
   PasBuild.Utils;
+
+function FindDarwinOpenSSL(const ASearchDirs: array of string;
+  out ALibDir, AVersion: string): Boolean;
+const
+  Versions: array[0..1] of string = ('.3', '.4');
+var
+  Dir, Ver: string;
+begin
+  Result := False;
+  ALibDir := '';
+  AVersion := '';
+  for Dir in ASearchDirs do
+    for Ver in Versions do
+      if FileExists(IncludeTrailingPathDelimiter(Dir) + 'libssl' + Ver + '.dylib') and
+         FileExists(IncludeTrailingPathDelimiter(Dir) + 'libcrypto' + Ver + '.dylib') then
+      begin
+        ALibDir := IncludeTrailingPathDelimiter(Dir);
+        AVersion := Ver;
+        Exit(True);
+      end;
+end;
+
+{$IFDEF DARWIN}
+procedure ConfigureDarwinOpenSSL;
+const
+  SearchDirs: array[0..5] of string = (
+    '/opt/homebrew/opt/openssl@3/lib',  // Homebrew, Apple Silicon
+    '/usr/local/opt/openssl@3/lib',     // Homebrew, Intel
+    '/opt/homebrew/lib',
+    '/usr/local/lib',
+    '/opt/local/lib',                   // MacPorts
+    '/opt/homebrew/opt/openssl@4/lib'
+  );
+var
+  LibDir, Version: string;
+begin
+  if not FindDarwinOpenSSL(SearchDirs, LibDir, Version) then
+    Exit; // fall back to the RTL's own search (OpenSSL 1.1 and older)
+  DLLSSLName := LibDir + 'libssl';
+  DLLUtilName := LibDir + 'libcrypto';
+  // LoadLibraries replaces the first (unversioned) entry with the second
+  DLLVersions[2] := Version;
+end;
+{$ENDIF}
 
 type
   TTlsVerificationHelper = class
@@ -337,6 +390,11 @@ begin
       [LowerCase(AExpectedSHA256), LowerCase(Actual)]);
   end;
 end;
+
+initialization
+{$IFDEF DARWIN}
+  ConfigureDarwinOpenSSL;
+{$ENDIF}
 
 finalization
   GTlsHelper.Free;
