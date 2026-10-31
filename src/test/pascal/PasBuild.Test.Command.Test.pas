@@ -21,6 +21,9 @@ interface
 uses
   Classes, SysUtils, fpcunit, testregistry,
   PasBuild.Types,
+  PasBuild.Utils,
+  PasBuild.Compiler.FPC,
+  PasBuild.Compiler.Blaise,
   PasBuild.Command.Compile,
   PasBuild.Command.Test;
 
@@ -66,6 +69,23 @@ type
     procedure TestModuleDepPathsIncludedInTestCompileCommand;
     { Multiple ResolvedModulePaths must all appear as -Fu flags }
     procedure TestMultipleModuleDepPathsAllIncluded;
+  end;
+
+  { Blaise compiles every unit from source, and leaves a dependency's
+    target/units empty with --no-incremental, so the compile and
+    test-compile commands must also name the dependencies' source
+    directories.  FPC links the compiled units and must not get them. }
+  TTestModuleSourcePaths = class(TTestCase)
+  private
+    FConfig: TProjectConfig;
+    FProfileIds: TStringList;
+  protected
+    procedure SetUp; override;
+    procedure TearDown; override;
+  published
+    procedure TestBlaiseCompileIncludesDepSourcePaths;
+    procedure TestBlaiseTestCompileIncludesDepSourcePaths;
+    procedure TestFPCOmitsDepSourcePaths;
   end;
 
   { Verify that test-compile and test skip gracefully when no test directory
@@ -252,6 +272,83 @@ begin
   );
 end;
 
+{ TTestModuleSourcePaths }
+
+const
+  DepUnitsPath = '/dep/core/target/units';
+  DepSourcePath = '/dep/core/src/main/pascal';
+
+procedure TTestModuleSourcePaths.SetUp;
+begin
+  FConfig := TProjectConfig.Create;
+  FConfig.Name := 'test-module';
+  FConfig.Version := '1.0.0';
+  FConfig.BuildConfig.ResolvedModulePaths.Add(DepUnitsPath);
+  FConfig.BuildConfig.ResolvedModuleSourcePaths.Add(DepSourcePath);
+  FProfileIds := TStringList.Create;
+  TUtils.SetCompilerBackend(TBlaiseBackend.Create('blaise'));
+end;
+
+procedure TTestModuleSourcePaths.TearDown;
+begin
+  TUtils.SetCompilerBackend(TFPCBackend.Create('fpc'));
+  FProfileIds.Free;
+  FConfig.Free;
+end;
+
+procedure TTestModuleSourcePaths.TestBlaiseCompileIncludesDepSourcePaths;
+var
+  Cmd: TCompileCommandTestable;
+  CmdLine: string;
+begin
+  Cmd := TCompileCommandTestable.Create(FConfig, FProfileIds);
+  try
+    CmdLine := Cmd.ExposedBuildCommand('src/main/pascal/main.pas');
+  finally
+    Cmd.Free;
+  end;
+
+  AssertTrue('Dependency source directory must be a unit path: ' + CmdLine,
+    Pos('--unit-path ' + DepSourcePath, CmdLine) > 0);
+  AssertTrue('Cached dependency units must be searched before its sources',
+    Pos('--unit-path ' + DepUnitsPath, CmdLine) <
+    Pos('--unit-path ' + DepSourcePath, CmdLine));
+end;
+
+procedure TTestModuleSourcePaths.TestBlaiseTestCompileIncludesDepSourcePaths;
+var
+  Cmd: TTestCompileCommandTestable;
+  CmdLine: string;
+begin
+  Cmd := TTestCompileCommandTestable.Create(FConfig, FProfileIds);
+  try
+    CmdLine := Cmd.ExposedBuildCommand('src/test/pascal/TestRunner.pas');
+  finally
+    Cmd.Free;
+  end;
+
+  AssertTrue('Dependency source directory must be a unit path: ' + CmdLine,
+    Pos('--unit-path ' + DepSourcePath, CmdLine) > 0);
+end;
+
+procedure TTestModuleSourcePaths.TestFPCOmitsDepSourcePaths;
+var
+  Cmd: TCompileCommandTestable;
+  CmdLine: string;
+begin
+  TUtils.SetCompilerBackend(TFPCBackend.Create('fpc'));
+  Cmd := TCompileCommandTestable.Create(FConfig, FProfileIds);
+  try
+    CmdLine := Cmd.ExposedBuildCommand('src/main/pascal/main.pas');
+  finally
+    Cmd.Free;
+  end;
+
+  AssertTrue('FPC still gets the dependency units', Pos('-Fu' + DepUnitsPath, CmdLine) > 0);
+  AssertEquals('FPC must not get the dependency sources',
+    0, Pos(DepSourcePath, CmdLine));
+end;
+
 { TTestCompileCommandTestable }
 
 function TTestCompileCommandTestable.ExposedBuildCommand(const ATestSourcePath: string): string;
@@ -328,6 +425,7 @@ end;
 initialization
   RegisterTest(TTestCompileCommandUnitPaths);
   RegisterTest(TTestCompileCommandModulePaths);
+  RegisterTest(TTestModuleSourcePaths);
   RegisterTest(TTestCommandNoTestDir);
 
 end.

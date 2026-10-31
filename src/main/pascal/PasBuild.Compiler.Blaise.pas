@@ -33,6 +33,7 @@ type
     function DefineFlag(const ADefine: string): string; override;
     function ExtraOptionFlag(const AOption: string): string; override;
     function IncrementalFlag: string; override;
+    function CompilesDependenciesFromSource: Boolean; override;
   end;
 
 implementation
@@ -143,6 +144,14 @@ begin
     Result := '--no-incremental'
   else
     Result := '';
+end;
+
+function TBlaiseBackend.CompilesDependenciesFromSource: Boolean;
+begin
+  { Blaise compiles every unit from source.  A dependency's target/units only
+    holds cached *.o files, and none at all with --no-incremental, so the
+    dependency's sources must be reachable as well. }
+  Result := True;
 end;
 
 end.

@@ -37,6 +37,11 @@ type
     { Flag emitted when NoIncremental is set; '' when not applicable. }
     function IncrementalFlag: string; virtual;
 
+    { True when the compiler builds a module dependency's units from source
+      rather than linking its compiled target/units, so the dependency's
+      source directories must be on the unit path too.  Default False. }
+    function CompilesDependenciesFromSource: Boolean; virtual;
+
     { Display name reported in version output and log messages. }
     function Name: string; virtual; abstract;
 
@@ -87,6 +92,11 @@ begin
   { Default: the backend has no incremental concept, so --no-incremental is a
     no-op.  Blaise overrides this. }
   Result := '';
+end;
+
+function TCompilerBackend.CompilesDependenciesFromSource: Boolean;
+begin
+  Result := False;
 end;
 
 end.

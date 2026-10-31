@@ -85,6 +85,7 @@ type
     FManualUnitPaths: Boolean;
     FSourceDirectory: string;           // Source directory (default: src/main/pascal)
     FResolvedModulePaths: TStringList;  // Artifact paths from module dependencies
+    FResolvedModuleSourcePaths: TStringList;  // Source directories of module dependencies
     FBootstrapExclude: TStringList;     // Unit names excluded from bootstrap uses clause
   public
     constructor Create;
@@ -101,6 +102,8 @@ type
     property ManualUnitPaths: Boolean read FManualUnitPaths write FManualUnitPaths;
     property SourceDirectory: string read FSourceDirectory write FSourceDirectory;
     property ResolvedModulePaths: TStringList read FResolvedModulePaths;
+    { Used by backends that compile dependencies from source (Blaise) }
+    property ResolvedModuleSourcePaths: TStringList read FResolvedModuleSourcePaths;
     property BootstrapExclude: TStringList read FBootstrapExclude;
   end;
 
@@ -327,6 +330,8 @@ begin
 
   FResolvedModulePaths := TStringList.Create;
   FResolvedModulePaths.Duplicates := dupIgnore;
+  FResolvedModuleSourcePaths := TStringList.Create;
+  FResolvedModuleSourcePaths.Duplicates := dupIgnore;
 
   FBootstrapExclude := TStringList.Create;
   FBootstrapExclude.CaseSensitive := False;
@@ -347,6 +352,7 @@ begin
   FUnitPaths.Free;
   FIncludePaths.Free;
   FResolvedModulePaths.Free;
+  FResolvedModuleSourcePaths.Free;
   FBootstrapExclude.Free;
   inherited Destroy;
 end;
@@ -739,9 +745,10 @@ var
   I: Integer;
   DepName: string;
   DepModule: TModuleInfo;
-  UnitsPath: string;
+  UnitsPath, SourcePath: string;
 begin
-  { Iterate through module's dependencies and add their units directories (including transitive) }
+  { Iterate through module's dependencies and add their units and source
+    directories (including transitive) }
   for I := 0 to AModule.Dependencies.Count - 1 do
   begin
     DepName := AModule.Dependencies[I];
@@ -765,8 +772,13 @@ begin
       begin
         UnitsPath := DepModule.UnitsDirectory;
         { Add to the original module's resolved paths, not the current dependency's paths }
+        SourcePath := IncludeTrailingPathDelimiter(DepModule.Path) +
+          DepModule.Config.BuildConfig.SourceDirectory;
         if AOriginalModule.Config <> nil then
+        begin
           AOriginalModule.Config.BuildConfig.ResolvedModulePaths.Add(UnitsPath);
+          AOriginalModule.Config.BuildConfig.ResolvedModuleSourcePaths.Add(SourcePath);
+        end;
       end
       else if DepModule.Config.BuildConfig.ProjectType = ptPom then
         raise Exception.CreateFmt(

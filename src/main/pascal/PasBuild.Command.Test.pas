@@ -105,6 +105,14 @@ begin
     AppendFlag(Result, TUtils.GetCompilerBackend.UnitPathFlag(UnitPath));
   end;
 
+  // Module dependency sources, for backends that compile them from source
+  if TUtils.GetCompilerBackend.CompilesDependenciesFromSource then
+    for I := 0 to Config.BuildConfig.ResolvedModuleSourcePaths.Count - 1 do
+    begin
+      UnitPath := TUtils.NormalizePath(Config.BuildConfig.ResolvedModuleSourcePaths[I]);
+      AppendFlag(Result, TUtils.GetCompilerBackend.UnitPathFlag(UnitPath));
+    end;
+
   // Add main source directory so test code can reference compiler units directly
   AppendFlag(Result, TUtils.GetCompilerBackend.UnitPathFlag(
     TUtils.NormalizePath(Config.BuildConfig.SourceDirectory)));

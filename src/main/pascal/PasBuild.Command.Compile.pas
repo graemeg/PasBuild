@@ -167,6 +167,16 @@ begin
       AppendFlag(Result, Backend.UnitPathFlag(UnitPath));
     end;
 
+    // Add module dependency source directories for backends that compile
+    // dependencies from source.  They follow the units paths so any cached
+    // dependency units are found first.
+    if Backend.CompilesDependenciesFromSource then
+      for I := 0 to Config.BuildConfig.ResolvedModuleSourcePaths.Count - 1 do
+      begin
+        UnitPath := TUtils.NormalizePath(Config.BuildConfig.ResolvedModuleSourcePaths[I]);
+        AppendFlag(Result, Backend.UnitPathFlag(UnitPath));
+      end;
+
     // Add include search paths
     // Always add output directory first (for filtered resource includes like version.inc)
     AppendFlag(Result, Backend.IncludePathFlag(OutputDir));

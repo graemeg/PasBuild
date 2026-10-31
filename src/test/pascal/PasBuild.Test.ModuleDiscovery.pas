@@ -73,6 +73,7 @@ type
     procedure TestResolveArtifactsPomReference;
     procedure TestResolveArtifactsLibraryModules;
     procedure TestResolveArtifactsApplicationModules;
+    procedure TestResolveArtifactsRecordsSourceDirectories;
   end;
 
   { Tests for reactor build orchestration }
@@ -884,6 +885,59 @@ begin
   finally
     Registry.Free;
     Config.Free;
+  end;
+end;
+
+procedure TTestArtifactResolution.TestResolveArtifactsRecordsSourceDirectories;
+var
+  Registry: TModuleRegistry;
+  ModuleApp, ModuleMid, ModuleCore: TModuleInfo;
+  SourcePaths: TStringList;
+begin
+  { App -> MiddleLib -> CoreLib: a compiler that builds dependencies from
+    source (Blaise) needs every transitive dependency's source directory }
+  Registry := TModuleRegistry.Create;
+  ModuleApp := TModuleInfo.Create;
+  ModuleMid := TModuleInfo.Create;
+  ModuleCore := TModuleInfo.Create;
+  try
+    ModuleCore.Name := 'CoreLib';
+    ModuleCore.Path := '/path/to/core';
+    ModuleCore.UnitsDirectory := '/path/to/core/target/units';
+    ModuleCore.Config := TProjectConfig.Create;
+    ModuleCore.Config.BuildConfig.ProjectType := ptLibrary;
+
+    ModuleMid.Name := 'MiddleLib';
+    ModuleMid.Path := '/path/to/mid';
+    ModuleMid.UnitsDirectory := '/path/to/mid/target/units';
+    ModuleMid.Config := TProjectConfig.Create;
+    ModuleMid.Config.BuildConfig.ProjectType := ptLibrary;
+    ModuleMid.Config.BuildConfig.SourceDirectory := 'src';
+    ModuleMid.Dependencies.Add('CoreLib');
+
+    ModuleApp.Name := 'App';
+    ModuleApp.Path := '/path/to/app';
+    ModuleApp.UnitsDirectory := '/path/to/app/target/units';
+    ModuleApp.Config := TProjectConfig.Create;
+    ModuleApp.Dependencies.Add('MiddleLib');
+
+    Registry.RegisterModule(ModuleApp);
+    Registry.RegisterModule(ModuleMid);
+    Registry.RegisterModule(ModuleCore);
+
+    Registry.ResolveArtifacts(ModuleApp);
+
+    SourcePaths := ModuleApp.Config.BuildConfig.ResolvedModuleSourcePaths;
+    AssertEquals('Both dependencies should contribute a source directory',
+      2, SourcePaths.Count);
+    AssertTrue('Direct dependency honours its own sourceDirectory',
+      SourcePaths.IndexOf('/path/to/mid' + PathDelim + 'src') >= 0);
+    AssertTrue('Transitive dependency source directory is included',
+      SourcePaths.IndexOf('/path/to/core' + PathDelim + 'src/main/pascal') >= 0);
+    AssertEquals('Units directories are still resolved',
+      2, ModuleApp.Config.BuildConfig.ResolvedModulePaths.Count);
+  finally
+    Registry.Free;
   end;
 end;
 
