@@ -66,6 +66,15 @@ type
     class function ExecuteProcessInDirWithCapture(const AExecutable: string;
       const AArgs: array of string; const AWorkDir: string;
       out AOutput: string; AExtraEnv: TStringList = nil): Integer;
+    { Wait for AProcess to finish and return its exit code.  TProcess.ExitCode
+      is unreliable on Unix: it reports 0 for a child killed by a signal (a
+      crashing compiler), and 0 for any exit code once WaitOnExit has run
+      (WEXITSTATUS is applied twice).  This reaps the child through Running,
+      decodes the raw waitpid status itself and maps signal termination to
+      128+signal, the shell convention. }
+    class function ProcessExitCode(AProcess: TProcess): Integer;
+    { The last ACount non-blank lines of AText; caller frees the list. }
+    class function TailLines(const AText: string; ACount: Integer): TStringList;
     { Absolute path of the running pasbuild binary (safe against relative
       argv[0] and a later working-directory change). }
     class function GetSelfExePath: string;
@@ -346,14 +355,10 @@ begin
           else
             Sleep(10);
         end;
-      end
-      else
-      begin
-        // Just wait for completion
-        AProcess.WaitOnExit;
       end;
 
-      Result := AProcess.ExitCode;
+      // ProcessExitCode also waits when output was not shown
+      Result := ProcessExitCode(AProcess);
     except
       on E: Exception do
       begin
@@ -392,11 +397,8 @@ begin
       AProcess.Execute;
 
       // Drain output while the process is running. LoadFromStream and
-      // poWaitOnExit must NOT be used together with ExitCode: FPC applies
-      // WEXITSTATUS when WaitOnExit is called explicitly, leaving ExitCode's
-      // second WEXITSTATUS pass returning 0. The while-Running drain causes
-      // TProcess to store the raw waitpid status internally, so ExitCode's
-      // single WEXITSTATUS pass yields the correct value.
+      // poWaitOnExit must NOT be used: the while-Running drain makes TProcess
+      // keep the raw waitpid status, which ProcessExitCode decodes.
       OutputStr := '';
       while AProcess.Running or (AProcess.Output.NumBytesAvailable > 0) do
       begin
@@ -412,9 +414,8 @@ begin
         else
           Sleep(10);
       end;
-      AProcess.WaitOnExit;
       AOutput := OutputStr;
-      Result := AProcess.ExitCode;
+      Result := ProcessExitCode(AProcess);
     except
       on E: Exception do
       begin
@@ -486,8 +487,8 @@ begin
     try
       AProcess.Execute;
 
-      // Drain output while the process is running (see the WEXITSTATUS
-      // note in ExecuteProcessWithCapture for why poWaitOnExit is avoided)
+      // Drain output while the process is running (see ProcessExitCode for
+      // why poWaitOnExit is avoided)
       OutputStr := '';
       while AProcess.Running or (AProcess.Output.NumBytesAvailable > 0) do
       begin
@@ -503,9 +504,8 @@ begin
         else
           Sleep(10);
       end;
-      AProcess.WaitOnExit;
       AOutput := OutputStr;
-      Result := AProcess.ExitCode;
+      Result := ProcessExitCode(AProcess);
     except
       on E: Exception do
       begin
@@ -631,6 +631,49 @@ begin
     Result := AStack + ',' + AEntry;
 end;
 
+class function TUtils.ProcessExitCode(AProcess: TProcess): Integer;
+{$IFDEF UNIX}
+var
+  Status: cint;
+{$ENDIF}
+begin
+  {$IFDEF UNIX}
+  while AProcess.Running do
+    Sleep(10);
+  Status := AProcess.ExitStatus;
+  if wifexited(Status) then
+    Result := wexitstatus(Status)
+  else if wifsignaled(Status) then
+    Result := 128 + wtermsig(Status)
+  else
+    Result := 1;
+  {$ELSE}
+  AProcess.WaitOnExit;
+  Result := AProcess.ExitCode;
+  {$ENDIF}
+end;
+
+class function TUtils.TailLines(const AText: string; ACount: Integer): TStringList;
+var
+  AllLines: TStringList;
+  I: Integer;
+begin
+  Result := TStringList.Create;
+  AllLines := TStringList.Create;
+  try
+    AllLines.Text := AText;
+    I := AllLines.Count - 1;
+    while (I >= 0) and (Result.Count < ACount) do
+    begin
+      if Trim(AllLines[I]) <> '' then
+        Result.Insert(0, TrimRight(AllLines[I]));
+      Dec(I);
+    end;
+  finally
+    AllLines.Free;
+  end;
+end;
+
 class function TUtils.ExecuteProcessWithLog(const ACommand: string; const ALogFile: string; AShowErrors: Boolean): Integer;
 var
   AProcess: TProcess;
@@ -639,7 +682,12 @@ var
   LogStream: TFileStream;
   Line: string;
   OutputLine: string;
+  FullOutput: string;
   Header: string;
+  ErrorsShown: Boolean;
+  TailList: TStringList;
+const
+  FailureTailLines = 20;
 begin
   LogStream := TFileStream.Create(ALogFile, fmCreate);
   AProcess := TProcess.Create(nil);
@@ -664,6 +712,8 @@ begin
 
       // Read output and write to log file
       OutputLine := '';
+      FullOutput := '';
+      ErrorsShown := False;
       while AProcess.Running or (AProcess.Output.NumBytesAvailable > 0) do
       begin
         if AProcess.Output.NumBytesAvailable > 0 then
@@ -679,6 +729,7 @@ begin
 
             // Accumulate output for error detection
             OutputLine := OutputLine + Line;
+            FullOutput := FullOutput + Line;
 
             // Show errors on console if requested
             if AShowErrors and (Pos('Error:', OutputLine) > 0) then
@@ -690,7 +741,10 @@ begin
                 Delete(OutputLine, 1, Pos(LineEnding, OutputLine) + Length(LineEnding) - 1);
 
                 if (Pos('Error:', Line) > 0) or (Pos('Fatal:', Line) > 0) then
+                begin
                   LogError(Line);
+                  ErrorsShown := True;
+                end;
               end;
             end;
           end;
@@ -699,7 +753,25 @@ begin
           Sleep(10);
       end;
 
-      Result := AProcess.ExitCode;
+      Result := ProcessExitCode(AProcess);
+
+      // The failure produced no line the filter above recognises (Blaise
+      // diagnostics have no 'Error:' prefix), so show the end of the output
+      // rather than leaving only an exit code on the console
+      if AShowErrors and (Result <> 0) and not ErrorsShown then
+      begin
+        TailList := TailLines(FullOutput, FailureTailLines);
+        try
+          if TailList.Count > 0 then
+          begin
+            LogError('Compiler output (last ' + IntToStr(TailList.Count) + ' lines):');
+            for Line in TailList do
+              LogError('  ' + Line);
+          end;
+        finally
+          TailList.Free;
+        end;
+      end;
     except
       on E: Exception do
       begin

@@ -125,6 +125,28 @@ type
     procedure TestReturnsExitCode;
   end;
 
+  { TailLines feeds the compiler output shown when a build fails without
+    any recognised error line (e.g. Blaise diagnostics) }
+  TTestTailLines = class(TTestCase)
+  published
+    procedure TestFewerLinesThanCount;
+    procedure TestKeepsOnlyLastLines;
+    procedure TestSkipsBlankLines;
+    procedure TestHandlesCRLF;
+    procedure TestEmptyText;
+  end;
+
+  { A child killed by a signal (e.g. a crashing compiler) must never be
+    reported as exit code 0 - FPC's TProcess.ExitCode does exactly that }
+  TTestProcessSignalExit = class(TTestCase)
+  published
+    procedure TestExecuteProcessReportsSignal;
+    procedure TestExecuteProcessWithLogReportsSignal;
+    procedure TestExecuteProcessWithCaptureReportsSignal;
+    procedure TestExecuteProcessInDirWithCaptureReportsSignal;
+    procedure TestNormalExitCodeUnchanged;
+  end;
+
   { Version comparison must be numeric per component - lexicographic
     string comparison wrongly rejects 3.10.0 against a 3.2.2 minimum }
   TTestCompareVersions = class(TTestCase)
@@ -675,6 +697,152 @@ begin
   AssertFalse('semicolon', TUtils.IsValidPackageVersion('1.0;rm'));
 end;
 
+{ TTestTailLines }
+
+procedure TTestTailLines.TestFewerLinesThanCount;
+var
+  Lines: TStringList;
+begin
+  Lines := TUtils.TailLines('one' + LineEnding + 'two' + LineEnding, 5);
+  try
+    AssertEquals('Line count', 2, Lines.Count);
+    AssertEquals('First line', 'one', Lines[0]);
+    AssertEquals('Second line', 'two', Lines[1]);
+  finally
+    Lines.Free;
+  end;
+end;
+
+procedure TTestTailLines.TestKeepsOnlyLastLines;
+var
+  Lines: TStringList;
+begin
+  Lines := TUtils.TailLines('a' + LineEnding + 'b' + LineEnding + 'c' +
+    LineEnding + 'd', 2);
+  try
+    AssertEquals('Line count', 2, Lines.Count);
+    AssertEquals('First kept line', 'c', Lines[0]);
+    AssertEquals('Last line without trailing newline', 'd', Lines[1]);
+  finally
+    Lines.Free;
+  end;
+end;
+
+procedure TTestTailLines.TestSkipsBlankLines;
+var
+  Lines: TStringList;
+begin
+  Lines := TUtils.TailLines('a' + LineEnding + '   ' + LineEnding + 'b' +
+    LineEnding + LineEnding + LineEnding, 2);
+  try
+    AssertEquals('Line count', 2, Lines.Count);
+    AssertEquals('First line', 'a', Lines[0]);
+    AssertEquals('Second line', 'b', Lines[1]);
+  finally
+    Lines.Free;
+  end;
+end;
+
+procedure TTestTailLines.TestHandlesCRLF;
+var
+  Lines: TStringList;
+begin
+  Lines := TUtils.TailLines('a'#13#10'b'#13#10, 5);
+  try
+    AssertEquals('Line count', 2, Lines.Count);
+    AssertEquals('No stray carriage return', 'a', Lines[0]);
+  finally
+    Lines.Free;
+  end;
+end;
+
+procedure TTestTailLines.TestEmptyText;
+var
+  Lines: TStringList;
+begin
+  Lines := TUtils.TailLines('', 5);
+  try
+    AssertEquals('No lines', 0, Lines.Count);
+  finally
+    Lines.Free;
+  end;
+end;
+
+{ TTestProcessSignalExit }
+
+{$IFDEF UNIX}
+const
+  { The shell sends itself SIGSEGV, as a crashing compiler would receive }
+  CrashCommand = 'kill -SEGV $$';
+
+procedure TTestProcessSignalExit.TestExecuteProcessReportsSignal;
+begin
+  AssertEquals('Signal termination should map to 128+SIGSEGV', 128 + 11,
+    TUtils.ExecuteProcess(CrashCommand, False));
+end;
+
+procedure TTestProcessSignalExit.TestExecuteProcessWithLogReportsSignal;
+var
+  LogFile: string;
+begin
+  LogFile := GetTempFileName(GetTempDir, 'pbsig');
+  try
+    AssertEquals('Signal termination should map to 128+SIGSEGV', 128 + 11,
+      TUtils.ExecuteProcessWithLog(CrashCommand, LogFile, False));
+  finally
+    DeleteFile(LogFile);
+  end;
+end;
+
+procedure TTestProcessSignalExit.TestExecuteProcessWithCaptureReportsSignal;
+var
+  Output: string;
+begin
+  AssertEquals('Signal termination should map to 128+SIGSEGV', 128 + 11,
+    TUtils.ExecuteProcessWithCapture(CrashCommand, Output));
+end;
+
+procedure TTestProcessSignalExit.TestExecuteProcessInDirWithCaptureReportsSignal;
+var
+  Output: string;
+begin
+  AssertEquals('Signal termination should map to 128+SIGSEGV', 128 + 11,
+    TUtils.ExecuteProcessInDirWithCapture('/bin/sh', ['-c', CrashCommand],
+      GetTempDir, Output));
+end;
+
+procedure TTestProcessSignalExit.TestNormalExitCodeUnchanged;
+begin
+  AssertEquals('Normal exit code', 3, TUtils.ExecuteProcess('exit 3', False));
+  AssertEquals('Success', 0, TUtils.ExecuteProcess('true', False));
+end;
+{$ELSE}
+procedure TTestProcessSignalExit.TestExecuteProcessReportsSignal;
+begin
+  Ignore('Unix-only test');
+end;
+
+procedure TTestProcessSignalExit.TestExecuteProcessWithLogReportsSignal;
+begin
+  Ignore('Unix-only test');
+end;
+
+procedure TTestProcessSignalExit.TestExecuteProcessWithCaptureReportsSignal;
+begin
+  Ignore('Unix-only test');
+end;
+
+procedure TTestProcessSignalExit.TestExecuteProcessInDirWithCaptureReportsSignal;
+begin
+  Ignore('Unix-only test');
+end;
+
+procedure TTestProcessSignalExit.TestNormalExitCodeUnchanged;
+begin
+  Ignore('Unix-only test');
+end;
+{$ENDIF}
+
 { TTestExecuteInDir }
 
 procedure TTestExecuteInDir.TestGetSelfExePathIsAbsoluteAndExists;
@@ -804,6 +972,8 @@ initialization
   RegisterTest(TTestCLIOfflineFlag);
   RegisterTest(TTestPackageIdentifierValidation);
   RegisterTest(TTestExecuteInDir);
+  RegisterTest(TTestProcessSignalExit);
+  RegisterTest(TTestTailLines);
   RegisterTest(TTestCompareVersions);
   RegisterTest(TTestResolveStack);
 

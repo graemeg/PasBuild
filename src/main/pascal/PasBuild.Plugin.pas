@@ -361,8 +361,7 @@ begin
           System.Write(Copy(Buffer, 1, BytesRead));
       until BytesRead = 0;
 
-      AProcess.WaitOnExit;
-      Result := AProcess.ExitCode;
+      Result := TUtils.ProcessExitCode(AProcess);
     except
       on E: Exception do
       begin
