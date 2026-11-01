@@ -24,6 +24,7 @@ type
   { SourcePackage command - creates source archive }
   TSourcePackageCommand = class(TBuildCommand)
   private
+    FModuleRegistry: TModuleRegistry; // borrowed; nil for standalone projects
     function GetArchiveFileName: string;
     function FindFileWithVariants(const ABaseName: string): string;
     function IsPathSafe(const APath: string): Boolean;
@@ -33,9 +34,15 @@ type
     function GetName: string; override;
   public
     function Execute: Integer; override;
+    { When set, the project is a module of this registry and the archived
+      project.xml is flattened so the archive builds on its own }
+    property ModuleRegistry: TModuleRegistry read FModuleRegistry write FModuleRegistry;
   end;
 
 implementation
+
+uses
+  PasBuild.ProjectFlattener;
 
 { TSourcePackageCommand }
 
@@ -156,6 +163,8 @@ var
   LicenseFile, ReadmeFile, BootstrapFile, InstallFile: string;
   IncludeDir: string;
   ArchivePrefix: string;
+  ProjectXml: TStringList;
+  FlatPath: string;
 begin
   Result := 0;
 
@@ -180,8 +189,32 @@ begin
     // 2. project.xml
     if FileExists('project.xml') then
     begin
-      TUtils.LogInfo('Adding to archive: project.xml');
-      Zip.Entries.AddFileEntry('project.xml', ArchivePrefix + 'project.xml');
+      if Assigned(FModuleRegistry) then
+      begin
+        TUtils.LogInfo('Adding to archive: project.xml (flattened for standalone build)');
+        // Written to disk (not a stream entry) so the archive entry carries
+        // normal file permissions; stream entries extract as mode 000
+        FlatPath := TUtils.NormalizePath(Config.BuildConfig.OutputDirectory) +
+          DirectorySeparator + 'flattened-project.xml';
+        ProjectXml := TStringList.Create;
+        try
+          ProjectXml.LoadFromFile('project.xml');
+          ProjectXml.Text := TProjectFlattener.FlattenProjectXml(
+            ProjectXml.Text, Config, FModuleRegistry);
+          ProjectXml.SaveToFile(FlatPath);
+        finally
+          ProjectXml.Free;
+        end;
+        // Zip entries record mtimes: keep the source's timestamp so that
+        // unchanged sources produce a byte-identical archive
+        FileSetDate(FlatPath, FileAge('project.xml'));
+        Zip.Entries.AddFileEntry(FlatPath, ArchivePrefix + 'project.xml');
+      end
+      else
+      begin
+        TUtils.LogInfo('Adding to archive: project.xml');
+        Zip.Entries.AddFileEntry('project.xml', ArchivePrefix + 'project.xml');
+      end;
     end
     else
       TUtils.LogWarning('project.xml not found');

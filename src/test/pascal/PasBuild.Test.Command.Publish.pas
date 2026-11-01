@@ -95,7 +95,7 @@ type
     procedure TestChangesToModuleDirectory;
     procedure TestVersionManifestIncludesModuleDependencies;
     procedure TestVersionManifestModuleDependencyMissingRaises;
-    procedure TestVersionManifestNonLibraryModuleDependencyRaises;
+    procedure TestVersionManifestOmitsNonLibraryModuleDependency;
   end;
 
 implementation
@@ -838,26 +838,26 @@ begin
   AssertTrue('Unresolvable module dependency should raise', Raised);
 end;
 
-procedure TTestPublishForModule.TestVersionManifestNonLibraryModuleDependencyRaises;
+procedure TTestPublishForModule.TestVersionManifestOmitsNonLibraryModuleDependency;
 var
   LibModule: TModuleInfo;
-  Raised: Boolean;
+  Manifest: string;
 begin
-  // An application sibling can never be resolved from a registry, so a
-  // manifest referencing it would be unresolvable for consumers
+  // A dependency on an application sibling (e.g. a code-generation tool)
+  // only orders the reactor build; consumers of the package never need it
   AddModule('some-app', 'some-app', '3.1.0', ptApplication);
+  AddModule('lib-core', 'core-pkg', '3.1.0', ptLibrary);
   LibModule := AddModule('lib-gui', 'gui-pkg', '3.1.0', ptLibrary);
   LibModule.Config.ModuleDependencies.Add('some-app');
+  LibModule.Config.ModuleDependencies.Add('lib-core');
 
-  Raised := False;
-  try
-    TPublishCommand.GenerateVersionManifest(LibModule.Config,
-      'https://example.org/gui.zip', 'abc123', 100, FRegistry);
-  except
-    on E: Exception do
-      Raised := True;
-  end;
-  AssertTrue('Non-library module dependency should raise', Raised);
+  Manifest := TPublishCommand.GenerateVersionManifest(LibModule.Config,
+    'https://example.org/gui.zip', 'abc123', 100, FRegistry);
+
+  AssertTrue('Application sibling must not appear in the manifest',
+    Pos('<name>some-app</name>', Manifest) = 0);
+  AssertTrue('Library sibling is still declared',
+    Pos('<name>core-pkg</name>', Manifest) > 0);
 end;
 
 initialization

@@ -79,6 +79,7 @@ uses
   PasBuild.Remote,
   PasBuild.Remote.Registry,
   PasBuild.Remote.Forge,
+  PasBuild.ProjectFlattener,
   PasBuild.Command.SourcePackage;
 
 { TPublishCommand }
@@ -143,6 +144,7 @@ end;
 function TPublishCommand.GetDependencies: TBuildCommandList;
 var
   Errors: TStringList;
+  SourcePackage: TSourcePackageCommand;
 begin
   Result := TBuildCommandList.Create(False);
   try
@@ -151,7 +153,12 @@ begin
     Errors := ValidateForPublish(Config);
     try
       if Errors.Count = 0 then
-        Result.Add(TSourcePackageCommand.Create(Config, ProfileIds));
+      begin
+        SourcePackage := TSourcePackageCommand.Create(Config, ProfileIds);
+        // A module's archive must build without its aggregator
+        SourcePackage.ModuleRegistry := FModuleRegistry;
+        Result.Add(SourcePackage);
+      end;
     finally
       Errors.Free;
     end;
@@ -202,7 +209,6 @@ class function TPublishCommand.GenerateVersionManifest(
 var
   Lines: TStringList;
   DepNames, DepVersions: TStringList;
-  Module: TModuleInfo;
   I: Integer;
   Timestamp: string;
 begin
@@ -221,29 +227,12 @@ begin
       DepVersions.Add(AConfig.Dependencies[I].Version);
     end;
 
-    for I := 0 to AConfig.ModuleDependencies.Count - 1 do
-    begin
-      if not Assigned(ARegistry) then
-        raise EPublishError.CreateFmt(
-          'Cannot publish "%s": it declares module dependency "%s" but no ' +
-          'module registry is available to resolve it.',
-          [AConfig.Name, AConfig.ModuleDependencies[I]]);
-
-      Module := ARegistry.FindModuleByName(AConfig.ModuleDependencies[I]);
-      if not Assigned(Module) then
-        raise EPublishError.CreateFmt(
-          'Cannot publish "%s": module dependency "%s" was not found in ' +
-          'this project.',
-          [AConfig.Name, AConfig.ModuleDependencies[I]]);
-
-      if Module.Config.BuildConfig.ProjectType <> ptLibrary then
-        raise EPublishError.CreateFmt(
-          'Cannot publish "%s": module dependency "%s" is not a library ' +
-          'module, so consumers could never resolve it from a registry.',
-          [AConfig.Name, AConfig.ModuleDependencies[I]]);
-
-      DepNames.Add(Module.Config.Name);
-      DepVersions.Add(Module.Config.Version);
+    try
+      TProjectFlattener.ResolveModuleDependencies(AConfig, ARegistry,
+        DepNames, DepVersions);
+    except
+      on E: EModuleDependencyError do
+        raise EPublishError.Create('Cannot publish ' + E.Message);
     end;
 
     Lines := TStringList.Create;

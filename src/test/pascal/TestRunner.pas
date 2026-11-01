@@ -41,7 +41,8 @@ uses
   PasBuild.Test.Remote,
   PasBuild.Test.Remote.Builder,
   PasBuild.Test.Command.Publish,
-  PasBuild.Test.Forge;
+  PasBuild.Test.Forge,
+  PasBuild.Test.ProjectFlattener;
 
 var
   Application: TTestRunner;
