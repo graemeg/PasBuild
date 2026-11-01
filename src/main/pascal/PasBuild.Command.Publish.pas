@@ -63,6 +63,9 @@ type
       registry has no package.xml for this package yet) }
     class function IsVersionPublished(AExistingVersions: TStrings;
       const AVersion: string): Boolean;
+    { True for development versions ending in -SNAPSHOT, which must never
+      enter a registry: registry versions are immutable }
+    class function IsSnapshotVersion(const AVersion: string): Boolean;
     { Parse the <versions> list out of an existing registry package.xml.
       Returns an empty list (never raises) for invalid or non-XML input. }
     class function ExtractVersionsFromPackageXml(const AXml: string): TStringList;
@@ -198,6 +201,15 @@ begin
 
   if AConfig.License = '' then
     Result.Add('Project license is required for publishing.');
+end;
+
+class function TPublishCommand.IsSnapshotVersion(const AVersion: string): Boolean;
+const
+  SUFFIX = '-SNAPSHOT';
+begin
+  Result := (Length(AVersion) > Length(SUFFIX)) and
+    SameText(Copy(AVersion, Length(AVersion) - Length(SUFFIX) + 1,
+      Length(SUFFIX)), SUFFIX);
 end;
 
 class function TPublishCommand.IsVersionPublished(
@@ -364,6 +376,9 @@ begin
 
     Lines.Add('  <author>' + TUtils.XmlEscapeText(AConfig.Author) + '</author>');
     Lines.Add('  <license>' + TUtils.XmlEscapeText(AConfig.License) + '</license>');
+
+    if AConfig.RepoUrl <> '' then
+      Lines.Add('  <repoUrl>' + TUtils.XmlEscapeText(AConfig.RepoUrl) + '</repoUrl>');
 
     if AConfig.Keywords.Count > 0 then
     begin
@@ -628,6 +643,21 @@ begin
     end;
   finally
     Errors.Free;
+  end;
+
+  if IsSnapshotVersion(Config.Version) then
+  begin
+    if FDryRun then
+      TUtils.LogWarning(Config.Version + ' is a development (SNAPSHOT) ' +
+        'version; a real publish would be refused.')
+    else
+    begin
+      TUtils.LogError('Cannot publish development version ' +
+        Config.Version + '. Registry versions are immutable; publish a ' +
+        'release version instead.');
+      Result := 1;
+      Exit;
+    end;
   end;
 
   ArchivePath := GetSourceArchivePath;

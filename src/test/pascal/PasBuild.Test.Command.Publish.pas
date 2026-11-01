@@ -34,6 +34,8 @@ type
     procedure TestListedVersionIsPublished;
     procedure TestUnlistedVersionIsNotPublished;
     procedure TestNilListMeansNotPublished;
+    procedure TestSnapshotVersionDetected;
+    procedure TestReleaseVersionsAreNotSnapshots;
   end;
 
   TTestPublishCLIFlags = class(TTestCase)
@@ -82,6 +84,8 @@ type
     procedure TestExtractVersionsFromInvalidXml;
     procedure TestPackageManifestMergesExistingVersions;
     procedure TestPackageManifestDeduplicatesCurrentVersion;
+    procedure TestPackageManifestIncludesRepoUrl;
+    procedure TestPackageManifestOmitsEmptyRepoUrl;
   end;
 
   { Publishing a module out of a multi-module aggregator must operate in
@@ -138,6 +142,19 @@ begin
   finally
     Versions.Free;
   end;
+end;
+
+procedure TTestPublishVersionImmutability.TestSnapshotVersionDetected;
+begin
+  AssertTrue(TPublishCommand.IsSnapshotVersion('2.2.0-SNAPSHOT'));
+  AssertTrue('Case-insensitive', TPublishCommand.IsSnapshotVersion('1.0.0-snapshot'));
+end;
+
+procedure TTestPublishVersionImmutability.TestReleaseVersionsAreNotSnapshots;
+begin
+  AssertFalse(TPublishCommand.IsSnapshotVersion('2.1.1'));
+  AssertFalse(TPublishCommand.IsSnapshotVersion('1.0.0-rc.1'));
+  AssertFalse('Only as the suffix', TPublishCommand.IsSnapshotVersion('1.0.0-SNAPSHOT.1'));
 end;
 
 procedure TTestPublishVersionImmutability.TestNilListMeansNotPublished;
@@ -598,6 +615,35 @@ begin
   Result.Name := 'utc-lib';
   Result.Version := '1.0.0';
   Result.BuildConfig.ProjectType := ptLibrary;
+end;
+
+procedure TTestPublishManifestCorrectness.TestPackageManifestIncludesRepoUrl;
+var
+  Config: TProjectConfig;
+  Manifest: string;
+begin
+  Config := CreateLibConfig;
+  try
+    Config.RepoUrl := 'https://github.com/graemeg/fpGUI';
+    Manifest := TPublishCommand.GeneratePackageManifest(Config);
+    AssertTrue('package.xml carries the repository URL',
+      Pos('<repoUrl>https://github.com/graemeg/fpGUI</repoUrl>', Manifest) > 0);
+  finally
+    Config.Free;
+  end;
+end;
+
+procedure TTestPublishManifestCorrectness.TestPackageManifestOmitsEmptyRepoUrl;
+var
+  Config: TProjectConfig;
+begin
+  Config := CreateLibConfig;
+  try
+    AssertEquals('No empty element', 0,
+      Pos('<repoUrl>', TPublishCommand.GeneratePackageManifest(Config)));
+  finally
+    Config.Free;
+  end;
 end;
 
 procedure TTestPublishManifestCorrectness.TestPublishedAtIsUtc;

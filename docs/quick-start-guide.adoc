@@ -1665,8 +1665,8 @@ cannot be reached from your machine, pass the checksum with `--sha256 <hex>`.
   Codeberg/Gitea and SourceHut is not yet implemented.
 
 **Re-publishing:** registry versions are immutable. If the version is already listed
-in the registry, `publish` refuses (a dry-run only warns); release a new version
-instead. If a pull request for the same version is still open, `publish` prints its
+in the registry, or is a development version ending in `-SNAPSHOT`, `publish` refuses
+(a dry-run only warns); release a new version instead. If a pull request for the same version is still open, `publish` prints its
 URL and stops without pushing further commits.
 
 **Multi-module projects:** use `-m <module>` to publish one library module.
