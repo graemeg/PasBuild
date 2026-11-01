@@ -27,6 +27,15 @@ type
     procedure TestGoalFromStringPublish;
   end;
 
+  { Registry versions are immutable: a version listed in the registry's
+    package.xml must not be submitted again }
+  TTestPublishVersionImmutability = class(TTestCase)
+  published
+    procedure TestListedVersionIsPublished;
+    procedure TestUnlistedVersionIsNotPublished;
+    procedure TestNilListMeansNotPublished;
+  end;
+
   TTestPublishCLIFlags = class(TTestCase)
   published
     procedure TestArchiveUrlFieldExists;
@@ -99,6 +108,42 @@ type
   end;
 
 implementation
+
+{ TTestPublishVersionImmutability }
+
+procedure TTestPublishVersionImmutability.TestListedVersionIsPublished;
+var
+  Versions: TStringList;
+begin
+  Versions := TStringList.Create;
+  try
+    Versions.Add('2.1.0');
+    Versions.Add('2.1.1');
+    AssertTrue(TPublishCommand.IsVersionPublished(Versions, '2.1.1'));
+  finally
+    Versions.Free;
+  end;
+end;
+
+procedure TTestPublishVersionImmutability.TestUnlistedVersionIsNotPublished;
+var
+  Versions: TStringList;
+begin
+  Versions := TStringList.Create;
+  try
+    Versions.Add('2.1.1');
+    AssertFalse(TPublishCommand.IsVersionPublished(Versions, '2.1.2'));
+    AssertFalse('Prefix is not a match',
+      TPublishCommand.IsVersionPublished(Versions, '2.1'));
+  finally
+    Versions.Free;
+  end;
+end;
+
+procedure TTestPublishVersionImmutability.TestNilListMeansNotPublished;
+begin
+  AssertFalse(TPublishCommand.IsVersionPublished(nil, '1.0.0'));
+end;
 
 { Returns the physical (symlink-resolved) form of ADir, as reported by the
   OS after changing into it. On macOS /tmp and /var are symlinks into
@@ -862,6 +907,7 @@ end;
 
 initialization
   RegisterTest(TTestPublishGoalEnum);
+  RegisterTest(TTestPublishVersionImmutability);
   RegisterTest(TTestPublishCLIFlags);
   RegisterTest(TTestPublishValidation);
   RegisterTest(TTestPublishManifestGeneration);

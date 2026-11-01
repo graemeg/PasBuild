@@ -59,6 +59,10 @@ type
     class function GeneratePackageManifest(AConfig: TProjectConfig;
       AExistingVersions: TStringList = nil): string;
     class function GetRegistryManifestPath(const AName, AVersion: string): string;
+    { True when AVersion appears in the registry's version list (nil = the
+      registry has no package.xml for this package yet) }
+    class function IsVersionPublished(AExistingVersions: TStrings;
+      const AVersion: string): Boolean;
     { Parse the <versions> list out of an existing registry package.xml.
       Returns an empty list (never raises) for invalid or non-XML input. }
     class function ExtractVersionsFromPackageXml(const AXml: string): TStringList;
@@ -194,6 +198,19 @@ begin
 
   if AConfig.License = '' then
     Result.Add('Project license is required for publishing.');
+end;
+
+class function TPublishCommand.IsVersionPublished(
+  AExistingVersions: TStrings; const AVersion: string): Boolean;
+var
+  I: Integer;
+begin
+  Result := False;
+  if not Assigned(AExistingVersions) then
+    Exit;
+  for I := 0 to AExistingVersions.Count - 1 do
+    if AExistingVersions[I] = AVersion then
+      Exit(True);
 end;
 
 class function TPublishCommand.GetRegistryManifestPath(
@@ -670,6 +687,24 @@ begin
   // new release never removes earlier versions from package.xml
   ExistingVersions := FetchExistingVersions(RegistryUrl);
   try
+    // Registry versions are immutable once merged: consumers may already
+    // have verified and cached the archive under this version
+    if IsVersionPublished(ExistingVersions, Config.Version) then
+    begin
+      if FDryRun then
+        TUtils.LogWarning(Config.Name + ' ' + Config.Version +
+          ' is already published in the registry; a real publish would be ' +
+          'refused.')
+      else
+      begin
+        TUtils.LogError(Config.Name + ' ' + Config.Version +
+          ' is already published in the registry. Published versions ' +
+          'cannot be changed; release a new version instead.');
+        Result := 1;
+        Exit;
+      end;
+    end;
+
     try
       VersionManifest := GenerateVersionManifest(Config, EffectiveUrl, Sha256,
         ArchiveSize, FModuleRegistry);
@@ -745,10 +780,20 @@ begin
 
     GitHub := TGitHubForge.Create(Token, Owner, Repo);
     try
-      TUtils.LogInfo('  Forking repository...');
       if not GitHub.ForkRepository then
       begin
         TUtils.LogError('Could not fork the registry repository.');
+        Result := 1;
+        Exit;
+      end;
+
+      // A re-run must not push more commits onto a pending submission
+      PrUrl := GitHub.FindOpenPullRequest(BranchName);
+      if PrUrl <> '' then
+      begin
+        TUtils.LogError('A pull request for ' + Config.Name + ' ' +
+          Config.Version + ' is already open: ' + PrUrl);
+        TUtils.LogError('Merge or close it before publishing this version again.');
         Result := 1;
         Exit;
       end;

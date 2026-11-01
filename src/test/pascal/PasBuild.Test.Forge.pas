@@ -73,7 +73,50 @@ type
     procedure TestPullRequestBodyHeadAndBase;
   end;
 
+  { Re-running publish for a version that already has an open pull request
+    must report that PR instead of pushing more commits to its branch }
+  TTestForgeOpenPullRequest = class(TTestCase)
+  published
+    procedure TestOpenPullsQueryFiltersByHeadBranch;
+    procedure TestParseFirstOpenPullRequestUrl;
+    procedure TestParseEmptyListReturnsEmpty;
+    procedure TestParseInvalidJsonReturnsEmpty;
+  end;
+
 implementation
+
+{ TTestForgeOpenPullRequest }
+
+procedure TTestForgeOpenPullRequest.TestOpenPullsQueryFiltersByHeadBranch;
+begin
+  AssertEquals('Query lists open PRs whose head is the publish branch',
+    'https://api.github.com/repos/graemeg/pasbuild-registry/pulls' +
+    '?state=open&head=graemeg:publish/fpgui-framework-2.1.1',
+    TGitHubForge.BuildOpenPullsUrl('graemeg', 'pasbuild-registry',
+      'graemeg', 'publish/fpgui-framework-2.1.1'));
+end;
+
+procedure TTestForgeOpenPullRequest.TestParseFirstOpenPullRequestUrl;
+begin
+  AssertEquals('html_url of the open PR',
+    'https://github.com/graemeg/pasbuild-registry/pull/1',
+    TGitHubForge.ParseFirstPullRequestUrl(
+      '[{"number":1,"html_url":"https://github.com/graemeg/pasbuild-registry/pull/1",' +
+      '"state":"open"}]'));
+end;
+
+procedure TTestForgeOpenPullRequest.TestParseEmptyListReturnsEmpty;
+begin
+  AssertEquals('No open PR', '', TGitHubForge.ParseFirstPullRequestUrl('[]'));
+end;
+
+procedure TTestForgeOpenPullRequest.TestParseInvalidJsonReturnsEmpty;
+begin
+  AssertEquals('Garbage is not a PR', '',
+    TGitHubForge.ParseFirstPullRequestUrl('{"message":"Not Found"}'));
+  AssertEquals('Non-JSON is not a PR', '',
+    TGitHubForge.ParseFirstPullRequestUrl('<html>'));
+end;
 
 { TTestForgeDetection }
 
@@ -351,5 +394,6 @@ initialization
   RegisterTest(TTestForgeBranchName);
   RegisterTest(TTestForgeHostMatching);
   RegisterTest(TTestForgeRequestBodies);
+  RegisterTest(TTestForgeOpenPullRequest);
 
 end.

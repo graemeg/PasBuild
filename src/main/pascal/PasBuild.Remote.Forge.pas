@@ -67,6 +67,17 @@ type
       AContent, AMessage: string): Boolean;
     function CreatePullRequest(const ABranchName, ATitle, ABody: string): string;
 
+    { URL listing open pull requests on AOwner/ARepo whose head is
+      AHeadOwner:ABranchName }
+    class function BuildOpenPullsUrl(const AOwner, ARepo, AHeadOwner,
+      ABranchName: string): string;
+    { html_url of the first pull request in a GitHub list response; '' for
+      an empty list or anything that is not a JSON array of PRs }
+    class function ParseFirstPullRequestUrl(const AJson: string): string;
+    { html_url of an open pull request from ABranchName (on the fork used
+      by ForkRepository), or '' when there is none }
+    function FindOpenPullRequest(const ABranchName: string): string;
+
     property Token: string read FToken;
     property Owner: string read FOwner;
     property Repo: string read FRepo;
@@ -441,7 +452,13 @@ begin
 
   // Publishing to a registry the user owns: no fork involved
   if SameText(FForkOwner, FOwner) then
+  begin
+    TUtils.LogInfo('  You own the registry; submitting from a branch in ' +
+      FOwner + '/' + FRepo + ' (no fork needed)');
     Exit(True);
+  end;
+
+  TUtils.LogInfo('  Forking repository to ' + FForkOwner + '/' + FRepo + '...');
 
   Status := ApiRequest('POST',
     GITHUB_API + '/repos/' + FOwner + '/' + FRepo + '/forks', '', Response);
@@ -555,6 +572,51 @@ begin
 
   TUtils.LogError(Format('Cannot upload %s (HTTP %d): %s',
     [AFilePath, Status, Response]));
+end;
+
+class function TGitHubForge.BuildOpenPullsUrl(const AOwner, ARepo,
+  AHeadOwner, ABranchName: string): string;
+begin
+  Result := GITHUB_API + '/repos/' + AOwner + '/' + ARepo +
+    '/pulls?state=open&head=' + AHeadOwner + ':' + ABranchName;
+end;
+
+class function TGitHubForge.ParseFirstPullRequestUrl(const AJson: string): string;
+var
+  Doc: TJSONData;
+  First: TJSONData;
+begin
+  Result := '';
+  try
+    Doc := GetJSON(AJson);
+  except
+    Exit;
+  end;
+  try
+    if (Doc.JSONType = jtArray) and (Doc.Count > 0) then
+    begin
+      First := TJSONArray(Doc).Items[0];
+      if First.JSONType = jtObject then
+        Result := TJSONObject(First).Get('html_url', '');
+    end;
+  finally
+    Doc.Free;
+  end;
+end;
+
+function TGitHubForge.FindOpenPullRequest(const ABranchName: string): string;
+var
+  Status: Integer;
+  Response, HeadOwner: string;
+begin
+  Result := '';
+  HeadOwner := FForkOwner;
+  if HeadOwner = '' then
+    HeadOwner := FOwner;
+  Status := ApiRequest('GET', BuildOpenPullsUrl(FOwner, FRepo, HeadOwner,
+    ABranchName), '', Response);
+  if Status = 200 then
+    Result := ParseFirstPullRequestUrl(Response);
 end;
 
 function TGitHubForge.CreatePullRequest(const ABranchName, ATitle,
