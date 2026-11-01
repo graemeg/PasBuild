@@ -4,7 +4,7 @@
   <!-- This project builds itself! -->
 
   <name>PasBuild</name>
-  <version>1.10.0</version>
+  <version>1.11.0-SNAPSHOT</version>
   <author>Graeme Geldenhuys</author>
   <license>BSD-3-Clause</license>
 
