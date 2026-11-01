@@ -36,6 +36,7 @@ type
     procedure TearDown; override;
   published
     procedure TestResolveSingleDependency;
+    procedure TestResolveAddsInstalledSourceTree;
     procedure TestResolveMultipleDependencies;
     procedure TestResolveTransitiveDependency;
     procedure TestResolveMissingDependency;
@@ -173,6 +174,54 @@ procedure TTestDependencyResolver.TearDown;
 begin
   FRepo.Free;
   // Cleanup is done per-test in each test method
+end;
+
+{ An artifact installed with its sources (by a compiler that builds
+  dependencies from source) contributes its source tree to the consumer's
+  module source paths; one without (an FPC artifact) contributes none. }
+procedure TTestDependencyResolver.TestResolveAddsInstalledSourceTree;
+var
+  Config: TProjectConfig;
+  Resolver: TDependencyResolver;
+  Src: string;
+  L: TStringList;
+begin
+  InstallMockArtifact('test-src-lib', '1.0.0', []);
+  InstallMockArtifact('test-plain-lib', '1.0.0', []);
+  Src := FRepo.GetSourcesPath('test-src-lib', '1.0.0', FTargetId);
+  ForceDirectories(Src + DirectorySeparator + 'gui');
+  L := TStringList.Create;
+  try
+    L.Text := 'unit a;';
+    L.SaveToFile(Src + DirectorySeparator + 'a.pas');
+    L.SaveToFile(Src + DirectorySeparator + 'gui' + DirectorySeparator + 'b.pas');
+  finally
+    L.Free;
+  end;
+  try
+    Config := TProjectConfig.Create;
+    try
+      Config.Dependencies.Add(TDependencyInfo.Create('test-src-lib', '1.0.0'));
+      Config.Dependencies.Add(TDependencyInfo.Create('test-plain-lib', '1.0.0'));
+      Resolver := TDependencyResolver.Create;
+      try
+        Resolver.ResolveDependencies(Config);
+        AssertEquals('both units paths', 2, Config.BuildConfig.ResolvedModulePaths.Count);
+        AssertEquals('source root and its subdirectory', 2,
+          Config.BuildConfig.ResolvedModuleSourcePaths.Count);
+        AssertTrue('source root', Config.BuildConfig.ResolvedModuleSourcePaths.IndexOf(Src) >= 0);
+        AssertTrue('subdirectory', Config.BuildConfig.ResolvedModuleSourcePaths.IndexOf(
+          Src + DirectorySeparator + 'gui') >= 0);
+      finally
+        Resolver.Free;
+      end;
+    finally
+      Config.Free;
+    end;
+  finally
+    CleanupMockArtifact('test-src-lib', '1.0.0');
+    CleanupMockArtifact('test-plain-lib', '1.0.0');
+  end;
 end;
 
 procedure TTestDependencyResolver.TestResolveSingleDependency;

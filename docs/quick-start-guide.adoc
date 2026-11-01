@@ -769,6 +769,13 @@ PasBuild automatically adds the installed library's units to the compiler's `-Fu
 Artifacts are stored per compiler target, so units built with FPC and with Blaise
 (or with different compiler versions) can be installed side by side.
 
+With Blaise, which compiles every dependency from source, an installed library
+also holds its source tree, and PasBuild adds that tree (with its subdirectories)
+to the unit path after the compiled units.  The compiled units only save
+recompiling; Blaise recompiles any that are stale.  Files a unit embeds
+(`{$EMBED}`) must therefore live inside the library's source directory, since
+only that directory is installed.
+
 NOTE: Artifacts installed by PasBuild 1.9.0 or earlier used a compiler-less path
 (`x86_64-linux-3.2.2`). These are no longer found and must be reinstalled once with
 `pasbuild install`.
@@ -1468,6 +1475,10 @@ pasbuild install
 . Detects the compiler target identifier (`<compiler>-<cpu>-<os>-<compilerVersion>`, e.g. `fpc-x86_64-linux-3.2.2`)
 . Creates the repository directory structure
 . Copies all `.ppu` and `.o` files from `target/units/` to the repository
+. With Blaise, also copies the whole source directory (every file in every
+  subdirectory, replacing any earlier copy) to `src/` in the artifact.  A Blaise
+  library needs at least one `.pas` unit; it needs no compiled units, so
+  `--no-incremental` builds can be installed too
 . Generates `metadata.xml` with artifact identity and dependency information
 
 **Example:**

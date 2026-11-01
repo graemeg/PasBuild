@@ -65,6 +65,9 @@ type
     { Path construction }
     function GetArtifactPath(const AName, AVersion, ATargetId: string): string;
     function GetUnitsPath(const AName, AVersion, ATargetId: string): string;
+    { The module's source tree, installed for compilers that build their
+      dependencies from source (Blaise). }
+    function GetSourcesPath(const AName, AVersion, ATargetId: string): string;
     function GetMetadataPath(const AName, AVersion, ATargetId: string): string;
 
     { Repository queries }
@@ -77,6 +80,12 @@ type
     { Artifact installation }
     procedure CopyUnitFiles(const ASourceUnitsDir, AName, AVersion, ATargetId: string);
     function CountFiles(const ADirectory, APattern: string): Integer;
+    { As CountFiles, including subdirectories. }
+    function CountFilesRecursive(const ADirectory, APattern: string): Integer;
+    { Replace the artifact's source tree with a copy of ASourceDir: every
+      file in every subdirectory (units, include files and files the units
+      embed), so files removed since a previous install do not linger. }
+    procedure CopySourceTree(const ASourceDir, AName, AVersion, ATargetId: string);
 
     { Metadata operations }
     procedure WriteMetadata(const AName, AVersion, ATargetId: string; AMetadata: TArtifactMetadata);
@@ -116,6 +125,11 @@ end;
 function TLocalRepository.GetUnitsPath(const AName, AVersion, ATargetId: string): string;
 begin
   Result := GetArtifactPath(AName, AVersion, ATargetId) + DirectorySeparator + 'units';
+end;
+
+function TLocalRepository.GetSourcesPath(const AName, AVersion, ATargetId: string): string;
+begin
+  Result := GetArtifactPath(AName, AVersion, ATargetId) + DirectorySeparator + 'src';
 end;
 
 function TLocalRepository.GetMetadataPath(const AName, AVersion, ATargetId: string): string;
@@ -206,6 +220,110 @@ begin
             end;
           end;
         end;
+      until FindNext(SearchRec) <> 0;
+    finally
+      FindClose(SearchRec);
+    end;
+  end;
+end;
+
+procedure RemoveTree(const ADir: string);
+var
+  SearchRec: TSearchRec;
+  Path: string;
+begin
+  if not DirectoryExists(ADir) then
+    Exit;
+  if FindFirst(IncludeTrailingPathDelimiter(ADir) + '*', faAnyFile, SearchRec) = 0 then
+  begin
+    try
+      repeat
+        if (SearchRec.Name = '.') or (SearchRec.Name = '..') then
+          Continue;
+        Path := IncludeTrailingPathDelimiter(ADir) + SearchRec.Name;
+        if (SearchRec.Attr and faDirectory) = faDirectory then
+          RemoveTree(Path)
+        else if not DeleteFile(Path) then
+          raise Exception.CreateFmt('Failed to delete %s', [Path]);
+      until FindNext(SearchRec) <> 0;
+    finally
+      FindClose(SearchRec);
+    end;
+  end;
+  if not RemoveDir(ADir) then
+    raise Exception.CreateFmt('Failed to remove directory %s', [ADir]);
+end;
+
+procedure CopyFile(const ASource, ADest: string);
+var
+  SourceStream, DestStream: TFileStream;
+begin
+  SourceStream := TFileStream.Create(ASource, fmOpenRead or fmShareDenyNone);
+  try
+    DestStream := TFileStream.Create(ADest, fmCreate);
+    try
+      DestStream.CopyFrom(SourceStream, SourceStream.Size);
+    finally
+      DestStream.Free;
+    end;
+  finally
+    SourceStream.Free;
+  end;
+end;
+
+procedure CopyTree(const ASourceDir, ADestDir: string);
+var
+  SearchRec: TSearchRec;
+  Source, Dest: string;
+begin
+  if not ForceDirectories(ADestDir) then
+    raise Exception.CreateFmt('Failed to create directory %s', [ADestDir]);
+  if FindFirst(IncludeTrailingPathDelimiter(ASourceDir) + '*', faAnyFile, SearchRec) = 0 then
+  begin
+    try
+      repeat
+        { Skip . and .., and hidden entries such as .git or .DS_Store }
+        if (SearchRec.Name = '') or (SearchRec.Name[1] = '.') then
+          Continue;
+        Source := IncludeTrailingPathDelimiter(ASourceDir) + SearchRec.Name;
+        Dest := IncludeTrailingPathDelimiter(ADestDir) + SearchRec.Name;
+        if (SearchRec.Attr and faDirectory) = faDirectory then
+          CopyTree(Source, Dest)
+        else
+          CopyFile(Source, Dest);
+      until FindNext(SearchRec) <> 0;
+    finally
+      FindClose(SearchRec);
+    end;
+  end;
+end;
+
+procedure TLocalRepository.CopySourceTree(const ASourceDir, AName, AVersion, ATargetId: string);
+var
+  DestDir: string;
+begin
+  if not DirectoryExists(ASourceDir) then
+    raise Exception.CreateFmt('Source directory not found: %s', [ASourceDir]);
+  DestDir := GetSourcesPath(AName, AVersion, ATargetId);
+  RemoveTree(DestDir);
+  CopyTree(ASourceDir, DestDir);
+end;
+
+function TLocalRepository.CountFilesRecursive(const ADirectory, APattern: string): Integer;
+var
+  SearchRec: TSearchRec;
+begin
+  Result := CountFiles(ADirectory, APattern);
+  if not DirectoryExists(ADirectory) then
+    Exit;
+  if FindFirst(IncludeTrailingPathDelimiter(ADirectory) + '*', faDirectory, SearchRec) = 0 then
+  begin
+    try
+      repeat
+        if (SearchRec.Name <> '') and (SearchRec.Name[1] <> '.') and
+           ((SearchRec.Attr and faDirectory) = faDirectory) then
+          Inc(Result, CountFilesRecursive(
+            IncludeTrailingPathDelimiter(ADirectory) + SearchRec.Name, APattern));
       until FindNext(SearchRec) <> 0;
     finally
       FindClose(SearchRec);

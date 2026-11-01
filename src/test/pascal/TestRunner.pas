@@ -42,7 +42,9 @@ uses
   PasBuild.Test.Remote.Builder,
   PasBuild.Test.Command.Publish,
   PasBuild.Test.Forge,
-  PasBuild.Test.ProjectFlattener;
+  PasBuild.Test.ProjectFlattener,
+  PasBuild.Test.Compiler.Blaise,
+  PasBuild.Test.Command.Install;
 
 var
   Application: TTestRunner;

@@ -34,6 +34,7 @@ implementation
 uses
   PasBuild.Utils,
   PasBuild.Repository,
+  PasBuild.Compiler.Backend,
   PasBuild.Command.Compile;
 
 { TInstallCommand }
@@ -45,12 +46,13 @@ end;
 
 function TInstallCommand.Execute: Integer;
 var
-  TargetId, UnitsDir: string;
+  TargetId, UnitsDir, SourceDir: string;
   Repo: TLocalRepository;
   Metadata: TArtifactMetadata;
   DepArray: TMetadataDependencyArray;
-  I, PPUCount, OCount: Integer;
+  I, PPUCount, OCount, SourceCount: Integer;
   PackagingStr: string;
+  FromSource: Boolean;
 begin
   Result := 0;
 
@@ -84,19 +86,40 @@ begin
     Exit;
   end;
 
+  { A compiler that builds its dependencies from source (Blaise) needs the
+    module's sources in the artifact; its compiled objects are only a cache,
+    valid for the compiler binary that wrote them (and absent after a
+    --no-incremental build).  FPC links the compiled units themselves. }
+  FromSource := TUtils.GetCompilerBackend.CompilesDependenciesFromSource;
+  SourceDir := TUtils.NormalizePath(Config.BuildConfig.SourceDirectory);
+
   Repo := TLocalRepository.Create;
   try
     PPUCount := Repo.CountFiles(UnitsDir, '*.ppu');
     OCount := Repo.CountFiles(UnitsDir, '*.o');
-    if PPUCount = 0 then
+    if FromSource then
     begin
-      TUtils.LogError('No compiled units (.ppu) found in: ' + UnitsDir);
-      Result := 1;
-      Exit;
+      SourceCount := Repo.CountFilesRecursive(SourceDir, '*.pas');
+      if SourceCount = 0 then
+      begin
+        TUtils.LogError('No source units (.pas) found in: ' + SourceDir);
+        Result := 1;
+        Exit;
+      end;
+      TUtils.LogInfo('Found ' + IntToStr(SourceCount) + ' source unit(s) and ' +
+                     IntToStr(OCount) + ' cached object file(s)');
+    end
+    else
+    begin
+      if PPUCount = 0 then
+      begin
+        TUtils.LogError('No compiled units (.ppu) found in: ' + UnitsDir);
+        Result := 1;
+        Exit;
+      end;
+      TUtils.LogInfo('Found ' + IntToStr(PPUCount) + ' unit(s) and ' +
+                     IntToStr(OCount) + ' object file(s)');
     end;
-
-    TUtils.LogInfo('Found ' + IntToStr(PPUCount) + ' unit(s) and ' +
-                   IntToStr(OCount) + ' object file(s)');
 
     try
       Repo.EnsureDirectoryStructure(Config.Name, Config.Version, TargetId);
@@ -112,6 +135,11 @@ begin
     try
       Repo.CopyUnitFiles(UnitsDir, Config.Name, Config.Version, TargetId);
       TUtils.LogInfo('Copied unit files to repository');
+      if FromSource then
+      begin
+        Repo.CopySourceTree(SourceDir, Config.Name, Config.Version, TargetId);
+        TUtils.LogInfo('Copied source tree to repository');
+      end;
     except
       on E: Exception do
       begin

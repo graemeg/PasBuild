@@ -40,6 +40,10 @@ type
     FRepository: TLocalRepository;
     FSettings: TSettings;
     FProjectRepositories: TRepositoryList;
+    { Where an artifact's installed source tree goes (the configuration's
+      ResolvedModuleSourcePaths); set for the duration of ResolveDependencies. }
+    FSourcePaths: TStringList;
+    procedure AddSourcePaths(const AName, AVersion, ATargetId: string);
     procedure ResolveOne(const AName, AVersion, ATargetId: string;
       AResolvedPaths: TStringList);
     function TryRemoteResolve(const AName, AVersion, ATargetId: string;
@@ -337,9 +341,33 @@ begin
     UnitsPath := FRepository.GetUnitsPath(AName, AVersion, ATargetId);
     if AResolvedPaths.IndexOf(UnitsPath) < 0 then
       AResolvedPaths.Add(UnitsPath);
+    AddSourcePaths(AName, AVersion, ATargetId);
     Result := True;
   finally
     Manifest.Free;
+  end;
+end;
+
+procedure TDependencyResolver.AddSourcePaths(const AName, AVersion, ATargetId: string);
+var
+  Root: string;
+  SubDirs: TStringList;
+  I: Integer;
+begin
+  if FSourcePaths = nil then
+    Exit;
+  Root := FRepository.GetSourcesPath(AName, AVersion, ATargetId);
+  if not DirectoryExists(Root) then
+    Exit;
+  if FSourcePaths.IndexOf(Root) < 0 then
+    FSourcePaths.Add(Root);
+  SubDirs := TUtils.ScanForUnitPaths(Root);
+  try
+    for I := 0 to SubDirs.Count - 1 do
+      if FSourcePaths.IndexOf(SubDirs[I]) < 0 then
+        FSourcePaths.Add(SubDirs[I]);
+  finally
+    SubDirs.Free;
   end;
 end;
 
@@ -365,6 +393,7 @@ begin
     UnitsPath := FRepository.GetUnitsPath(AName, AVersion, ATargetId);
     if AResolvedPaths.IndexOf(UnitsPath) < 0 then
       AResolvedPaths.Add(UnitsPath);
+    AddSourcePaths(AName, AVersion, ATargetId);
 
     if FVerbose then
       TUtils.LogInfo('  Resolved: ' + AName + ':' + AVersion + ' -> ' + UnitsPath);
@@ -442,16 +471,20 @@ begin
 
   // Clear visited set for this resolution run
   FVisited.Clear;
-
-  // Resolve each declared dependency
-  for I := 0 to AConfig.Dependencies.Count - 1 do
-  begin
-    ResolveOne(
-      AConfig.Dependencies[I].Name,
-      AConfig.Dependencies[I].Version,
-      TargetId,
-      AConfig.BuildConfig.ResolvedModulePaths
-    );
+  FSourcePaths := AConfig.BuildConfig.ResolvedModuleSourcePaths;
+  try
+    // Resolve each declared dependency
+    for I := 0 to AConfig.Dependencies.Count - 1 do
+    begin
+      ResolveOne(
+        AConfig.Dependencies[I].Name,
+        AConfig.Dependencies[I].Version,
+        TargetId,
+        AConfig.BuildConfig.ResolvedModulePaths
+      );
+    end;
+  finally
+    FSourcePaths := nil;
   end;
 
   TUtils.LogInfo('Dependencies resolved successfully');
