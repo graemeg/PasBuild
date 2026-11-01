@@ -169,6 +169,24 @@ type
 
 implementation
 
+{ Returns the physical (symlink-resolved) form of ADir, as reported by the
+  OS after changing into it. On macOS /tmp and /var are symlinks into
+  /private, so string comparisons against getcwd/pwd output need this. }
+function PhysicalDir(const ADir: string): string;
+var
+  SavedDir: string;
+begin
+  SavedDir := GetCurrentDir;
+  if not SetCurrentDir(ADir) then
+    raise Exception.Create('Cannot change into ' + ADir);
+  try
+    Result := ExcludeTrailingPathDelimiter(GetCurrentDir);
+  finally
+    SetCurrentDir(SavedDir);
+  end;
+end;
+
+
 { TTestQuotePath }
 
 procedure TTestQuotePath.TestPathWithoutSpaces;
@@ -864,7 +882,7 @@ var
 begin
   Code := TUtils.ExecuteProcessInDirWithCapture('pwd', [], '/tmp', Output);
   AssertEquals('Exit code', 0, Code);
-  AssertEquals('Working directory', '/tmp', Trim(Output));
+  AssertEquals('Working directory', PhysicalDir('/tmp'), Trim(Output));
 end;
 
 procedure TTestExecuteInDir.TestCapturesOutput;

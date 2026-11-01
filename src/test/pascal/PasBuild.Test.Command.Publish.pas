@@ -100,6 +100,24 @@ type
 
 implementation
 
+{ Returns the physical (symlink-resolved) form of ADir, as reported by the
+  OS after changing into it. On macOS /tmp and /var are symlinks into
+  /private, so string comparisons against getcwd/pwd output need this. }
+function PhysicalDir(const ADir: string): string;
+var
+  SavedDir: string;
+begin
+  SavedDir := GetCurrentDir;
+  if not SetCurrentDir(ADir) then
+    raise Exception.Create('Cannot change into ' + ADir);
+  try
+    Result := ExcludeTrailingPathDelimiter(GetCurrentDir);
+  finally
+    SetCurrentDir(SavedDir);
+  end;
+end;
+
+
 function DeleteDirRecursive(const ADirName: string): Boolean;
 var
   SearchRec: TSearchRec;
@@ -772,7 +790,7 @@ begin
     'my-lib', 'https://example.org/a.zip', '', True);
   try
     AssertEquals('Working directory must be the module directory',
-      ExcludeTrailingPathDelimiter(Module.Path),
+      PhysicalDir(Module.Path),
       ExcludeTrailingPathDelimiter(GetCurrentDir));
   finally
     Cmd.Free;
