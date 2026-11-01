@@ -90,8 +90,9 @@ type
     procedure TestMultipleModuleDepPathsAllIncluded;
   end;
 
-  { Blaise compiles every unit from source, and leaves a dependency's
-    target/units empty with --no-incremental, so the compile and
+  { Blaise rebuilds a dependency's units from source whenever their *.o
+    files are stale (another compiler binary, a rebuilt dependency), and
+    --no-incremental leaves none at all, so the compile and
     test-compile commands must also name the dependencies' source
     directories.  FPC links the compiled units and must not get them. }
   TTestModuleSourcePaths = class(TTestCase)

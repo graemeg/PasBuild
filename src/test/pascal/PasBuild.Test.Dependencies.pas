@@ -176,7 +176,7 @@ begin
   // Cleanup is done per-test in each test method
 end;
 
-{ An artifact installed with its sources (by a compiler that builds
+{ An artifact installed with its sources (by a compiler that may rebuild
   dependencies from source) contributes its source tree to the consumer's
   module source paths; one without (an FPC artifact) contributes none. }
 procedure TTestDependencyResolver.TestResolveAddsInstalledSourceTree;

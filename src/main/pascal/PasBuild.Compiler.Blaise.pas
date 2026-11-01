@@ -175,9 +175,11 @@ end;
 
 function TBlaiseBackend.CompilesDependenciesFromSource: Boolean;
 begin
-  { Blaise compiles every unit from source.  A dependency's target/units only
-    holds cached *.o files, and none at all with --no-incremental, so the
-    dependency's sources must be reachable as well. }
+  { Blaise reuses a compiled unit (*.o, with its interface embedded) only
+    when the same compiler binary wrote it and nothing it depends on has been
+    rebuilt since; otherwise it recompiles the unit from source, and without
+    the source it cannot build at all.  A --no-incremental build leaves no
+    *.o files.  So a dependency's sources must be reachable as well. }
   Result := True;
 end;
 

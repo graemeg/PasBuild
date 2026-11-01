@@ -769,11 +769,15 @@ PasBuild automatically adds the installed library's units to the compiler's `-Fu
 Artifacts are stored per compiler target, so units built with FPC and with Blaise
 (or with different compiler versions) can be installed side by side.
 
-With Blaise, which compiles every dependency from source, an installed library
-also holds its source tree, and PasBuild adds that tree (with its subdirectories)
-to the unit path after the compiled units.  The compiled units only save
-recompiling; Blaise recompiles any that are stale.  Files a unit embeds
-(`{$EMBED}`) must therefore live inside the library's source directory, since
+With Blaise, an installed library also holds its source tree, and PasBuild adds
+that tree (with its subdirectories) to the unit path after the compiled units.
+Blaise uses an installed compiled unit (`.o`) only when the same compiler binary
+wrote it and nothing it depends on has been rebuilt since; otherwise it
+recompiles the unit from source, into the consuming project's own `target/units`
+(the repository is not changed).  So after rebuilding or upgrading the compiler,
+the first build of a consumer reports "recompiling from source" for the
+installed units and is slower, and without the sources it would fail.  Files a
+unit embeds (`{$EMBED}`) must live inside the library's source directory, since
 only that directory is installed.
 
 NOTE: Artifacts installed by PasBuild 1.9.0 or earlier used a compiler-less path

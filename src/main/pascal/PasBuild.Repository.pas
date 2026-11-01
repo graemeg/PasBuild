@@ -65,8 +65,8 @@ type
     { Path construction }
     function GetArtifactPath(const AName, AVersion, ATargetId: string): string;
     function GetUnitsPath(const AName, AVersion, ATargetId: string): string;
-    { The module's source tree, installed for compilers that build their
-      dependencies from source (Blaise). }
+    { The module's source tree, installed for compilers that may rebuild
+      their dependencies from source (Blaise). }
     function GetSourcesPath(const AName, AVersion, ATargetId: string): string;
     function GetMetadataPath(const AName, AVersion, ATargetId: string): string;
 

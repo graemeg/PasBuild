@@ -86,10 +86,11 @@ begin
     Exit;
   end;
 
-  { A compiler that builds its dependencies from source (Blaise) needs the
-    module's sources in the artifact; its compiled objects are only a cache,
-    valid for the compiler binary that wrote them (and absent after a
-    --no-incremental build).  FPC links the compiled units themselves. }
+  { A compiler that may rebuild its dependencies from source (Blaise) needs
+    the module's sources in the artifact.  Its compiled objects are installed
+    too and spare that work, but only the compiler binary that wrote them can
+    use them (and a --no-incremental build has none).  FPC links the compiled
+    units themselves. }
   FromSource := TUtils.GetCompilerBackend.CompilesDependenciesFromSource;
   SourceDir := TUtils.NormalizePath(Config.BuildConfig.SourceDirectory);
 

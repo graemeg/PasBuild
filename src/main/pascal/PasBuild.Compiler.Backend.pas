@@ -37,9 +37,12 @@ type
     { Flag emitted when NoIncremental is set; '' when not applicable. }
     function IncrementalFlag: string; virtual;
 
-    { True when the compiler builds a module dependency's units from source
-      rather than linking its compiled target/units, so the dependency's
-      source directories must be on the unit path too.  Default False. }
+    { True when the compiler may need a dependency's sources, not only its
+      compiled units: it reuses a compiled unit only while that unit is
+      valid for it and rebuilds the rest from source.  The dependency's
+      source directories must then be on the unit path too (after its
+      units), and an installed artifact must carry them.  Default False
+      (FPC links the compiled units). }
     function CompilesDependenciesFromSource: Boolean; virtual;
 
     { Flag that compiles units without running the linker; used for library

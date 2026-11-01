@@ -25,9 +25,9 @@ type
     function GetVersion: string; override;
   end;
 
-  { Installing a module built with a compiler that compiles its
+  { Installing a module built with a compiler that may rebuild its
     dependencies from source (Blaise): the artifact holds the module's
-    source tree, with any cached objects as a head start. }
+    source tree, with any compiled objects as a head start. }
   TTestInstallSourceArtifact = class(TTestCase)
   private
     FRoot: string;
