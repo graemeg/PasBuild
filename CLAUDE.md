@@ -16,6 +16,12 @@ convention-over-configuration with a goal-based lifecycle.
 
 ## Build and Test Commands
 
+**Compiler override:** PasBuild itself is built with FPC. The shell environment
+sets `PASBUILD_COMPILER` to the Blaise compiler by default, so always prefix
+pasbuild commands with an empty `PASBUILD_COMPILER=` to fall back to `fpc`
+(e.g. `PASBUILD_COMPILER= pasbuild compile`). The commands below omit the
+prefix for brevity; add it every time.
+
 ```bash
 # Build PasBuild itself
 pasbuild compile
