@@ -43,3 +43,6 @@ Thumbs.db
 .ide/
 .codegraph/
 .gstack/
+.aider*
+._*
+.claude/settings.local.json
