@@ -49,6 +49,25 @@ type
     procedure TestInTreeUnitPathPrefixedWithSourceDir;
   end;
 
+  { A library is built by compiling a generated bootstrap program; only its
+    units are needed, so the program must not be linked. Linking would make
+    the library build depend on the system C libraries its units import
+    (e.g. FreeType), which a consumer's remote build cannot provide via
+    profiles. }
+  TTestCompileCommandLibraryLinking = class(TTestCase)
+  private
+    FConfig: TProjectConfig;
+    FProfileIds: TStringList;
+    function BuildCommand: string;
+  protected
+    procedure SetUp; override;
+    procedure TearDown; override;
+  published
+    procedure TestFPCLibrarySkipsLinking;
+    procedure TestFPCApplicationIsLinked;
+    procedure TestBlaiseLibraryHasNoFPCSkipLinkFlag;
+  end;
+
   { Subclass to expose the protected BuildTestCompilerCommand for unit testing }
   TTestCompileCommandTestable = class(TTestCompileCommand)
   public
@@ -208,6 +227,56 @@ end;
 function TCompileCommandTestable.ExposedBuildCommand(const ASourcePath: string): string;
 begin
   Result := BuildCompilerCommand(ASourcePath);
+end;
+
+{ TTestCompileCommandLibraryLinking }
+
+procedure TTestCompileCommandLibraryLinking.SetUp;
+begin
+  FConfig := TProjectConfig.Create;
+  FConfig.Name := 'test-lib';
+  FConfig.Version := '1.0.0';
+  FProfileIds := TStringList.Create;
+end;
+
+procedure TTestCompileCommandLibraryLinking.TearDown;
+begin
+  TUtils.SetCompilerBackend(TFPCBackend.Create('fpc'));
+  FProfileIds.Free;
+  FConfig.Free;
+end;
+
+function TTestCompileCommandLibraryLinking.BuildCommand: string;
+var
+  Cmd: TCompileCommandTestable;
+begin
+  Cmd := TCompileCommandTestable.Create(FConfig, FProfileIds);
+  try
+    Result := Cmd.ExposedBuildCommand('target/bootstrap_program.pas');
+  finally
+    Cmd.Free;
+  end;
+end;
+
+procedure TTestCompileCommandLibraryLinking.TestFPCLibrarySkipsLinking;
+begin
+  TUtils.SetCompilerBackend(TFPCBackend.Create('fpc'));
+  FConfig.BuildConfig.ProjectType := ptLibrary;
+  AssertTrue('Library build passes -Cn', Pos(' -Cn', BuildCommand) > 0);
+end;
+
+procedure TTestCompileCommandLibraryLinking.TestFPCApplicationIsLinked;
+begin
+  TUtils.SetCompilerBackend(TFPCBackend.Create('fpc'));
+  FConfig.BuildConfig.ProjectType := ptApplication;
+  AssertEquals('Application build must link', 0, Pos(' -Cn', BuildCommand));
+end;
+
+procedure TTestCompileCommandLibraryLinking.TestBlaiseLibraryHasNoFPCSkipLinkFlag;
+begin
+  TUtils.SetCompilerBackend(TBlaiseBackend.Create('blaise'));
+  FConfig.BuildConfig.ProjectType := ptLibrary;
+  AssertEquals('FPC-only flag not passed to Blaise', 0, Pos(' -Cn', BuildCommand));
 end;
 
 { TTestCompileCommandUnitPaths }
@@ -424,6 +493,7 @@ end;
 
 initialization
   RegisterTest(TTestCompileCommandUnitPaths);
+  RegisterTest(TTestCompileCommandLibraryLinking);
   RegisterTest(TTestCompileCommandModulePaths);
   RegisterTest(TTestModuleSourcePaths);
   RegisterTest(TTestCommandNoTestDir);

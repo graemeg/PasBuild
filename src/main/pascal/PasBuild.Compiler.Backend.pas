@@ -42,6 +42,11 @@ type
       source directories must be on the unit path too.  Default False. }
     function CompilesDependenciesFromSource: Boolean; virtual;
 
+    { Flag that compiles units without running the linker; used for library
+      builds, whose generated bootstrap program exists only to pull every
+      unit into the compile.  '' when the backend has no such flag. }
+    function SkipLinkFlag: string; virtual;
+
     { Display name reported in version output and log messages. }
     function Name: string; virtual; abstract;
 
@@ -97,6 +102,11 @@ end;
 function TCompilerBackend.CompilesDependenciesFromSource: Boolean;
 begin
   Result := False;
+end;
+
+function TCompilerBackend.SkipLinkFlag: string;
+begin
+  Result := '';
 end;
 
 end.

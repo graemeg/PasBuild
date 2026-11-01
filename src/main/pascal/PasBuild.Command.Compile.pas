@@ -76,6 +76,11 @@ begin
     OutputDir + DirectorySeparator + 'units'));
   AppendFlag(Result, Backend.IncrementalFlag);
 
+  // A library's bootstrap program only exists to compile every unit;
+  // linking it would require the system libraries those units import
+  if Config.BuildConfig.ProjectType = ptLibrary then
+    AppendFlag(Result, Backend.SkipLinkFlag);
+
   // Collect all active defines (global + profile)
   ActiveDefines := TStringList.Create;
   try

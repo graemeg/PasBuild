@@ -246,6 +246,9 @@ begin
   CmdLine := CmdLine + ' ' + TUtils.GetCompilerBackend.UnitOutputDirFlag(
     OutputDir + DirectorySeparator + 'units');
   CmdLine := CmdLine + ' ' + TUtils.GetCompilerBackend.IncrementalFlag;
+  if (AConfig.BuildConfig.ProjectType = ptLibrary) and
+     (TUtils.GetCompilerBackend.SkipLinkFlag <> '') then
+    CmdLine := CmdLine + ' ' + TUtils.GetCompilerBackend.SkipLinkFlag;
 
   { Unit paths }
   for I := 0 to AUnitPaths.Count - 1 do

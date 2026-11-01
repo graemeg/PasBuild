@@ -32,6 +32,7 @@ type
     function IncludePathFlag(const APath: string): string; override;
     function DefineFlag(const ADefine: string): string; override;
     function ExtraOptionFlag(const AOption: string): string; override;
+    function SkipLinkFlag: string; override;
   end;
 
 implementation
@@ -42,6 +43,12 @@ uses
 function TFPCBackend.Name: string;
 begin
   Result := 'FPC';
+end;
+
+function TFPCBackend.SkipLinkFlag: string;
+begin
+  // -Cn: omit the linking stage; units (.ppu/.o) are still produced
+  Result := '-Cn';
 end;
 
 function TFPCBackend.GetVersion: string;
