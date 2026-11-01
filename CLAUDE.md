@@ -2,7 +2,7 @@
 
 ## Project Summary
 
-PasBuild is a Maven-inspired build automation tool for Free Pascal (FPC) projects.
+PasBuild is a Maven-inspired build automation tool for Pascal projects (FPC and Blaise compilers).
 It is written in Object Pascal, self-hosting (builds itself), and follows
 convention-over-configuration with a goal-based lifecycle.
 
@@ -10,7 +10,7 @@ convention-over-configuration with a goal-based lifecycle.
 - **Testing**: FPCUnit (`fpcunit`, `testregistry`, `consoletestrunner`)
 - **License**: BSD-3-Clause
 - **Author**: Graeme Geldenhuys
-- **Current version**: 1.5.0-dev (targeting v1.5.0 release)
+- **Current version**: 1.10.0-SNAPSHOT (targeting v1.10.0 release)
 
 ---
 
@@ -87,7 +87,17 @@ pasbuild/
 | `PasBuild.Command.pas` | Abstract `TBuildCommand` base class; `TCommandExecutor` (dependency resolution, deduplication) |
 | `PasBuild.Command.Reactor.pas` | `TReactorCommand` — multi-module build orchestration with Maven-style reactor summary |
 | `PasBuild.ModuleDiscovery.pas` | `TModuleDiscoverer.DiscoverModules()` — walks aggregator `<modules>` list |
-| `PasBuild.Dependencies.pas` | `TDependencyResolver` — resolves `<dependencies>` from local repository |
+| `PasBuild.Dependencies.pas` | `TDependencyResolver` — resolves `<dependencies>` from the local repository, falling back to remote registries |
+| `PasBuild.Settings.pas` | `TSettingsLoader` — `~/.pasbuild/settings.xml` (repositories, offline mode, HTTP timeouts) |
+| `PasBuild.Remote.pas` | HTTPS client wrapper (`fphttpclient` + OpenSSL), downloads, TLS verification |
+| `PasBuild.Remote.Manifest.pas` | Registry version manifest (`<version>.xml`) parser |
+| `PasBuild.Remote.Registry.pas` | Registry list resolution (project.xml → settings.xml → env → central) and manifest paths |
+| `PasBuild.Remote.Builder.pas` | Fetch → verify SHA-256 → extract → `pasbuild compile`/`install` subprocess pipeline |
+| `PasBuild.Remote.Forge.pas` | Forge detection and GitHub PR automation for `publish` |
+| `PasBuild.Crypto.SHA256.pas` | Pure-Pascal SHA-256 |
+| `PasBuild.Command.Publish.pas` | `TPublishCommand` — generates registry manifests, submits a PR |
+| `PasBuild.ProjectFlattener.pas` | Self-contained `project.xml` for module archives (inherited version, module deps → package deps) |
+| `PasBuild.Compiler.*.pas` | Compiler backends (`Backend`, `FPC`, `Blaise`, `Factory`) |
 | `PasBuild.Repository.pas` | Local artifact repository support |
 | `PasBuild.Utils.pas` | `TUtils` — logging (`LogInfo`/`LogError`), FPC executable resolution |
 | `PasBuild.Command.Clean.pas` | `TCleanCommand` |
@@ -194,15 +204,18 @@ Child modules inherit `<version>` from the aggregator's `project.xml` when not e
 - **FPCUnit**: All test classes inherit from `TTestCase`; registered via `RegisterTest`.
 - **Generics**: Uses `specialize TFPGObjectList<T>` for typed collections.
 - **Error handling**: Structured exceptions (`EProjectConfigError`, `EDependencyError`).
-- **Known test failures**: 2 pre-existing failures in `TTestValidatePackagingRules`
-  (error messages checked for "aggregator" substring — messages changed).
+- **Test suite**: expected to pass with 0 failures. On macOS compare paths via their
+  physical form (`/tmp` and `/var` are symlinks into `/private`).
 
 ---
 
-## Known State (as of 2026-03)
+## Known State (as of 2026-11)
 
-- Version: 1.5.0-dev (v1.4.0 released)
-- Multi-module support complete (phases 1–7)
-- Dependency management implemented
-- Maven-style reactor output implemented
-- Main branch: `main`; active development on `master`
+- Version: 1.10.0-SNAPSHOT (v1.9.0 released 2026-06-15)
+- Multi-module support, local dependency management and Maven-style reactor output complete
+- Blaise compiler support with incremental compilation (`--unit-cache`)
+- Remote dependency management implemented (design: `docs/remote-dependency-management-design.adoc`):
+  registry fetch/build pipeline, `--offline`, `--force-fetch`, `settings.xml`, `publish` goal
+- Central registry: https://github.com/graemeg/pasbuild-registry (first package: fpgui-framework 2.1.1)
+- Forge automation: GitHub only; Codeberg/Gitea and SourceHut fall back to manual instructions
+- Development branch: `master` (remotes `github` and `gitolite`)
