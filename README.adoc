@@ -29,6 +29,8 @@ allowing you to override only what you need to change.
 * ✅ **pasbuild test** - Runs tests (compile → test-compile → test)
 * ✅ **pasbuild package** - Creates ZIP archive (clean → compile → package)
 * ✅ **pasbuild init** - Bootstraps new projects
+* ✅ **pasbuild install** - Installs a library into the local repository
+* ✅ **pasbuild publish** - Submits a library to a package registry
 * ✅ **--help** / **--version** - Built-in help system
 
 **Advanced Features:**
@@ -44,6 +46,10 @@ allowing you to override only what you need to change.
 * ✅ Multi-module projects with dependency resolution
 * ✅ Topological build ordering with cycle detection
 * ✅ Module selection flag (-m) for selective builds
+* ✅ Cross-project dependencies via a local repository (`~/.pasbuild/repository`)
+* ✅ Remote dependencies from a package registry: downloaded, SHA-256 verified,
+  built with your compiler and installed automatically
+* ✅ FPC and Blaise compiler support, with artifacts stored per compiler target
 
 **Platform Support:**
 
@@ -167,13 +173,18 @@ pasbuild package
 
 * link:docs/quick-start-guide.adoc[Quick Start Guide] - Getting started with PasBuild
 * link:docs/design.adoc[Design Document] - Architecture and design rationale
-* link:docs/implementation-progress.adoc[Implementation Progress] - Development roadmap
+* link:docs/multi-module-tutorial.adoc[Multi-Module Tutorial] - Building multi-module projects
+* link:docs/dependency-management-design.adoc[Dependency Management Design] - Local repository and dependencies
+* link:docs/remote-dependency-management-design.adoc[Remote Dependency Management Design] - Package registry, fetching and publishing
+* https://github.com/graemeg/pasbuild-registry[PasBuild Central Registry] - The default package registry
 * link:BOOTSTRAP.txt[Bootstrap Instructions] - First-time compilation
 
 == Requirements
 
 * Free Pascal Compiler (FPC) 3.2.2 or later
 * FPC must be in your system PATH
+* OpenSSL (only for fetching remote dependencies and `publish`); on macOS install
+  OpenSSL 3 via Homebrew or MacPorts
 
 == License
 

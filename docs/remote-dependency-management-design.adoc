@@ -1321,6 +1321,19 @@ EPublishError = class(Exception);              // PasBuild.Command.Publish
 
 == Implementation Phasing
 
+.Implementation status (PasBuild 1.10.0)
+[cols="1,1,3"]
+|===
+|Phase |Status |Notes
+
+|0 -- Local repository modernisation |Complete |
+|1 -- Infrastructure |Complete |
+|2 -- Remote fetching |Complete |
+|3 -- Build pipeline |Complete |Verified end-to-end against the live central registry (fpgui-framework 2.1.1, Hello World consumer, clean cache)
+|4 -- Publish goal |Complete |Includes `-m` module selection and `--sha256` override
+|5 -- Forge integration |Partial |GitHub automated; Codeberg/Gitea and SourceHut fall back to manual submission instructions
+|===
+
 === Phase 0: Local Repository Modernisation
 
 Prerequisite for remote resolution. No network operations.
@@ -1382,9 +1395,10 @@ Package submission.
 
 Automated pull request submission.
 
-* GitHub PR automation via REST API
-* Codeberg/Gitea PR automation
-* SourceHut patch generation
+* GitHub PR automation via REST API (implemented)
+* Codeberg/Gitea PR automation (not implemented; forge and token variable are
+  detected, submission falls back to manual instructions)
+* SourceHut patch generation (not implemented; manual instructions)
 
 
 == Future Considerations

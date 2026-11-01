@@ -217,7 +217,7 @@ end.
 
 === Creating a Library Project
 
-Library projects (frameworks, toolkits) don't have a main program. PasBuild automatically generates a bootstrap program to compile all units.
+Library projects (frameworks, toolkits) don't have a main program. PasBuild automatically generates a bootstrap program to compile all units. With FPC the bootstrap program is compiled with `-Cn` (no linking): only the units are needed, so building a library does not require the C libraries its units link against.
 
 **1. Create `project.xml` for a library:**
 
@@ -726,8 +726,8 @@ PasBuild supports cross-project dependency management through a local repository
 cd my-library
 pasbuild install
 
-# [INFO] Installed my-library:1.0.0 [x86_64-linux-3.2.2]
-# [INFO]   -> /home/user/.pasbuild/repository/my-library/1.0.0/x86_64-linux-3.2.2
+# [INFO] Installed my-library:1.0.0 [fpc-x86_64-linux-3.2.2]
+# [INFO]   -> /home/user/.pasbuild/repository/my-library/1.0.0/fpc-x86_64-linux-3.2.2
 ----
 
 **Step 2: Declare the dependency**
@@ -766,6 +766,13 @@ pasbuild compile
 
 PasBuild automatically adds the installed library's units to the compiler's `-Fu` search path. Transitive dependencies (dependencies of dependencies) are resolved automatically through metadata stored in the repository.
 
+Artifacts are stored per compiler target, so units built with FPC and with Blaise
+(or with different compiler versions) can be installed side by side.
+
+NOTE: Artifacts installed by PasBuild 1.9.0 or earlier used a compiler-less path
+(`x86_64-linux-3.2.2`). These are no longer found and must be reinstalled once with
+`pasbuild install`.
+
 **Multi-module install:**
 
 For aggregator projects, `pasbuild install` installs all non-aggregator modules:
@@ -777,6 +784,111 @@ pasbuild install    # Installs framework module, then uidesigner module
 ----
 
 **For detailed dependency management documentation**, see link:dependency-management-design.adoc[Dependency Management Design].
+
+=== Remote Dependencies (Package Registry)
+
+When a dependency is not in the local repository, PasBuild looks it up in a remote
+package registry, downloads the source archive, verifies its SHA-256 checksum, compiles
+it with your compiler and installs it into the local repository. Later builds use the
+local copy, so the network is only used the first time.
+
+The default registry (`central`) is
+https://github.com/graemeg/pasbuild-registry[graemeg/pasbuild-registry]. No
+configuration is needed to use it -- declare the dependency as usual:
+
+[source,xml]
+----
+<dependencies>
+  <dependency>
+    <name>fpgui-framework</name>
+    <version>2.1.1</version>
+  </dependency>
+</dependencies>
+----
+
+[source,shell]
+----
+pasbuild compile
+
+# [INFO] Resolving 1 external dependency...
+# [INFO]   Fetching remote dependency: fpgui-framework:2.1.1
+# [INFO]   Downloading fpgui-framework:2.1.1...
+# [INFO]   Download complete, checksum verified
+# [INFO]   Extracting archive...
+# [INFO]   Project root: ...
+# [INFO]   Compiling fpgui-framework:2.1.1...
+# [INFO]   Installing fpgui-framework:2.1.1...
+# [INFO]   Installed fpgui-framework:2.1.1 successfully
+# [INFO] Dependencies resolved successfully
+----
+
+**How remote packages are built:**
+
+* The package is compiled in a separate `pasbuild` process using its own `project.xml`.
+  Your profiles, defines and compiler options are not applied to it.
+* Dependencies of the package are taken from the registry manifest and resolved first.
+* Downloads must use HTTPS and must match the SHA-256 recorded in the registry.
+* Downloaded archives are cached in `~/.pasbuild/cache/downloads/`.
+* Only the package's units are built; linking against C libraries the package uses
+  (for example FreeType for fpGUI) happens when your application is linked, so add
+  any library search paths (`-Fl...`) to your own project.
+
+**Requirements:** HTTPS support uses OpenSSL. On Linux and BSD the system OpenSSL
+libraries are used; on macOS install OpenSSL 3 via Homebrew or MacPorts.
+
+**Choosing registries.** The registry list is taken from the first source that defines
+one, in this order:
+
+. `<repositories>` in `project.xml`
+. `~/.pasbuild/settings.xml`
+. The `PASBUILD_REGISTRY_URL` environment variable
+. The built-in `central` registry
+
+Registries are checked in declaration order. Each URL must use HTTPS and end in `/`.
+
+[source,xml]
+----
+<!-- project.xml -->
+<repositories>
+  <repository>
+    <id>company-internal</id>
+    <url>https://git.example.com/pasbuild-registry/raw/branch/main/</url>
+  </repository>
+  <repository>
+    <id>central</id>
+    <url>https://raw.githubusercontent.com/graemeg/pasbuild-registry/main/</url>
+  </repository>
+</repositories>
+----
+
+[source,xml]
+----
+<!-- ~/.pasbuild/settings.xml -->
+<?xml version="1.0" encoding="UTF-8"?>
+<settings>
+  <repositories>
+    <repository>
+      <id>central</id>
+      <url>https://raw.githubusercontent.com/graemeg/pasbuild-registry/main/</url>
+    </repository>
+  </repositories>
+  <!-- <offlineMode>true</offlineMode> -->
+  <http>
+    <connectTimeout>30</connectTimeout>  <!-- seconds -->
+    <readTimeout>60</readTimeout>        <!-- seconds -->
+  </http>
+</settings>
+----
+
+**Offline and refetch:**
+
+[source,shell]
+----
+pasbuild compile --offline       # Use the local repository only; never contact a registry
+pasbuild compile --force-fetch   # Download and rebuild remote dependencies even if cached
+----
+
+To share your own library through a registry, see <<publish>>.
 
 === Platform-Specific Code with Conditional Paths
 
@@ -1353,7 +1465,7 @@ pasbuild install
 **What it does:**
 
 . Compiles the project (if not already compiled)
-. Detects the FPC target triplet (e.g., `x86_64-linux-3.2.2`)
+. Detects the compiler target identifier (`<compiler>-<cpu>-<os>-<compilerVersion>`, e.g. `fpc-x86_64-linux-3.2.2`)
 . Creates the repository directory structure
 . Copies all `.ppu` and `.o` files from `target/units/` to the repository
 . Generates `metadata.xml` with artifact identity and dependency information
@@ -1369,8 +1481,8 @@ pasbuild install
 # [INFO] Installing to local repository...
 # [INFO] Found 5 unit(s) and 6 object file(s)
 # [INFO] Copied unit files to repository
-# [INFO] Installed my-library:1.0.0 [x86_64-linux-3.2.2]
-# [INFO]   -> /home/user/.pasbuild/repository/my-library/1.0.0/x86_64-linux-3.2.2
+# [INFO] Installed my-library:1.0.0 [fpc-x86_64-linux-3.2.2]
+# [INFO]   -> /home/user/.pasbuild/repository/my-library/1.0.0/fpc-x86_64-linux-3.2.2
 ----
 
 **Note:** For multi-module aggregator projects, `install` runs on each non-aggregator module in dependency order.
@@ -1502,6 +1614,70 @@ stays with the tool or plugin consuming the data.
   without hardcoding any paths
 * Debugging — inspect exactly which paths and defines PasBuild has resolved before running
   a build
+
+[[publish]]
+=== publish
+
+Generates the registry manifests for a library and submits them to a package registry
+as a pull request.
+
+[source,shell]
+----
+pasbuild publish --archive-url <url> [--registry <id>] [--sha256 <hex>] [--dry-run] [-m <module>]
+----
+
+**Prerequisites:**
+
+* The project is a library (`<projectType>library</projectType>`).
+* `<name>`, `<version>`, `<author>` and `<license>` are set. `<description>`,
+  `<repoUrl>` and `<keywords>` are optional and are copied into the registry listing.
+* The library compiles with its default configuration (no profile), since consumers
+  build it that way.
+
+**Workflow:**
+
+. Run `pasbuild publish --dry-run` (add `-m <module>` for a module). This builds the
+  source archive `target/<name>-<version>-src.zip` and writes draft manifests to
+  `target/publish/`.
+. Upload that archive somewhere stable, for example as a GitHub release asset.
+. Run `pasbuild publish --archive-url <url-of-uploaded-zip>` to submit (add
+  `--dry-run` first to review the final manifests).
+
+Use the archive produced by `publish` itself. For a module, it contains a flattened
+`project.xml` with the inherited `<version>` filled in and `<moduleDependencies>`
+replaced by package dependencies, so it builds without the aggregator. (The archive
+from `pasbuild source-package -m <module>` run in the aggregator keeps the
+multi-module layout and is not suitable for publishing.) Unchanged sources always
+produce a byte-identical archive.
+
+PasBuild downloads the archive from `--archive-url` and records the SHA-256 of those
+exact bytes, so the manifest always matches what consumers will download. If the host
+cannot be reached from your machine, pass the checksum with `--sha256 <hex>`.
+
+**Submission:**
+
+* **GitHub registries** -- set `PASBUILD_GITHUB_TOKEN` (or `GITHUB_TOKEN`) to a token
+  allowed to fork the registry and open pull requests. PasBuild forks the registry (no
+  fork is needed if you own it), creates branch `publish/<name>-<version>`, commits the
+  manifests and opens a pull request.
+* **Other forges, or no token** -- the manifests are written to `target/publish/` with
+  instructions for opening the pull request by hand. Automated submission for
+  Codeberg/Gitea and SourceHut is not yet implemented.
+
+**Multi-module projects:** use `-m <module>` to publish one library module.
+Dependencies on library modules are written to the manifest as dependencies on the
+corresponding published packages, so publish modules in dependency order.
+Dependencies on application modules (for example a code-generation tool) only order
+the reactor build and are left out.
+
+[source,shell]
+----
+cd fpgui
+pasbuild publish -m fpgui-framework --dry-run
+# upload framework/target/fpgui-framework-2.1.1-src.zip to the v2.1.1 release, then:
+pasbuild publish -m fpgui-framework \
+  --archive-url https://github.com/graemeg/fpGUI/releases/download/v2.1.1/fpgui-framework-2.1.1-src.zip
+----
 
 === init
 
@@ -1696,6 +1872,13 @@ If `project.xml` already exists, returns error: `"Project already initialized"`
   <author>Your Name</author>
   <license>BSD-3-Clause</license>
 
+  <!-- Optional: registry listing metadata (used by 'pasbuild publish') -->
+  <description>A short description for registry listings</description>
+  <repoUrl>https://github.com/example/mylibrary</repoUrl>
+  <keywords>
+    <keyword>strings</keyword>
+  </keywords>
+
   <!-- Build Configuration -->
   <build>
     <!-- Library project - no mainSource needed -->
@@ -1769,6 +1952,7 @@ pasbuild install                  # Install to local repository (~/.pasbuild/rep
 pasbuild dependency-tree          # Display dependency graph (no compilation)
 pasbuild resolve                  # Output resolved build configuration as JSON
 pasbuild init                     # Bootstrap new project
+pasbuild publish                  # Submit library manifests to a package registry
 ----
 
 === Options
@@ -1777,8 +1961,17 @@ pasbuild init                     # Bootstrap new project
 ----
 -p <profile[,profile...]>         # Activate build profile(s)
 --profile <profile-id>            # Activate build profile (long form)
+-m <module>, --module <module>    # Build a specific module (multi-module projects)
+--all                             # Build all modules, including activeByDefault=false
 -f <file>, --file <file>          # Use alternate project file (default: project.xml)
 --compiler <path>                 # Use custom Pascal compiler (or set PASBUILD_COMPILER env var)
+--no-incremental                  # Disable incremental compilation (Blaise only)
+--offline                         # Disable remote dependency fetching
+--force-fetch                     # Re-download remote dependencies even if cached
+--archive-url <url>               # Source archive URL (publish)
+--registry <id>                   # Target registry (publish; default: central)
+--sha256 <hex>                    # Archive checksum, skips the download (publish)
+--dry-run                         # Generate manifests without submitting (publish)
 -v, --verbose                     # Show full compiler output
 -h, --help                        # Show help message
 --version                         # Show version information
