@@ -20,6 +20,10 @@ uses
 type
   TBlaiseBackend = class(TCompilerBackend)
   public
+    { The version in 'blaise --help''s first line ("Blaise Compiler
+      v0.16.0-SNAPSHOT" -> '0.16.0-SNAPSHOT').  It names repository
+      artifacts, so a line without a version comes back without spaces. }
+    class function VersionFromBanner(const ALine: string): string;
     function Name: string; override;
     function GetVersion: string; override;
     function GetTargetCPU: string; override;
@@ -63,22 +67,45 @@ begin
   try
     Lines.Text := Output;
     if Lines.Count > 0 then
-      Result := Trim(Lines[0])
+      Result := VersionFromBanner(Lines[0])
     else
-      Result := 'Blaise (unknown version)';
+      Result := 'unknown';
   finally
     Lines.Free;
   end;
 end;
 
+class function TBlaiseBackend.VersionFromBanner(const ALine: string): string;
+var
+  S: string;
+  P, E: Integer;
+begin
+  S := Trim(ALine);
+  { The version follows ' v' and runs to the next space. }
+  P := Pos(' v', S);
+  if (P > 0) and (P + 2 <= Length(S)) and (S[P + 2] in ['0'..'9']) then
+  begin
+    S := Copy(S, P + 2, Length(S));
+    E := Pos(' ', S);
+    if E > 0 then
+      S := Copy(S, 1, E - 1);
+    Result := S;
+  end
+  else
+    Result := StringReplace(S, ' ', '-', [rfReplaceAll]);
+end;
+
+{ Blaise compiles for the machine it runs on (PasBuild passes no
+  --target), which is the machine PasBuild runs on.  The names are FPC's,
+  as the FPC backend reports them. }
 function TBlaiseBackend.GetTargetCPU: string;
 begin
-  Result := 'x86_64';
+  Result := LowerCase({$I %FPCTARGETCPU%});
 end;
 
 function TBlaiseBackend.GetTargetOS: string;
 begin
-  Result := 'linux';
+  Result := LowerCase({$I %FPCTARGETOS%});
 end;
 
 function TBlaiseBackend.BaseCommand: string;
