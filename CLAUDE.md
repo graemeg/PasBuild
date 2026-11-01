@@ -10,7 +10,7 @@ convention-over-configuration with a goal-based lifecycle.
 - **Testing**: FPCUnit (`fpcunit`, `testregistry`, `consoletestrunner`)
 - **License**: BSD-3-Clause
 - **Author**: Graeme Geldenhuys
-- **Current version**: 1.10.0-SNAPSHOT (targeting v1.10.0 release)
+- **Current version**: 1.11.0-SNAPSHOT (v1.10.0 released 2026-11-01)
 
 ---
 
@@ -211,7 +211,7 @@ Child modules inherit `<version>` from the aggregator's `project.xml` when not e
 
 ## Known State (as of 2026-11)
 
-- Version: 1.10.0-SNAPSHOT (v1.9.0 released 2026-06-15)
+- Version: 1.11.0-SNAPSHOT (v1.10.0 released 2026-11-01)
 - Multi-module support, local dependency management and Maven-style reactor output complete
 - Blaise compiler support with incremental compilation (`--unit-cache`)
 - Remote dependency management implemented (design: `docs/remote-dependency-management-design.adoc`):
