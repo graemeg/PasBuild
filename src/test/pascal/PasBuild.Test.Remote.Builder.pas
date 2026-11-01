@@ -52,6 +52,7 @@ type
   published
     procedure TestExtractZipCreatesFiles;
     procedure TestExtractZipWithSubdirectory;
+    procedure TestExtractedFilesAreReadable;
   end;
 
   TTestBuildCacheFilename = class(TTestCase)
@@ -349,6 +350,34 @@ begin
 
   AssertTrue('project.xml extracted in subdir',
     FileExists(IncludeTrailingPathDelimiter(ExtractDir) +
+      'mylib' + DirectorySeparator + 'project.xml'));
+end;
+
+procedure TTestCreateArchive.TestExtractedFilesAreReadable;
+var
+  ZipPath, ExtractDir: string;
+  Lines: TStringList;
+begin
+  // FPC 3.2.2's TUnZipper extracts entries written on macOS (creator OS
+  // "osx") with mode 000; the consumer's compile would then fail with
+  // "Permission denied" on every source file
+  ZipPath := IncludeTrailingPathDelimiter(FTempDir) + 'test3.zip';
+  ExtractDir := IncludeTrailingPathDelimiter(FTempDir) + 'extracted3';
+  ForceDirectories(ExtractDir);
+
+  CreateTestZip(ZipPath, ['mylib/project.xml', 'mylib/src/Main.pas']);
+
+  TRemoteBuilder.ExtractArchive(ZipPath, ExtractDir);
+
+  Lines := TStringList.Create;
+  try
+    Lines.LoadFromFile(IncludeTrailingPathDelimiter(ExtractDir) +
+      'mylib' + DirectorySeparator + 'src' + DirectorySeparator + 'Main.pas');
+  finally
+    Lines.Free;
+  end;
+  AssertFalse('Extracted file is writable by owner',
+    FileIsReadOnly(IncludeTrailingPathDelimiter(ExtractDir) +
       'mylib' + DirectorySeparator + 'project.xml'));
 end;
 

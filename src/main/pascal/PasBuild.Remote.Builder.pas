@@ -45,6 +45,7 @@ implementation
 
 uses
   Zipper,
+  {$IFDEF UNIX}BaseUnix,{$ENDIF}
   PasBuild.Utils,
   PasBuild.Remote,
   PasBuild.Crypto.SHA256;
@@ -132,6 +133,41 @@ begin
   Result := False;
 end;
 
+{ FPC 3.2.2's TUnZipper applies Unix permissions only for entries whose
+  creator OS is Unix; entries written on macOS ("osx") extract as mode 000,
+  leaving every source file unreadable. Source archives never need special
+  bits (remote builds execute nothing from the archive), so normalise the
+  whole tree to 0644 files / 0755 directories. }
+procedure NormaliseExtractedPermissions(const ADir: string);
+{$IFDEF UNIX}
+var
+  SearchRec: TSearchRec;
+  Path: string;
+begin
+  FpChmod(ADir, &755);
+  if FindFirst(IncludeTrailingPathDelimiter(ADir) + '*', faAnyFile, SearchRec) = 0 then
+  try
+    repeat
+      if (SearchRec.Name = '.') or (SearchRec.Name = '..') then
+        Continue;
+      Path := IncludeTrailingPathDelimiter(ADir) + SearchRec.Name;
+      if (SearchRec.Attr and faSymLink) <> 0 then
+        Continue;
+      if (SearchRec.Attr and faDirectory) <> 0 then
+        NormaliseExtractedPermissions(Path)
+      else
+        FpChmod(Path, &644);
+    until FindNext(SearchRec) <> 0;
+  finally
+    FindClose(SearchRec);
+  end;
+end;
+{$ELSE}
+begin
+  // Windows has no Unix mode bits; nothing to normalise
+end;
+{$ENDIF}
+
 class procedure TRemoteBuilder.ExtractArchive(const AZipPath, ADestDir: string);
 var
   Unzip: TUnZipper;
@@ -158,6 +194,7 @@ begin
   finally
     Unzip.Free;
   end;
+  NormaliseExtractedPermissions(ADestDir);
 end;
 
 class function TRemoteBuilder.DetectProjectRoot(
