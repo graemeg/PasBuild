@@ -30,6 +30,7 @@ type
     procedure TestReturnsEmptyWhenNoParentAggregator;
     procedure TestReturnsEmptyWhenAlreadyAtRoot;
     procedure TestReturnsEmptyForNonexistentDirectory;
+    procedure TestIgnoresAggregatorThatDoesNotListTheDirectory;
   end;
 
   { Test FindModuleByDirName — resolves directory name to module name }
@@ -105,6 +106,17 @@ var
 begin
   Root := TConfigLoader.FindProjectRoot(GetFixturePath('nonexistent-directory'));
   AssertEquals('Should return empty for nonexistent directory', '', Root);
+end;
+
+procedure TTestFindProjectRoot.TestIgnoresAggregatorThatDoesNotListTheDirectory;
+var
+  Root: string;
+begin
+  { find-root/examples/standalone is a project of its own inside the
+    aggregator's directory, not one of its modules: building it must not
+    switch to the aggregator. }
+  Root := TConfigLoader.FindProjectRoot(GetFixturePath('find-root/examples/standalone'));
+  AssertEquals('A directory the aggregator does not list stays put', '', Root);
 end;
 
 { TTestFindModuleByDirName }

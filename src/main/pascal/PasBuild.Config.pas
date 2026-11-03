@@ -687,17 +687,24 @@ begin
 end;
 
 class function TConfigLoader.FindProjectRoot(const AStartDir: string): string;
+{ The outermost aggregator that builds AStartDir: walking up, an aggregator
+  counts only when one of its <modules> is the directory reached so far
+  (AStartDir, or an aggregator already found), so a project that merely
+  sits inside another's directory tree (an example, a test fixture) is
+  built on its own. }
 var
-  Dir, ParentDir, ProjectFile: string;
+  Dir, ParentDir, ProjectFile, Head, ModuleDir: string;
   Doc: TXMLDocument;
-  RootNode, BuildNode, PackagingNode: TDOMNode;
+  RootNode, BuildNode, PackagingNode, ModulesNode, ModuleNode: TDOMNode;
   Packaging: string;
+  Listed: Boolean;
 begin
   Result := '';
   Dir := ExcludeTrailingPathDelimiter(ExpandFileName(AStartDir));
 
   if not DirectoryExists(Dir) then
     Exit;
+  Head := Dir;
 
   repeat
     ParentDir := ExcludeTrailingPathDelimiter(ExtractFilePath(Dir));
@@ -725,8 +732,31 @@ begin
             Packaging := Trim(PackagingNode.TextContent);
         end;
 
-        if SameText(Packaging, 'pom') then
-          Result := Dir;
+        if not SameText(Packaging, 'pom') then
+          Continue;
+
+        Listed := False;
+        ModulesNode := RootNode.FindNode('modules');
+        if Assigned(ModulesNode) then
+        begin
+          ModuleNode := ModulesNode.FirstChild;
+          while Assigned(ModuleNode) and not Listed do
+          begin
+            if ModuleNode.NodeName = 'module' then
+            begin
+              ModuleDir := ExcludeTrailingPathDelimiter(ExpandFileName(
+                IncludeTrailingPathDelimiter(Dir) + Trim(ModuleNode.TextContent)));
+              Listed := SameText(ModuleDir, Head);
+            end;
+            ModuleNode := ModuleNode.NextSibling;
+          end;
+        end;
+        { An aggregator that does not build what we have so far ends the
+          walk: anything above it is unrelated too. }
+        if not Listed then
+          Break;
+        Result := Dir;
+        Head := Dir;
       finally
         Doc.Free;
       end;
@@ -735,5 +765,6 @@ begin
     end;
   until False;
 end;
+
 
 end.
