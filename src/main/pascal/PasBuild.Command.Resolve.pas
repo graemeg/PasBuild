@@ -174,6 +174,13 @@ begin
   for I := 0 to AConfig.BuildConfig.ResolvedModulePaths.Count - 1 do
     Result.Add(TUtils.NormalizePath(AConfig.BuildConfig.ResolvedModulePaths[I]));
 
+  { And, as the compile does, their source directories for a backend that
+    compiles dependencies from source (after the units, so cached units
+    are found first) }
+  if TUtils.GetCompilerBackend.CompilesDependenciesFromSource then
+    for I := 0 to AConfig.BuildConfig.ResolvedModuleSourcePaths.Count - 1 do
+      Result.Add(TUtils.NormalizePath(AConfig.BuildConfig.ResolvedModuleSourcePaths[I]));
+
   { Add unit output directory }
   Result.Add(TUtils.NormalizePath(
     AConfig.BuildConfig.OutputDirectory + DirectorySeparator + 'units'));

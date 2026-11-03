@@ -19,9 +19,18 @@ uses
   PasBuild.Types,
   PasBuild.Command,
   PasBuild.Command.Resolve,
-  PasBuild.Repository;
+  PasBuild.Repository,
+  PasBuild.Utils,
+  PasBuild.Compiler.FPC,
+  PasBuild.Compiler.Blaise;
 
 type
+  { A Blaise backend that needs no compiler binary. }
+  TResolveFakeBlaise = class(TBlaiseBackend)
+  public
+    function GetVersion: string; override;
+  end;
+
   { TTestableResolveCommand - Exposes JSON output for test assertions }
   TTestableResolveCommand = class(TResolveCommand)
   public
@@ -37,6 +46,8 @@ type
     procedure TestSingleModuleWithProfiles;
     procedure TestSingleModuleWithDefines;
     procedure TestSingleModuleWithUnitPaths;
+    procedure TestBlaiseUnitPathsIncludeDependencySources;
+    procedure TestFPCUnitPathsLeaveDependencySourcesOut;
     procedure TestAutoScanModeOutOfTreeUnitPath;
     procedure TestSingleModuleWithExternalDeps;
     procedure TestSingleModuleOutputSection;
@@ -68,9 +79,6 @@ type
 
 
 implementation
-
-uses
-  PasBuild.Utils;
 
 { TTestableResolveCommand }
 
@@ -312,6 +320,83 @@ begin
     end;
   finally
     Config.Free;
+  end;
+end;
+
+function TResolveFakeBlaise.GetVersion: string;
+begin
+  Result := '0.16.0';
+end;
+
+function ResolveWithModuleSources(out ACommandLine: string): TStringList;
+var
+  Config: TProjectConfig;
+  Command: TTestableResolveCommand;
+  JSON: TJSONObject;
+  UnitArr: TJSONArray;
+  I: Integer;
+begin
+  Result := TStringList.Create;
+  Config := TProjectConfig.Create;
+  try
+    Config.Name := 'test-app';
+    Config.BuildConfig.ProjectType := ptApplication;
+    Config.BuildConfig.ManualUnitPaths := True;
+    Config.BuildConfig.UnitPaths.Add(TConditionalPath.Create('src/main/pascal'));
+    Config.BuildConfig.ResolvedModulePaths.Add('/dep/target/units');
+    Config.BuildConfig.ResolvedModuleSourcePaths.Add('/dep/src/main/pascal');
+    Command := TTestableResolveCommand.Create(Config, nil);
+    try
+      JSON := Command.BuildJSON;
+      try
+        UnitArr := JSON.Arrays['unitPaths'];
+        for I := 0 to UnitArr.Count - 1 do
+          Result.Add(UnitArr.Strings[I]);
+        ACommandLine := JSON.Objects['compiler'].Strings['commandLine'];
+      finally
+        JSON.Free;
+      end;
+    finally
+      Command.Free;
+    end;
+  finally
+    Config.Free;
+  end;
+end;
+
+procedure TTestResolveCommandSingle.TestBlaiseUnitPathsIncludeDependencySources;
+var
+  Paths: TStringList;
+  CmdLine: string;
+begin
+  { Blaise compiles dependencies from source, so the compile puts their
+    source directories on the unit path; resolve reports the same path. }
+  TUtils.SetCompilerBackend(TResolveFakeBlaise.Create('blaise'));
+  try
+    Paths := ResolveWithModuleSources(CmdLine);
+    try
+      AssertTrue('the units first', Paths.IndexOf('/dep/target/units') >= 0);
+      AssertTrue('then the sources', Paths.IndexOf('/dep/src/main/pascal') > Paths.IndexOf('/dep/target/units'));
+      AssertTrue('in the command line too', Pos('/dep/src/main/pascal', CmdLine) > 0);
+    finally
+      Paths.Free;
+    end;
+  finally
+    TUtils.SetCompilerBackend(TFPCBackend.Create('fpc'));
+  end;
+end;
+
+procedure TTestResolveCommandSingle.TestFPCUnitPathsLeaveDependencySourcesOut;
+var
+  Paths: TStringList;
+  CmdLine: string;
+begin
+  TUtils.SetCompilerBackend(TFPCBackend.Create('fpc'));
+  Paths := ResolveWithModuleSources(CmdLine);
+  try
+    AssertTrue(Paths.IndexOf('/dep/src/main/pascal') < 0);
+  finally
+    Paths.Free;
   end;
 end;
 
