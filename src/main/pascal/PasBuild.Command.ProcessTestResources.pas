@@ -58,10 +58,10 @@ end;
 
 function TProcessTestResourcesCommand.ApplyFiltering(const AContent: string): string;
 var
-  Now: TDateTime;
+  BuildDateTime: TDateTime;
 begin
   Result := AContent;
-  Now := SysUtils.Now;
+  BuildDateTime := TUtils.GetBuildDateTime();
 
   // Replace project variables
   Result := StringReplace(Result, '${project.name}', Config.Name, [rfReplaceAll]);
@@ -70,9 +70,9 @@ begin
   Result := StringReplace(Result, '${project.license}', Config.License, [rfReplaceAll]);
 
   // Replace build-time variables (ISO-8601 format)
-  Result := StringReplace(Result, '${build.date}', FormatDateTime('yyyy-mm-dd', Now), [rfReplaceAll]);
-  Result := StringReplace(Result, '${build.time}', FormatDateTime('hh:nn:ss', Now), [rfReplaceAll]);
-  Result := StringReplace(Result, '${build.timestamp}', FormatDateTime('yyyy-mm-dd''T''hh:nn:ss', Now), [rfReplaceAll]);
+  Result := StringReplace(Result, '${build.date}', FormatDateTime('yyyy-mm-dd', BuildDateTime), [rfReplaceAll]);
+  Result := StringReplace(Result, '${build.time}', FormatDateTime('hh:nn:ss', BuildDateTime), [rfReplaceAll]);
+  Result := StringReplace(Result, '${build.timestamp}', FormatDateTime('yyyy-mm-dd''T''hh:nn:ss', BuildDateTime), [rfReplaceAll]);
 end;
 
 function TProcessTestResourcesCommand.ProcessFile(const ASourceFile, ARelativePath: string): Boolean;
